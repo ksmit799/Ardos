@@ -1,0 +1,3 @@
+[submodule "libs/uvw"]
+	path = libs/uvw
+	url = https://github.com/skypjack/uvw/
