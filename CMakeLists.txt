@@ -32,6 +32,9 @@ include_directories(${LIBBSONCXX_INCLUDE_DIR})
 add_subdirectory(libs/AMQP-CPP)
 include_directories(libs/AMQP-CPP/include)
 
+# Include DC (Distributed Class) parser.
+include_directories(libs/dclass)
+
 # Optimize windows build.
 if (WIN32)
     add_definitions(-DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS)
