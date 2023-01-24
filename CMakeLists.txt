@@ -32,9 +32,6 @@ include_directories(${LIBBSONCXX_INCLUDE_DIR})
 add_subdirectory(libs/AMQP-CPP)
 include_directories(libs/AMQP-CPP/include)
 
-# Include DC (Distributed Class) parser.
-include_directories(libs/dclass)
-
 # Optimize windows build.
 if (WIN32)
     add_definitions(-DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS)
@@ -46,5 +43,9 @@ file(GLOB_RECURSE ARDOS_SOURCES "${PROJECT_SOURCE_DIR}/src/*.cpp" "${PROJECT_SOU
 file(GLOB_RECURSE ARDOS_HEADERS "${PROJECT_SOURCE_DIR}/src/*.h")
 
 add_executable(ardos ${ARDOS_SOURCES} ${ARDOS_HEADERS})
+
+# Include DC (Distributed Class) parser.
+add_subdirectory(libs/dclass)
+include_directories(libs/dclass)
 
 target_link_libraries(ardos PRIVATE uv yaml-cpp ${LIBMONGOCXX_LIBRARIES} ${LIBBSONCXX_LIBRARIES} amqpcpp)
