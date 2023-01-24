@@ -37,4 +37,12 @@ YAML::Node Config::GetNode(const std::string &key) {
   return _config[key];
 }
 
+bool Config::GetBool(const std::string &key, const bool &defVal) {
+  if (auto param = _config[key]) {
+    return param.as<bool>();
+  }
+
+  return defVal;
+}
+
 } // namespace Ardos

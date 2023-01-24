@@ -1,3 +1,6 @@
+#include "clientagent/client_agent.h"
+#include "database/database.h"
+#include "stateserver/state_server.h"
 #include "util/config.h"
 #include "util/globals.h"
 #include "util/logger.h"
@@ -29,10 +32,9 @@ int main(int argc, char *argv[]) {
 
   auto dcNames = dcList.as<std::vector<std::string>>();
   for (auto dcName : dcNames) {
-    if (g_dc_file->read(dcName)) {
-      Logger::Verbose(std::format("Read DC file `{}`...", dcName));
-    } else {
-      // Just die if we can't read a DC file, they're very important to have loaded correctly.
+    if (!g_dc_file->read(dcName)) {
+      // Just die if we can't read a DC file, they're very important to have
+      // loaded correctly.
       Logger::Error(std::format("Failed to read DC file `{}`!", dcName));
       return EXIT_FAILURE;
     }
@@ -43,6 +45,19 @@ int main(int argc, char *argv[]) {
   // Setup main event loop.
   g_main_thread_id = std::this_thread::get_id();
   g_loop = uvw::Loop::getDefault();
+
+  // Startup configured roles.
+  if (Config::Instance()->GetBool("want-state-server")) {
+    new StateServer();
+  }
+
+  if (Config::Instance()->GetBool("want-client-agent")) {
+    new ClientAgent();
+  }
+
+  if (Config::Instance()->GetBool("want-database")) {
+    new Database();
+  }
 
   g_loop->run();
 

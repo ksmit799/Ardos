@@ -13,6 +13,7 @@ public:
 
   std::string GetString(const std::string &key, const std::string &defVal = "");
   YAML::Node GetNode(const std::string &key);
+  bool GetBool(const std::string &key, const bool &defVal = false);
 
 protected:
   Config() = default;
