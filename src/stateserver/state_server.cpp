@@ -19,7 +19,7 @@ StateServer::StateServer() {
     host = hostParam.as<std::string>();
   }
 
-  int port = 4242;
+  int port = 7100;
   if (auto portParam = config["port"]) {
     port = portParam.as<int>();
   }
@@ -28,6 +28,10 @@ StateServer::StateServer() {
   _tcpHandle->on<uvw::ListenEvent>([this](const uvw::ListenEvent &, uvw::TCPHandle &srv) {
     std::shared_ptr<uvw::TCPHandle> client = srv.loop().resource<uvw::TCPHandle>();
     srv.accept(*client);
+
+    // Create a new client for this connected game server.
+    auto stateClient = std::make_unique<StateClient>(client);
+    _clients.push_back(std::move(stateClient));
   });
 
   // Start listening!
