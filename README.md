@@ -20,4 +20,4 @@ See this [tutorial.](https://www.mongodb.com/developer/products/mongodb/getting-
 - [MMO 101 - Building Disney's Server](http://twvideo01.ubm-us.net/o1/vault/gdconline10/slides/11516-MMO_101_Building_Disneys_Sever.pdf)
 
 ### Other Documentation
-[Building a MMG for the Millions - Disney's Toontown](http://dl.acm.org/citation.cfm?id=950566.950589)
+- [Building a MMG for the Millions - Disney's Toontown](http://dl.acm.org/citation.cfm?id=950566.950589)
