@@ -38,7 +38,7 @@ StateServer::StateServer() {
   _tcpHandle->bind(host, port);
   _tcpHandle->listen();
 
-  Logger::Info(std::format("State Server listening on {}:{}", host, port));
+  Logger::Info(std::format("[SS] Listening on {}:{}", host, port));
 }
 
 } // namespace Ardos

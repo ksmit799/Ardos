@@ -1,5 +1,6 @@
 #include "clientagent/client_agent.h"
 #include "database/database.h"
+#include "messagedirector/message_director.h"
 #include "stateserver/state_server.h"
 #include "util/config.h"
 #include "util/globals.h"
@@ -45,6 +46,9 @@ int main(int argc, char *argv[]) {
   // Setup main event loop.
   g_main_thread_id = std::this_thread::get_id();
   g_loop = uvw::Loop::getDefault();
+
+  // Initialize Message Director.
+  MessageDirector::Instance();
 
   // Startup configured roles.
   if (Config::Instance()->GetBool("want-state-server")) {
