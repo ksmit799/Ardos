@@ -3,9 +3,7 @@
 
 #include <memory>
 
-#include <uvw.hpp>
-
-#include "state_client.h"
+#include <amqpcpp.h>
 
 namespace Ardos {
 
@@ -14,8 +12,7 @@ public:
   StateServer();
 
 private:
-  std::shared_ptr<uvw::TCPHandle> _tcpHandle;
-  std::vector<std::unique_ptr<StateClient>> _clients;
+  AMQP::Channel *_channel;
 };
 
 } // namespace Ardos

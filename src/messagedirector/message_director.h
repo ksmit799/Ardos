@@ -10,6 +10,8 @@ class MessageDirector : public AMQP::ConnectionHandler {
 public:
   static MessageDirector *Instance();
 
+  AMQP::Connection *GetConnection();
+
   void onData(AMQP::Connection *connection, const char *buffer,
               size_t size) override;
   void onReady(AMQP::Connection *connection) override;
@@ -21,8 +23,12 @@ private:
 
   static MessageDirector *_instance;
 
-  std::shared_ptr<uvw::TCPHandle> _tcpHandle;
+  std::shared_ptr<uvw::TCPHandle> _connectHandle;
+  std::shared_ptr<uvw::TCPHandle> _listenHandle;
   AMQP::Connection *_connection;
+
+  std::string _host = "127.0.0.1";
+  int _port = 7100;
 };
 
 } // namespace Ardos

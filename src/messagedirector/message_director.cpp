@@ -1,8 +1,12 @@
 #include "message_director.h"
 
+#include "../clientagent/client_agent.h"
+#include "../database/database.h"
+#include "../stateserver/state_server.h"
 #include "../util/config.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
+#include "md_participant.h"
 
 namespace Ardos {
 
@@ -19,33 +23,50 @@ MessageDirector *MessageDirector::Instance() {
 MessageDirector::MessageDirector() {
   Logger::Info("Starting Message Director component...");
 
-  _tcpHandle = g_loop->resource<uvw::TCPHandle>();
+  _connectHandle = g_loop->resource<uvw::TCPHandle>();
+  _listenHandle = g_loop->resource<uvw::TCPHandle>();
 
-  // Network configuration.
   auto config = Config::Instance()->GetNode("message-director");
 
-  std::string host = "127.0.0.1";
+  // Listen configuration.
+  if (auto hostParam = config["host"]) {
+    _host = hostParam.as<std::string>();
+  }
+  if (auto portParam = config["port"]) {
+    _port = portParam.as<int>();
+  }
+
+  // RabbitMQ configuration.
+  std::string rHost = "127.0.0.1";
   if (auto hostParam = config["rabbitmq-host"]) {
-    host = hostParam.as<std::string>();
+    rHost = hostParam.as<std::string>();
   }
-
-  int port = 5672;
+  int rPort = 5672;
   if (auto portParam = config["rabbitmq-port"]) {
-    port = portParam.as<int>();
+    rPort = portParam.as<int>();
   }
-
   std::string user = "guest";
   if (auto userParam = config["rabbitmq-user"]) {
     user = userParam.as<std::string>();
   }
-
   std::string password = "guest";
   if (auto passParam = config["rabbitmq-password"]) {
     password = passParam.as<std::string>();
   }
 
   // Socket events.
-  _tcpHandle->once<uvw::ErrorEvent>(
+  _listenHandle->on<uvw::ListenEvent>(
+      [](const uvw::ListenEvent &, uvw::TCPHandle &srv) {
+        std::shared_ptr<uvw::TCPHandle> client =
+            srv.loop().resource<uvw::TCPHandle>();
+        srv.accept(*client);
+
+        // Create a new client for this connected participant.
+        // TODO: These should be tracked in a vector.
+        new MDParticipant(client);
+      });
+
+  _connectHandle->once<uvw::ErrorEvent>(
       [](const uvw::ErrorEvent &event, uvw::TCPHandle &) {
         // Just die on error, the message director always needs a connection to
         // RabbitMQ.
@@ -53,23 +74,30 @@ MessageDirector::MessageDirector() {
         exit(1);
       });
 
-  _tcpHandle->once<uvw::ConnectEvent>(
-      [this, &user, &password](const uvw::ConnectEvent &, uvw::TCPHandle &tcp) {
+  _connectHandle->once<uvw::ConnectEvent>(
+      [this, user, password](const uvw::ConnectEvent &, uvw::TCPHandle &tcp) {
         // Authenticate with the RabbitMQ cluster.
         _connection =
             new AMQP::Connection(this, AMQP::Login(user, password), "/");
         // Start reading from the socket.
-        _tcpHandle->read();
+        _connectHandle->read();
       });
 
-  _tcpHandle->on<uvw::DataEvent>(
+  _connectHandle->on<uvw::DataEvent>(
       [this](const uvw::DataEvent &event, uvw::TCPHandle &) {
         _connection->parse(event.data.get(), event.length);
       });
 
-  // Connect!
-  _tcpHandle->connect(host, port);
+  // Start connecting/listening!
+  _listenHandle->bind(_host, _port);
+  _connectHandle->connect(rHost, rPort);
 }
+
+/**
+ * Returns the underlying AMQP connection.
+ * @return
+ */
+AMQP::Connection *MessageDirector::GetConnection() { return _connection; }
 
 /**
  *  Method that is called by AMQP-CPP when data has to be sent over the
@@ -86,7 +114,7 @@ MessageDirector::MessageDirector() {
  */
 void MessageDirector::onData(AMQP::Connection *connection, const char *buffer,
                              size_t size) {
-  _tcpHandle->write((char *)buffer, size);
+  _connectHandle->write((char *)buffer, size);
 }
 
 /**
@@ -97,7 +125,26 @@ void MessageDirector::onData(AMQP::Connection *connection, const char *buffer,
  *  @param  connection      The connection that can now be used
  */
 void MessageDirector::onReady(AMQP::Connection *connection) {
-  Logger::Info("[MD] Connected to RabbitMQ");
+  // TODO: We should probably have a callback for role startup to happen in
+  // main.
+
+  // Startup configured roles.
+  if (Config::Instance()->GetBool("want-state-server")) {
+    new StateServer();
+  }
+
+  if (Config::Instance()->GetBool("want-client-agent")) {
+    new ClientAgent();
+  }
+
+  if (Config::Instance()->GetBool("want-database")) {
+    new Database();
+  }
+
+  // Start listening for incoming connections.
+  _listenHandle->listen();
+
+  Logger::Info(std::format("[MD] Listening on {}:{}", _host, _port));
 }
 
 /**
@@ -131,7 +178,8 @@ void MessageDirector::onError(AMQP::Connection *connection,
  * unusable
  */
 void MessageDirector::onClosed(AMQP::Connection *connection) {
-  _tcpHandle->close();
+  _connectHandle->close();
+  _listenHandle->close();
 }
 
 } // namespace Ardos
