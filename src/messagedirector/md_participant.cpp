@@ -1,5 +1,7 @@
 #include "md_participant.h"
 
+#include "../net/datagram_iterator.h"
+#include "../net/message_types.h"
 #include "../util/logger.h"
 
 namespace Ardos {
@@ -74,6 +76,42 @@ void MDParticipant::HandleDisconnect(uv_errno_t code) {
   Shutdown();
 }
 
-void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {}
+void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
+  DatagramIterator dgi(dg);
+  try {
+    // Is this a control message?
+    uint16_t channels = dgi.GetUint16();
+    if (channels == 1 && dgi.GetUint64() == CONTROL_MESSAGE) {
+      uint16_t msgType = dgi.GetUint16();
+      switch (msgType) {
+      case CONTROL_ADD_CHANNEL:
+        break;
+      case CONTROL_REMOVE_CHANNEL:
+        break;
+      case CONTROL_ADD_RANGE:
+        break;
+      case CONTROL_REMOVE_RANGE:
+        break;
+      case CONTROL_ADD_POST_REMOVE:
+        break;
+      case CONTROL_CLEAR_POST_REMOVES:
+        break;
+      case CONTROL_SET_CON_NAME:
+        _connName = dgi.GetString();
+      default:
+        Logger::Error(std::format(
+            "[MD] Participant '{}' received unknown control message: {}",
+            _connName, msgType));
+      }
+
+      // We've handled their control message, no need to route through MD.
+      return;
+    }
+  } catch (const DatagramIteratorEOF &) {
+    Logger::Error(std::format(
+        "[MD] Participant '{}' received a truncated datagram!", _connName));
+    Shutdown();
+  }
+}
 
 } // namespace Ardos
