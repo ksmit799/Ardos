@@ -149,6 +149,14 @@ std::vector<uint8_t> DatagramIterator::GetBlob() {
   return blob;
 }
 
+/**
+ * Sets the current read offset (in bytes).
+ * @param offset
+ */
+void DatagramIterator::Seek(const size_t &offset) {
+  _offset = offset;
+}
+
 void DatagramIterator::EnsureLength(const size_t &length) {
   // Make sure we don't overflow reading.
   size_t newOffset = _offset + length;

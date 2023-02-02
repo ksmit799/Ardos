@@ -50,6 +50,8 @@ public:
   std::string GetString();
   std::vector<uint8_t> GetBlob();
 
+  void Seek(const size_t &offset);
+
 private:
   void EnsureLength(const size_t &length);
 

@@ -6,11 +6,15 @@
 
 namespace Ardos {
 
+const std::string kGlobalExchange = "global-exchange";
+
 class MessageDirector : public AMQP::ConnectionHandler {
 public:
   static MessageDirector *Instance();
 
   AMQP::Connection *GetConnection();
+  AMQP::Channel *GetGlobalChannel();
+  std::string GetLocalQueue();
 
   void onData(AMQP::Connection *connection, const char *buffer,
               size_t size) override;
@@ -26,6 +30,8 @@ private:
   std::shared_ptr<uvw::TCPHandle> _connectHandle;
   std::shared_ptr<uvw::TCPHandle> _listenHandle;
   AMQP::Connection *_connection;
+  AMQP::Channel *_globalChannel{};
+  std::string _localQueue;
 
   std::string _host = "127.0.0.1";
   int _port = 7100;

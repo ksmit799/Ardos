@@ -3,6 +3,7 @@
 #include "../net/datagram_iterator.h"
 #include "../net/message_types.h"
 #include "../util/logger.h"
+#include "message_director.h"
 
 namespace Ardos {
 
@@ -80,7 +81,7 @@ void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
   DatagramIterator dgi(dg);
   try {
     // Is this a control message?
-    uint16_t channels = dgi.GetUint16();
+    uint8_t channels = dgi.GetUint8();
     if (channels == 1 && dgi.GetUint64() == CONTROL_MESSAGE) {
       uint16_t msgType = dgi.GetUint16();
       switch (msgType) {
@@ -106,6 +107,15 @@ void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
 
       // We've handled their control message, no need to route through MD.
       return;
+    }
+
+    // This wasn't a control message, route it through the message director.
+    dgi.Seek(1); // Seek just before channels.
+    for (uint8_t i = 0; i < channels; ++i) {
+      uint64_t channel = dgi.GetUint64();
+      MessageDirector::Instance()->GetGlobalChannel()->publish(
+          kGlobalExchange, std::to_string(channel),
+          reinterpret_cast<const char *>(dg->GetData()));
     }
   } catch (const DatagramIteratorEOF &) {
     Logger::Error(std::format(

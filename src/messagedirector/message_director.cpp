@@ -100,6 +100,18 @@ MessageDirector::MessageDirector() {
 AMQP::Connection *MessageDirector::GetConnection() { return _connection; }
 
 /**
+ * Returns the "global" channel used for routing messages.
+ * @return
+ */
+AMQP::Channel *MessageDirector::GetGlobalChannel() { return _globalChannel; }
+
+/**
+ * Returns the local messaging queue for this message director.
+ * @return
+ */
+std::string MessageDirector::GetLocalQueue() { return _localQueue; }
+
+/**
  *  Method that is called by AMQP-CPP when data has to be sent over the
  *  network. You must implement this method and send the data over a
  *  socket that is connected with RabbitMQ.
@@ -125,26 +137,53 @@ void MessageDirector::onData(AMQP::Connection *connection, const char *buffer,
  *  @param  connection      The connection that can now be used
  */
 void MessageDirector::onReady(AMQP::Connection *connection) {
-  // TODO: We should probably have a callback for role startup to happen in
-  // main.
+  // Create our "global" exchange.
+  _globalChannel = new AMQP::Channel(_connection);
+  _globalChannel->declareExchange(kGlobalExchange, AMQP::direct)
+      .onSuccess([this]() {
+        // Create our local queue.
+        // This queue is specific to this process, and will be automatically
+        // deleted once it goes offline.
+        _globalChannel->declareQueue(AMQP::exclusive)
+            .onSuccess([this](const std::string &name, int msgCount,
+                              int consumerCount) {
+              _localQueue = name;
 
-  // Startup configured roles.
-  if (Config::Instance()->GetBool("want-state-server")) {
-    new StateServer();
-  }
+              // TODO: We should probably have a callback for role startup to
+              // happen in main.
 
-  if (Config::Instance()->GetBool("want-client-agent")) {
-    new ClientAgent();
-  }
+              // Startup configured roles.
+              if (Config::Instance()->GetBool("want-state-server")) {
+                new StateServer();
+              }
 
-  if (Config::Instance()->GetBool("want-database")) {
-    new Database();
-  }
+              if (Config::Instance()->GetBool("want-client-agent")) {
+                new ClientAgent();
+              }
 
-  // Start listening for incoming connections.
-  _listenHandle->listen();
+              if (Config::Instance()->GetBool("want-database")) {
+                new Database();
+              }
 
-  Logger::Info(std::format("[MD] Listening on {}:{}", _host, _port));
+              // Start listening for incoming connections.
+              _listenHandle->listen();
+
+              Logger::Verbose(std::format("[MD] Local Queue: {}", _localQueue));
+
+              Logger::Info(
+                  std::format("[MD] Listening on {}:{}", _host, _port));
+            })
+            .onError([](const char *message) {
+              Logger::Error(std::format(
+                  "[MD] Failed to declare local queue: {}", message));
+              exit(1);
+            });
+      })
+      .onError([](const char *message) {
+        Logger::Error(
+            std::format("[MD] Failed to declare global exchange: {}", message));
+        exit(1);
+      });
 }
 
 /**
