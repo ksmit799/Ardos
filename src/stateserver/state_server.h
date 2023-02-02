@@ -12,7 +12,7 @@ public:
   StateServer();
 
 private:
-  AMQP::Channel *_channel;
+  uint64_t _channel;
 };
 
 } // namespace Ardos

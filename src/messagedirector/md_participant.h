@@ -21,7 +21,7 @@ private:
 
   std::shared_ptr<uvw::TCPHandle> _socket;
   uvw::Addr _remoteAddress;
-  std::string _connName = "MD Participant";
+  std::string _connName = "Unnamed Participant";
   bool _disconnected = false;
 };
 
