@@ -51,6 +51,7 @@ public:
   std::vector<uint8_t> GetBlob();
 
   void Seek(const size_t &offset);
+  size_t GetRemaining();
 
 private:
   void EnsureLength(const size_t &length);

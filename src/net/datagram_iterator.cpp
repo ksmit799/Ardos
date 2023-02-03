@@ -157,6 +157,10 @@ void DatagramIterator::Seek(const size_t &offset) {
   _offset = offset;
 }
 
+size_t DatagramIterator::GetRemaining() {
+  return _dg->Size() - _offset;
+}
+
 void DatagramIterator::EnsureLength(const size_t &length) {
   // Make sure we don't overflow reading.
   size_t newOffset = _offset + length;

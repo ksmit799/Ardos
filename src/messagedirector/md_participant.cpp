@@ -30,13 +30,10 @@ MDParticipant::MDParticipant(const std::shared_ptr<uvw::TCPHandle> &socket)
         HandleDisconnect(UV_EOF);
       });
 
-  _socket->on<uvw::DataEvent>([this](const uvw::DataEvent &event,
-                                     uvw::TCPHandle &) {
-    auto dg = std::make_shared<Datagram>(
-        reinterpret_cast<const uint8_t *>(event.data.get() + sizeof(uint16_t)),
-        event.length);
-    HandleDatagram(dg);
-  });
+  _socket->on<uvw::DataEvent>(
+      [this](const uvw::DataEvent &event, uvw::TCPHandle &) {
+        HandleData(event.data, event.length);
+      });
 
   Logger::Info(std::format("[MD] Participant connected from {}:{}",
                            _remoteAddress.ip, _remoteAddress.port));
@@ -77,6 +74,31 @@ void MDParticipant::HandleDisconnect(uv_errno_t code) {
   Shutdown();
 }
 
+void MDParticipant::HandleData(const std::unique_ptr<char[]> &data,
+                               size_t size) {
+  // We can't directly handle datagrams as it's possible that multiple have been
+  // buffered together, or we've received a split message.
+
+  // First, check if we have one, complete datagram.
+  if (_data_buf.empty() && size >= sizeof(uint16_t)) {
+    // Ok, we at least have a size header. Let's check if we have the full
+    // datagram.
+    uint16_t datagramSize = *reinterpret_cast<uint16_t *>(data.get());
+    if (datagramSize == size - sizeof(uint16_t)) {
+      // We have a complete datagram, lets handle it.
+      auto dg = std::make_shared<Datagram>(
+          reinterpret_cast<const uint8_t *>(data.get() + sizeof(uint16_t)),
+          datagramSize);
+      HandleDatagram(dg);
+      return;
+    }
+  }
+
+  // Hmm, we don't. Let's put it into our buffer.
+  _data_buf.insert(_data_buf.end(), data.get(), data.get() + size);
+  ProcessBuffer();
+}
+
 void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
   DatagramIterator dgi(dg);
   try {
@@ -99,6 +121,7 @@ void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
         break;
       case CONTROL_SET_CON_NAME:
         _connName = dgi.GetString();
+        break;
       default:
         Logger::Error(std::format(
             "[MD] Participant '{}' received unknown control message: {}",
@@ -121,6 +144,27 @@ void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     Logger::Error(std::format(
         "[MD] Participant '{}' received a truncated datagram!", _connName));
     Shutdown();
+  }
+}
+
+void MDParticipant::ProcessBuffer() {
+  while (_data_buf.size() > sizeof(uint16_t)) {
+    // We have enough data to know the expected length of the datagram.
+    uint16_t dataSize = *reinterpret_cast<uint16_t *>(&_data_buf[0]);
+    if (_data_buf.size() >= dataSize + sizeof(uint16_t)) {
+      // We have a complete datagram!
+      auto dg = std::make_shared<Datagram>(
+          reinterpret_cast<const uint8_t *>(&_data_buf[sizeof(uint16_t)]),
+          dataSize);
+
+      // Remove the datagram data from the buffer.
+      _data_buf.erase(_data_buf.begin(),
+                      _data_buf.begin() + sizeof(uint16_t) + dataSize);
+
+      HandleDatagram(dg);
+    } else {
+      return;
+    }
   }
 }
 
