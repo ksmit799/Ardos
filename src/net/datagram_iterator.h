@@ -4,6 +4,8 @@
 #include <memory>
 #include <stdexcept>
 
+#include <dcPackerInterface.h>
+
 #include "datagram.h"
 
 namespace Ardos {
@@ -49,9 +51,15 @@ public:
 
   std::string GetString();
   std::vector<uint8_t> GetBlob();
+  std::vector<uint8_t> GetData(const size_t &size);
+
+  void SkipHeaders();
+
+  void UnpackField(DCPackerInterface *field, std::vector<uint8_t> &buffer);
 
   void Seek(const size_t &offset);
-  size_t GetRemaining();
+  size_t GetRemainingSize();
+  std::vector<uint8_t> GetRemainingBytes();
 
 private:
   void EnsureLength(const size_t &length);

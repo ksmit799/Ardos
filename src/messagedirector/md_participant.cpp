@@ -138,7 +138,7 @@ void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       uint64_t channel = dgi.GetUint64();
       MessageDirector::Instance()->GetGlobalChannel()->publish(
           kGlobalExchange, std::to_string(channel),
-          reinterpret_cast<const char *>(dg->GetData()));
+          reinterpret_cast<const char *>(dg->GetData()), (size_t)dg->Size());
     }
   } catch (const DatagramIteratorEOF &) {
     Logger::Error(std::format(

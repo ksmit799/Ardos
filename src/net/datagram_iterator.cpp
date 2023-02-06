@@ -1,6 +1,9 @@
 #include "datagram_iterator.h"
 
+#include <cassert>
 #include <format>
+
+#include "../util/logger.h"
 
 namespace Ardos {
 
@@ -150,15 +153,104 @@ std::vector<uint8_t> DatagramIterator::GetBlob() {
 }
 
 /**
+ * Reads a size-specified blob of data from the datagram.
+ * @param size
+ * @return
+ */
+std::vector<uint8_t> DatagramIterator::GetData(const size_t &size) {
+  EnsureLength(size);
+  std::vector<uint8_t> data(_dg->GetData() + _offset,
+                            _dg->GetData() + _offset + size);
+  _offset += size;
+  return data;
+}
+
+/**
+ * Skip the read offset past the MD routing headers.
+ */
+void DatagramIterator::SkipHeaders() {
+  assert(_offset == 0);
+
+  uint8_t channels = GetUint8();
+  for (int i = 0; i < channels; ++i) {
+    GetUint64();
+  }
+}
+
+/**
+ * Reads the packed field from this datagram into the supplied buffer.
+ * @param field
+ * @param buffer
+ */
+void DatagramIterator::UnpackField(DCPackerInterface *field,
+                                   std::vector<uint8_t> &buffer) {
+  // If the field has a fixed size in bytes (int, uint, float, etc.)
+  // we can unpack data directly using that size.
+  if (field->has_fixed_byte_size()) {
+    std::vector<uint8_t> data = GetData(field->get_fixed_byte_size());
+    buffer.insert(buffer.end(), data.begin(), data.end());
+    return;
+  }
+
+  // Otherwise, if the field has a variable size (string, blob, etc.)
+  // read the length tag and unpack.
+  size_t length = field->get_num_length_bytes();
+  if (length) {
+    switch (length) {
+    case 2: {
+      uint16_t lengthTag = GetUint16();
+      buffer.insert(buffer.end(), (uint8_t *)&lengthTag,
+                    (uint8_t *)&lengthTag + 2);
+      length = lengthTag;
+      break;
+    }
+    case 4: {
+      uint32_t lengthTag = GetUint32();
+      buffer.insert(buffer.end(), (uint8_t *)&lengthTag,
+                    (uint8_t *)&lengthTag + 4);
+      length = lengthTag;
+      break;
+    }
+    default:
+      Logger::Error(std::format(
+          "[DGI] Unhandled field unpack for variable length: {}", length));
+    }
+
+    // Unpack field data into the buffer.
+    std::vector<uint8_t> data = GetData(length);
+    buffer.insert(buffer.end(), data.begin(), data.end());
+    return;
+  }
+
+  // Otherwise, if the field is non-atomic, process each nested field.
+  int numNested = field->get_num_nested_fields();
+  for (int i = 0; i < numNested; ++i) {
+    UnpackField(field->get_nested_field(i), buffer);
+  }
+}
+
+/**
  * Sets the current read offset (in bytes).
  * @param offset
  */
-void DatagramIterator::Seek(const size_t &offset) {
-  _offset = offset;
-}
+void DatagramIterator::Seek(const size_t &offset) { _offset = offset; }
 
-size_t DatagramIterator::GetRemaining() {
-  return _dg->Size() - _offset;
+/**
+ * Returns the remaining read size in bytes.
+ * @return
+ */
+size_t DatagramIterator::GetRemainingSize() { return _dg->Size() - _offset; }
+
+/**
+ * Returns the remaining bytes to be read.
+ * @return
+ */
+std::vector<uint8_t> DatagramIterator::GetRemainingBytes() {
+  size_t length = GetRemainingSize();
+  std::vector<uint8_t> data(_dg->GetData() + _offset,
+                            _dg->GetData() + _offset + length);
+  _offset += length;
+  return data;
 }
 
 void DatagramIterator::EnsureLength(const size_t &length) {
