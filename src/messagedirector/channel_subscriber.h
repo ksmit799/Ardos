@@ -23,7 +23,7 @@ private:
   // A static map of globally registered channels.
   static std::unordered_map<std::string, unsigned int> _globalChannels;
 
-  // Map of channels that this ChannelSubscriber is listening to.
+  // List of channels that this ChannelSubscriber is listening to.
   std::vector<std::string> _localChannels;
 
   AMQP::Channel *_globalChannel;
