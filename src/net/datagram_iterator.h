@@ -53,11 +53,11 @@ public:
   std::vector<uint8_t> GetBlob();
   std::vector<uint8_t> GetData(const size_t &size);
 
-  void SkipHeaders();
-
   void UnpackField(DCPackerInterface *field, std::vector<uint8_t> &buffer);
 
   void Seek(const size_t &offset);
+  void SeekPayload();
+
   size_t GetRemainingSize();
   std::vector<uint8_t> GetRemainingBytes();
 

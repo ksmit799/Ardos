@@ -1,6 +1,5 @@
 #include "datagram_iterator.h"
 
-#include <cassert>
 #include <format>
 
 #include "../util/logger.h"
@@ -166,18 +165,6 @@ std::vector<uint8_t> DatagramIterator::GetData(const size_t &size) {
 }
 
 /**
- * Skip the read offset past the MD routing headers.
- */
-void DatagramIterator::SkipHeaders() {
-  assert(_offset == 0);
-
-  uint8_t channels = GetUint8();
-  for (int i = 0; i < channels; ++i) {
-    GetUint64();
-  }
-}
-
-/**
  * Reads the packed field from this datagram into the supplied buffer.
  * @param field
  * @param buffer
@@ -234,6 +221,18 @@ void DatagramIterator::UnpackField(DCPackerInterface *field,
  * @param offset
  */
 void DatagramIterator::Seek(const size_t &offset) { _offset = offset; }
+
+/**
+ * Seeks to the beginning of this datagrams payload (sender).
+ */
+void DatagramIterator::SeekPayload() {
+  _offset = 0;
+
+  uint8_t channels = GetUint8();
+  for (int i = 0; i < channels; ++i) {
+    GetUint64();
+  }
+}
 
 /**
  * Returns the remaining read size in bytes.

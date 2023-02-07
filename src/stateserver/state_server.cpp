@@ -2,7 +2,6 @@
 
 #include <dcClass.h>
 
-#include "../messagedirector/message_director.h"
 #include "../net/message_types.h"
 #include "../util/config.h"
 #include "../util/globals.h"
@@ -11,7 +10,7 @@
 
 namespace Ardos {
 
-StateServer::StateServer() {
+StateServer::StateServer() : ChannelSubscriber() {
   Logger::Info("Starting State Server component...");
 
   // State Server configuration.
@@ -21,31 +20,16 @@ StateServer::StateServer() {
     exit(1);
   }
 
+  // Start listening to our channel.
   _channel = config["channel"].as<uint64_t>();
-
-  auto globalChannel = MessageDirector::Instance()->GetGlobalChannel();
-  auto localQueue = MessageDirector::Instance()->GetLocalQueue();
-
-  // Listen to the State Server channel.
-  globalChannel->bindQueue(kGlobalExchange, localQueue,
-                           std::to_string(_channel));
-
-  globalChannel->consume(localQueue)
-      .onReceived([this](const AMQP::Message &message, uint64_t deliveryTag,
-                         bool redelivered) {
-        // We've received a message from the MD. Handle it.
-        auto dg = std::make_shared<Datagram>(
-            reinterpret_cast<const uint8_t *>(message.body()),
-            message.bodySize());
-        HandleDatagram(dg);
-      });
+  SubscribeChannel(_channel);
 }
 
 void StateServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
   DatagramIterator dgi(dg);
 
   // Skip MD routing headers.
-  dgi.SkipHeaders();
+  dgi.SeekPayload();
 
   try {
     uint64_t sender = dgi.GetUint64();

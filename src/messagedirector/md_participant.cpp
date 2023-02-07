@@ -8,7 +8,7 @@
 namespace Ardos {
 
 MDParticipant::MDParticipant(const std::shared_ptr<uvw::TCPHandle> &socket)
-    : _socket(socket) {
+    : ChannelSubscriber(), _socket(socket) {
   // Configure socket options.
   _socket->noDelay(true);
   _socket->keepAlive(true, uvw::TCPHandle::Time{60});
@@ -89,7 +89,7 @@ void MDParticipant::HandleData(const std::unique_ptr<char[]> &data,
       auto dg = std::make_shared<Datagram>(
           reinterpret_cast<const uint8_t *>(data.get() + sizeof(uint16_t)),
           datagramSize);
-      HandleDatagram(dg);
+      HandleParticipantDatagram(dg);
       return;
     }
   }
@@ -99,7 +99,8 @@ void MDParticipant::HandleData(const std::unique_ptr<char[]> &data,
   ProcessBuffer();
 }
 
-void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
+void MDParticipant::HandleParticipantDatagram(
+    const std::shared_ptr<Datagram> &dg) {
   DatagramIterator dgi(dg);
   try {
     // Is this a control message?
@@ -108,8 +109,10 @@ void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       uint16_t msgType = dgi.GetUint16();
       switch (msgType) {
       case CONTROL_ADD_CHANNEL:
+        SubscribeChannel(dgi.GetUint64());
         break;
       case CONTROL_REMOVE_CHANNEL:
+        UnsubscribeChannel(dgi.GetUint64());
         break;
       case CONTROL_ADD_RANGE:
         break;
@@ -161,11 +164,26 @@ void MDParticipant::ProcessBuffer() {
       _data_buf.erase(_data_buf.begin(),
                       _data_buf.begin() + sizeof(uint16_t) + dataSize);
 
-      HandleDatagram(dg);
+      HandleParticipantDatagram(dg);
     } else {
       return;
     }
   }
+}
+
+void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
+  size_t sendSize = sizeof(uint16_t) + dg->Size();
+  auto sendBuffer = std::unique_ptr<char[]>(new char[sendSize]);
+
+  uint16_t dgSize = dg->Size();
+
+  auto sendPtr = sendBuffer.get();
+  // Datagram size tag.
+  memcpy(sendPtr, (char*)&dgSize, sizeof(uint16_t));
+  // Datagram data.
+  memcpy(sendPtr + sizeof(uint16_t), dg->GetData(), dg->Size());
+
+  _socket->write(std::move(sendBuffer), sendSize);
 }
 
 } // namespace Ardos
