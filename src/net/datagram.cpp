@@ -177,6 +177,18 @@ void Datagram::AddBlob(const std::vector<uint8_t> &v) {
 }
 
 /**
+ * Adds raw binary data directly to the end of this datagram.
+ * @param v
+ */
+void Datagram::AddData(const std::vector<uint8_t> &v) {
+  if (!v.empty()) {
+    EnsureLength(v.size());
+    memcpy(_buf + _bufOffset, &v[0], v.size());
+    _bufOffset += v.size();
+  }
+}
+
+/**
  * Adds a location pair to this datagram.
  * @param parentId
  * @param zoneId

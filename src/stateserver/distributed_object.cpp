@@ -49,8 +49,9 @@ DistributedObject::DistributedObject(StateServer *stateServer,
 
   SubscribeChannel(_doId);
 
-  Logger::Verbose(std::format("[SS] Object: '{}' generated with DoId: {}",
-                              _dclass->get_name(), _doId));
+  Logger::Verbose(
+      std::format("[SS] Distributed Object: '{}' generated with DoId: {}",
+                  _dclass->get_name(), _doId));
 
   dgi.SeekPayload();
   HandleLocationChange(parentId, zoneId, dgi.GetUint64());
@@ -69,6 +70,68 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
   case STATESERVER_DELETE_AI_OBJECTS: {
     break;
   }
+  case STATESERVER_OBJECT_DELETE_RAM: {
+    break;
+  }
+  case STATESERVER_OBJECT_DELETE_CHILDREN: {
+    break;
+  }
+  case STATESERVER_OBJECT_SET_FIELD: {
+    break;
+  }
+  case STATESERVER_OBJECT_SET_FIELDS: {
+    break;
+  }
+  case STATESERVER_OBJECT_CHANGING_AI: {
+    break;
+  }
+  case STATESERVER_OBJECT_SET_AI: {
+    break;
+  }
+  case STATESERVER_OBJECT_GET_AI: {
+    break;
+  }
+  case STATESERVER_OBJECT_GET_AI_RESP: {
+    break;
+  }
+  case STATESERVER_OBJECT_CHANGING_LOCATION: {
+    break;
+  }
+  case STATESERVER_OBJECT_LOCATION_ACK: {
+    break;
+  }
+  case STATESERVER_OBJECT_SET_LOCATION: {
+    break;
+  }
+  case STATESERVER_OBJECT_GET_LOCATION: {
+    break;
+  }
+  case STATESERVER_OBJECT_GET_LOCATION_RESP: {
+    break;
+  }
+  case STATESERVER_OBJECT_GET_ALL: {
+    break;
+  }
+  case STATESERVER_OBJECT_GET_FIELD: {
+    break;
+  }
+  case STATESERVER_OBJECT_GET_FIELDS: {
+    break;
+  }
+  case STATESERVER_OBJECT_SET_OWNER: {
+    break;
+  }
+  case STATESERVER_OBJECT_GET_ZONE_OBJECTS:
+  case STATESERVER_OBJECT_GET_ZONES_OBJECTS: {
+    break;
+  }
+  case STATESERVER_GET_ACTIVE_ZONES: {
+    break;
+  }
+  default:
+    Logger::Warn(std::format(
+        "[SS] Distributed Object: '{}' ignoring unknown message type: ", _doId,
+        msgType));
   }
 }
 
@@ -94,7 +157,7 @@ void DistributedObject::HandleLocationChange(const uint32_t &newParent,
   // Make sure we're not breaking our DO tree.
   if (newParent == _doId) {
     Logger::Warn(std::format(
-        "[SS] Distributed Object '{}' cannot be parented to itself.", _doId));
+        "[SS] Distributed Object: '{}' cannot be parented to itself.", _doId));
     return;
   }
 
@@ -170,11 +233,57 @@ void DistributedObject::SendLocationEntry(const uint64_t &location) {
       _ramFields.empty()
           ? STATESERVER_OBJECT_ENTER_LOCATION_WITH_REQUIRED
           : STATESERVER_OBJECT_ENTER_LOCATION_WITH_REQUIRED_OTHER);
-  // TODO: Pack fields.
-  if (!_ramFields.empty()) {
 
+  AppendRequiredData(dg, true);
+  if (!_ramFields.empty()) {
+    AppendOtherData(dg, true);
   }
+
   PublishDatagram(dg);
+}
+
+void DistributedObject::AppendRequiredData(const std::shared_ptr<Datagram> &dg,
+                                           const bool &clientOnly,
+                                           const bool &alsoOwner) {
+  dg->AddUint32(_doId);
+  dg->AddLocation(_parentId, _zoneId);
+  dg->AddUint16(_dclass->get_number());
+
+  size_t fieldCount = _dclass->get_num_inherited_fields();
+  for (int i = 0; i < fieldCount; ++i) {
+    DCField *field = _dclass->get_inherited_field(i);
+    if (field->is_required() && !field->as_molecular_field() &&
+        (!clientOnly || field->is_broadcast() || field->is_clrecv() ||
+         (alsoOwner && field->is_ownrecv()))) {
+      dg->AddData(_requiredFields[field]);
+    }
+  }
+}
+
+void DistributedObject::AppendOtherData(const std::shared_ptr<Datagram> &dg,
+                                        const bool &clientOnly,
+                                        const bool &alsoOwner) {
+  if (clientOnly) {
+    std::vector<const DCField *> broadcastFields;
+    for (const auto &field : _ramFields) {
+      if (field.first->is_broadcast() || field.first->is_clrecv() ||
+          (alsoOwner && field.first->is_ownrecv())) {
+        broadcastFields.push_back(field.first);
+      }
+    }
+
+    dg->AddUint16(broadcastFields.size());
+    for (const auto &field : broadcastFields) {
+      dg->AddUint16(field->get_number());
+      dg->AddData(_ramFields[field]);
+    }
+  } else {
+    dg->AddUint16(_ramFields.size());
+    for (const auto &field : _ramFields) {
+      dg->AddUint16(field.first->get_number());
+      dg->AddData(field.second);
+    }
+  }
 }
 
 } // namespace Ardos

@@ -22,6 +22,13 @@ private:
   void WakeChildren();
   void SendLocationEntry(const uint64_t &location);
 
+  void AppendRequiredData(const std::shared_ptr<Datagram> &dg,
+                          const bool &clientOnly = false,
+                          const bool &alsoOwner = false);
+  void AppendOtherData(const std::shared_ptr<Datagram> &dg,
+                       const bool &clientOnly = false,
+                       const bool &alsoOwner = false);
+
   StateServer *_stateServer;
   uint32_t _doId;
   uint32_t _parentId;
