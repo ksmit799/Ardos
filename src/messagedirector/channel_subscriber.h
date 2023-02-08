@@ -12,6 +12,7 @@ namespace Ardos {
 class ChannelSubscriber {
 public:
   ChannelSubscriber();
+  ~ChannelSubscriber();
 
   void SubscribeChannel(const uint64_t &channel);
   void UnsubscribeChannel(const uint64_t &channel);

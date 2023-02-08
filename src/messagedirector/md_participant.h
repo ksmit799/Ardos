@@ -6,28 +6,22 @@
 #include <uvw.hpp>
 
 #include "../net/datagram.h"
+#include "../net/network_client.h"
 #include "channel_subscriber.h"
 
 namespace Ardos {
 
-class MDParticipant : public ChannelSubscriber {
+class MDParticipant : public NetworkClient, public ChannelSubscriber {
 public:
   explicit MDParticipant(const std::shared_ptr<uvw::TCPHandle> &socket);
-  ~MDParticipant();
 
 private:
   void Shutdown();
-  void HandleDisconnect(uv_errno_t code);
-  void HandleData(const std::unique_ptr<char[]> &data, size_t size);
-  void HandleParticipantDatagram(const std::shared_ptr<Datagram> &dg);
+  void HandleDisconnect(uv_errno_t code) override;
+  void HandleClientDatagram(const std::shared_ptr<Datagram> &dg) override;
   void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;
-  void ProcessBuffer();
 
-  std::shared_ptr<uvw::TCPHandle> _socket;
-  uvw::Addr _remoteAddress;
   std::string _connName = "Unnamed Participant";
-  bool _disconnected = false;
-  std::vector<uint8_t> _data_buf;
 };
 
 } // namespace Ardos

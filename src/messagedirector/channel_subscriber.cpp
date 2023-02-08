@@ -34,6 +34,13 @@ ChannelSubscriber::ChannelSubscriber() {
       });
 }
 
+ChannelSubscriber::~ChannelSubscriber() {
+  // Cleanup our local channel subscriptions.
+  for (const auto &channel : _localChannels) {
+    UnsubscribeChannel(std::stoull(channel));
+  }
+}
+
 void ChannelSubscriber::SubscribeChannel(const uint64_t &channel) {
   std::string channelStr = std::to_string(channel);
 
