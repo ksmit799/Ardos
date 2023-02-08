@@ -1,8 +1,8 @@
 #include "distributed_object.h"
 
 #include <format>
+#include <unordered_set>
 
-#include "../net/message_types.h"
 #include "../util/logger.h"
 
 namespace Ardos {
@@ -13,12 +13,12 @@ DistributedObject::DistributedObject(StateServer *stateServer,
                                      const uint32_t &zoneId, DCClass *dclass,
                                      DatagramIterator &dgi, const bool &other)
     : ChannelSubscriber(), _stateServer(stateServer), _doId(doId),
-      _parentId(parentId), _zoneId(zoneId), _dclass(dclass), _aiChannel(0) {
+      _parentId(parentId), _zoneId(zoneId), _dclass(dclass) {
   // Unpack required fields.
   for (int i = 0; i < _dclass->get_num_inherited_fields(); ++i) {
     auto field = _dclass->get_inherited_field(i);
     if (field->is_required() && !field->as_molecular_field()) {
-      dgi.UnpackField(field, _required_fields[field]);
+      dgi.UnpackField(field, _requiredFields[field]);
     }
   }
 
@@ -38,7 +38,7 @@ DistributedObject::DistributedObject(StateServer *stateServer,
       // We only handle 'RAM' fields, if they're not to be stored on the SS then
       // that's an error.
       if (field->is_ram()) {
-        dgi.UnpackField(field, _ram_fields[field]);
+        dgi.UnpackField(field, _ramFields[field]);
       } else {
         Logger::Error(std::format(
             "[SS] Received generated with non RAM field: {} for DoId: ",
@@ -53,6 +53,8 @@ DistributedObject::DistributedObject(StateServer *stateServer,
                               _dclass->get_name(), _doId));
 
   dgi.SeekPayload();
+  HandleLocationChange(parentId, zoneId, dgi.GetUint64());
+  WakeChildren();
 }
 
 void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
@@ -68,6 +70,111 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     break;
   }
   }
+}
+
+void DistributedObject::HandleLocationChange(const uint32_t &newParent,
+                                             const uint32_t &newZone,
+                                             const uint64_t &sender) {
+  uint32_t oldParent = _parentId;
+  uint32_t oldZone = _zoneId;
+
+  // Set of channels that must be notified about our location change.
+  std::unordered_set<uint64_t> targets;
+
+  // Notify AI of our changing location.
+  if (_aiChannel) {
+    targets.insert(_aiChannel);
+  }
+
+  // Notify owner of our changing location.
+  if (_ownerChannel) {
+    targets.insert(_ownerChannel);
+  }
+
+  // Make sure we're not breaking our DO tree.
+  if (newParent == _doId) {
+    Logger::Warn(std::format(
+        "[SS] Distributed Object '{}' cannot be parented to itself.", _doId));
+    return;
+  }
+
+  // Handle parent change.
+  if (newParent != oldParent) {
+    // Unsubscribe from the old parent's child-broadcast channel.
+    if (oldParent) {
+      UnsubscribeChannel(ParentToChildren(oldParent));
+
+      // Notify the old parent and location of changing location.
+      targets.insert(oldParent);
+      targets.insert(LocationAsChannel(oldParent, oldZone));
+    }
+
+    _parentId = newParent;
+    _zoneId = newZone;
+
+    // Subscribe to the new parent's child-broadcast channel.
+    if (newParent) {
+      SubscribeChannel(ParentToChildren(_parentId));
+
+      if (!_aiExplicitlySet) {
+        // Ask the new parent what it's managing AI is.
+        auto dg = std::make_shared<Datagram>(_parentId, _doId,
+                                             STATESERVER_OBJECT_GET_AI);
+        dg->AddUint32(_nextContext++);
+        PublishDatagram(dg);
+      }
+
+      // Notify our new parent of our changing location.
+      targets.insert(newParent);
+    } else if (!_aiExplicitlySet) {
+      _aiChannel = INVALID_CHANNEL;
+    }
+  } else if (newZone != oldZone) {
+    _zoneId = newZone;
+    // Notify our parent and old location of our changing location.
+    targets.insert(_parentId);
+    targets.insert(LocationAsChannel(_parentId, oldZone));
+  } else {
+    // We're not actually changing location, no need to handle.
+    return;
+  }
+
+  // Send changing location message.
+  auto dg = std::make_shared<Datagram>(targets, sender,
+                                       STATESERVER_OBJECT_CHANGING_LOCATION);
+  dg->AddUint32(_doId);
+  dg->AddLocation(newParent, newZone);
+  dg->AddLocation(oldParent, oldZone);
+  PublishDatagram(dg);
+
+  // At this point the new parent (which may or may not be the same as the old
+  // parent) is unaware of our existence in this zone.
+  _parentSynchronized = false;
+
+  // Send enter location message.
+  if (newParent) {
+    SendLocationEntry(LocationAsChannel(newParent, newZone));
+  }
+}
+
+void DistributedObject::WakeChildren() {
+  auto dg = std::make_shared<Datagram>(ParentToChildren(_doId), _doId,
+                                       STATESERVER_OBJECT_GET_LOCATION);
+  dg->AddUint32(STATESERVER_CONTEXT_WAKE_CHILDREN);
+  PublishDatagram(dg);
+}
+
+void DistributedObject::SendLocationEntry(const uint64_t &location) {
+  auto dg = std::make_shared<Datagram>(
+      location, _doId,
+      _ramFields.empty()
+          ? STATESERVER_OBJECT_ENTER_LOCATION_WITH_REQUIRED
+          : STATESERVER_OBJECT_ENTER_LOCATION_WITH_REQUIRED_OTHER);
+  // TODO: Pack fields.
+  if (!_ramFields.empty()) {
+
+  }
+  PublishDatagram(dg);
 }
 
 } // namespace Ardos

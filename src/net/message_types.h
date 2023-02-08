@@ -4,6 +4,24 @@
 const uint64_t INVALID_CHANNEL = 0;
 const uint64_t CONTROL_MESSAGE = 1;
 
+const uint32_t STATESERVER_CONTEXT_WAKE_CHILDREN = 1001;
+
+const size_t ZONE_BITS = sizeof(uint32_t) * 8;
+const uint64_t PARENT_PREFIX = (uint64_t(1) << ZONE_BITS);
+const uint64_t DATABASE_PREFIX = (uint64_t(2) << ZONE_BITS);
+
+inline uint64_t LocationAsChannel(const uint32_t &parent, const uint32_t &zone) {
+  return (uint64_t(parent) << ZONE_BITS) | uint64_t(zone);
+}
+
+inline uint64_t ParentToChildren(const uint32_t &parent) {
+  return PARENT_PREFIX | uint64_t(parent);
+}
+
+inline uint64_t DatabaseToObject(const uint32_t &object) {
+  return DATABASE_PREFIX | uint64_t(object);
+}
+
 enum MessageTypes {
   // Reserved
   RESERVED_MSG_TYPE = 0,
