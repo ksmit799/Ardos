@@ -52,6 +52,7 @@ public:
   std::string GetString();
   std::vector<uint8_t> GetBlob();
   std::vector<uint8_t> GetData(const size_t &size);
+  std::shared_ptr<Datagram> GetDatagram();
 
   void UnpackField(DCPackerInterface *field, std::vector<uint8_t> &buffer);
 

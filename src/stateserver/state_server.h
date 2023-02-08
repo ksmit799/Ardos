@@ -18,6 +18,7 @@ public:
 private:
   void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;
   void HandleGenerate(DatagramIterator &dgi, const bool &other);
+  void HandleDeleteAI(DatagramIterator &dgi, const uint64_t &sender);
 
   uint64_t _channel;
   std::unordered_map<uint32_t, DistributedObject *> _dist_objs;

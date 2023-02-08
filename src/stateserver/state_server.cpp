@@ -42,6 +42,7 @@ void StateServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       HandleGenerate(dgi, true);
       break;
     case STATESERVER_DELETE_AI_OBJECTS:
+      HandleDeleteAI(dgi, sender);
       break;
     default:
       // Hopefully we managed to unpack the sender...
@@ -78,6 +79,14 @@ void StateServer::HandleGenerate(DatagramIterator &dgi, const bool &other) {
   // Create the distributed object.
   _dist_objs[doId] =
       new DistributedObject(this, doId, parentId, zoneId, dcClass, dgi, other);
+}
+
+void StateServer::HandleDeleteAI(DatagramIterator &dgi,
+                                 const uint64_t &sender) {
+  uint64_t aiChannel = dgi.GetUint64();
+  // TODO: Implement.
+  Logger::Info(std::format("[SS] AI '{}' going offline... Deleting objects.",
+                           aiChannel));
 }
 
 } // namespace Ardos

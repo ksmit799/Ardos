@@ -16,12 +16,13 @@ public:
   explicit MDParticipant(const std::shared_ptr<uvw::TCPHandle> &socket);
 
 private:
-  void Shutdown();
+  void Shutdown() override;
   void HandleDisconnect(uv_errno_t code) override;
   void HandleClientDatagram(const std::shared_ptr<Datagram> &dg) override;
   void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;
 
   std::string _connName = "Unnamed Participant";
+  std::vector<std::shared_ptr<Datagram>> _postRemoves;
 };
 
 } // namespace Ardos

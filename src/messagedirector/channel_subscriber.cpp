@@ -1,5 +1,6 @@
 #include "channel_subscriber.h"
 
+#include "../net/datagram_iterator.h"
 #include "message_director.h"
 
 namespace Ardos {
@@ -18,6 +19,7 @@ ChannelSubscriber::ChannelSubscriber() {
 
   // We've received a message from the MD. Handle it.
   _globalChannel->consume(_localQueue)
+      .onSuccess([this](const std::string &tag) { _consumeTag = tag; })
       .onReceived([this](const AMQP::Message &message, uint64_t deliveryTag,
                          bool redelivered) {
         // First, check if this ChannelSubscriber cares about the message.
@@ -34,7 +36,18 @@ ChannelSubscriber::ChannelSubscriber() {
       });
 }
 
-ChannelSubscriber::~ChannelSubscriber() {
+ChannelSubscriber::~ChannelSubscriber() { ChannelSubscriber::Shutdown(); }
+
+void ChannelSubscriber::Shutdown() {
+  // Make sure we have a valid consumer tag.
+  if (_consumeTag.empty()) {
+    return;
+  }
+
+  // Stop receiving message callbacks.
+  _globalChannel->cancel(_consumeTag);
+  _consumeTag = "";
+
   // Cleanup our local channel subscriptions.
   for (const auto &channel : _localChannels) {
     UnsubscribeChannel(std::stoull(channel));
@@ -85,6 +98,22 @@ void ChannelSubscriber::UnsubscribeChannel(const uint64_t &channel) {
   if (!_globalChannels[channelStr]) {
     _globalChannels.erase(channelStr);
     _globalChannel->unbindQueue(kGlobalExchange, _localQueue, channelStr);
+  }
+}
+
+/**
+ * Routes a datagram through the message director to the target channels.
+ * @param dg
+ */
+void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram> &dg) {
+  DatagramIterator dgi(dg);
+
+  uint8_t channels = dgi.GetUint8();
+  for (uint8_t i = 0; i < channels; ++i) {
+    uint64_t channel = dgi.GetUint64();
+    _globalChannel->publish(kGlobalExchange, std::to_string(channel),
+                            reinterpret_cast<const char *>(dg->GetData()),
+                            (size_t)dg->Size());
   }
 }
 

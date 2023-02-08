@@ -14,8 +14,11 @@ public:
   ChannelSubscriber();
   ~ChannelSubscriber();
 
+  virtual void Shutdown();
+
   void SubscribeChannel(const uint64_t &channel);
   void UnsubscribeChannel(const uint64_t &channel);
+  void PublishDatagram(const std::shared_ptr<Datagram> &dg);
 
 protected:
   virtual void HandleDatagram(const std::shared_ptr<Datagram> &dg) = 0;
@@ -29,6 +32,7 @@ private:
 
   AMQP::Channel *_globalChannel;
   std::string _localQueue;
+  std::string _consumeTag;
 };
 
 } // namespace Ardos

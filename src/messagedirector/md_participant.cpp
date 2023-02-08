@@ -17,7 +17,19 @@ MDParticipant::MDParticipant(const std::shared_ptr<uvw::TCPHandle> &socket)
 /**
  * Manually disconnect and delete this MD participant.
  */
-void MDParticipant::Shutdown() { delete this; }
+void MDParticipant::Shutdown() {
+  ChannelSubscriber::Shutdown();
+
+  Logger::Verbose(std::format("[MD] Routing {} post-remove(s) for '{}'",
+                              _postRemoves.size(), _connName));
+
+  // Route any post remove datagrams we might have stored.
+  for (const auto &dg : _postRemoves) {
+    PublishDatagram(dg);
+  }
+
+  delete this;
+}
 
 /**
  * Handles socket disconnect events.
@@ -53,8 +65,12 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram> &dg) {
       case CONTROL_REMOVE_RANGE:
         break;
       case CONTROL_ADD_POST_REMOVE:
+        // TODO: We shouldn't need the sender channel right?
+        dgi.GetUint64(); // Sender channel.
+        _postRemoves.emplace_back(dgi.GetDatagram());
         break;
       case CONTROL_CLEAR_POST_REMOVES:
+        _postRemoves.clear();
         break;
       case CONTROL_SET_CON_NAME:
         _connName = dgi.GetString();
@@ -70,13 +86,7 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram> &dg) {
     }
 
     // This wasn't a control message, route it through the message director.
-    dgi.Seek(1); // Seek just before channels.
-    for (uint8_t i = 0; i < channels; ++i) {
-      uint64_t channel = dgi.GetUint64();
-      MessageDirector::Instance()->GetGlobalChannel()->publish(
-          kGlobalExchange, std::to_string(channel),
-          reinterpret_cast<const char *>(dg->GetData()), (size_t)dg->Size());
-    }
+    PublishDatagram(dg);
   } catch (const DatagramIteratorEOF &) {
     Logger::Error(std::format(
         "[MD] Participant '{}' received a truncated datagram!", _connName));

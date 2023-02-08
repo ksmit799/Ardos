@@ -165,6 +165,17 @@ std::vector<uint8_t> DatagramIterator::GetData(const size_t &size) {
 }
 
 /**
+ * Reads a blob of binary data from the datagram and returns a new datagram.
+ * @return
+ */
+std::shared_ptr<Datagram> DatagramIterator::GetDatagram() {
+  uint16_t length = GetUint16();
+  auto dg = std::make_shared<Datagram>(_dg->GetData() + _offset, length);
+  _offset += length;
+  return dg;
+}
+
+/**
  * Reads the packed field from this datagram into the supplied buffer.
  * @param field
  * @param buffer
