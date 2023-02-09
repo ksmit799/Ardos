@@ -56,6 +56,7 @@ public:
 
   void UnpackField(DCPackerInterface *field, std::vector<uint8_t> &buffer);
 
+  uint16_t Tell() const;
   void Seek(const size_t &offset);
   void SeekPayload();
 

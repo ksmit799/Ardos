@@ -25,6 +25,10 @@ StateServer::StateServer() : ChannelSubscriber() {
   SubscribeChannel(_channel);
 }
 
+void StateServer::RemoveDistributedObject(const uint32_t &doId) {
+  _distObjs.erase(doId);
+}
+
 void StateServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
   DatagramIterator dgi(dg);
 
@@ -62,7 +66,7 @@ void StateServer::HandleGenerate(DatagramIterator &dgi, const bool &other) {
   uint16_t dcId = dgi.GetUint16();
 
   // Make sure we don't have a duplicate generate.
-  if (_dist_objs.contains(doId)) {
+  if (_distObjs.contains(doId)) {
     Logger::Error(
         std::format("[SS] Received duplicate generate for DoId: {}", doId));
     return;
@@ -77,16 +81,29 @@ void StateServer::HandleGenerate(DatagramIterator &dgi, const bool &other) {
   }
 
   // Create the distributed object.
-  _dist_objs[doId] =
-      new DistributedObject(this, doId, parentId, zoneId, dcClass, dgi, other);
+  _distObjs[doId] = std::make_unique<DistributedObject>(
+      this, doId, parentId, zoneId, dcClass, dgi, other);
 }
 
 void StateServer::HandleDeleteAI(DatagramIterator &dgi,
                                  const uint64_t &sender) {
   uint64_t aiChannel = dgi.GetUint64();
-  // TODO: Implement.
+
   Logger::Info(std::format("[SS] AI '{}' going offline... Deleting objects.",
                            aiChannel));
+
+  std::unordered_set<uint64_t> targets;
+  for (const auto &distObj : _distObjs) {
+    if (distObj.second->GetAI() == aiChannel &&
+        distObj.second->IsAIExplicitlySet()) {
+      targets.insert(distObj.first);
+    }
+  }
+
+  auto dg = std::make_shared<Datagram>(targets, sender,
+                                       STATESERVER_DELETE_AI_OBJECTS);
+  dg->AddUint64(aiChannel);
+  PublishDatagram(dg);
 }
 
 } // namespace Ardos

@@ -2,8 +2,10 @@
 #define ARDOS_DATAGRAM_H
 
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace Ardos {
@@ -42,6 +44,10 @@ class Datagram {
 public:
   Datagram();
   Datagram(const uint8_t *data, size_t size);
+  Datagram(const uint64_t &toChannel, const uint64_t &fromChannel,
+           const uint16_t &msgType);
+  Datagram(const std::unordered_set<uint64_t> &toChannels,
+           const uint64_t &fromChannel, const uint16_t &msgType);
   ~Datagram();
 
   [[nodiscard]] uint16_t Size() const;
@@ -65,6 +71,11 @@ public:
 
   void AddString(const std::string &v);
   void AddBlob(const std::vector<uint8_t> &v);
+
+  void AddData(const std::vector<uint8_t> &v);
+  void AddData(const std::shared_ptr<Datagram> &v);
+
+  void AddLocation(const uint32_t &parentId, const uint32_t &zoneId);
 
 private:
   void EnsureLength(const size_t &length);

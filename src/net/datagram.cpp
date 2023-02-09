@@ -13,6 +13,26 @@ Datagram::Datagram(const uint8_t *data, size_t size)
   memcpy(_buf, data, size);
 }
 
+Datagram::Datagram(const uint64_t &toChannel, const uint64_t &fromChannel,
+                   const uint16_t &msgType)
+    : _buf(new uint8_t[kMinDgSize]), _bufLength(kMinDgSize), _bufOffset(0) {
+  AddUint8(1);
+  AddUint64(toChannel);
+  AddUint64(fromChannel);
+  AddUint16(msgType);
+}
+
+Datagram::Datagram(const std::unordered_set<uint64_t> &toChannels,
+                   const uint64_t &fromChannel, const uint16_t &msgType)
+    : _buf(new uint8_t[kMinDgSize]), _bufLength(kMinDgSize), _bufOffset(0) {
+  AddUint8(toChannels.size());
+  for (const auto &channel : toChannels) {
+    AddUint64(channel);
+  }
+  AddUint64(fromChannel);
+  AddUint16(msgType);
+}
+
 Datagram::~Datagram() { delete[] _buf; }
 
 /**
@@ -155,6 +175,40 @@ void Datagram::AddBlob(const std::vector<uint8_t> &v) {
   AddUint16(v.size());
   memcpy(_buf + _bufOffset, &v[0], v.size());
   _bufOffset += v.size();
+}
+
+/**
+ * Adds raw binary data directly to the end of this datagram.
+ * @param v
+ */
+void Datagram::AddData(const std::vector<uint8_t> &v) {
+  if (!v.empty()) {
+    EnsureLength(v.size());
+    memcpy(_buf + _bufOffset, &v[0], v.size());
+    _bufOffset += v.size();
+  }
+}
+
+/**
+ * Adds another datagrams data directly to the end of this datagram.
+ * @param v
+ */
+void Datagram::AddData(const std::shared_ptr<Datagram> &v) {
+  if (v->Size()) {
+    EnsureLength(v->Size());
+    memcpy(_buf + _bufOffset, v->GetData(), v->Size());
+    _bufOffset += v->Size();
+  }
+}
+
+/**
+ * Adds a location pair to this datagram.
+ * @param parentId
+ * @param zoneId
+ */
+void Datagram::AddLocation(const uint32_t &parentId, const uint32_t &zoneId) {
+  AddUint32(parentId);
+  AddUint32(zoneId);
 }
 
 void Datagram::EnsureLength(const size_t &length) {
