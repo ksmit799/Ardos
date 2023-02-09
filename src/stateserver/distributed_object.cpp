@@ -235,9 +235,65 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
     break;
   }
   case STATESERVER_OBJECT_CHANGING_LOCATION: {
+    uint32_t childId = dgi.GetUint32();
+    uint32_t newParent = dgi.GetUint32();
+    uint32_t newZone = dgi.GetUint32();
+    uint32_t doId = dgi.GetUint32();
+    uint32_t zoneId = dgi.GetUint32();
+
+    if (newParent == _doId) {
+      if (doId == _doId) {
+        if (newZone == zoneId) {
+          break; // No change, so do nothing.
+        }
+
+        auto &children = _zoneObjects[zoneId];
+        children.erase(childId);
+        if (children.empty()) {
+          _zoneObjects.erase(zoneId);
+        }
+      }
+
+      _zoneObjects[newZone].insert(childId);
+
+      auto dg = std::make_shared<Datagram>(childId, _doId,
+                                           STATESERVER_OBJECT_LOCATION_ACK);
+      dg->AddUint32(_doId);
+      dg->AddUint32(newZone);
+      PublishDatagram(dg);
+    } else if (doId == _doId) {
+      auto &children = _zoneObjects[zoneId];
+      children.erase(childId);
+      if (children.empty()) {
+        _zoneObjects.erase(zoneId);
+      }
+    } else {
+      Logger::Warn(
+          std::format("[SS] Distributed Object: '{}' received changing "
+                      "location from: {} for mismatched DoId: {}",
+                      _doId, childId, doId));
+    }
     break;
   }
   case STATESERVER_OBJECT_LOCATION_ACK: {
+    uint32_t parentId = dgi.GetUint32();
+    uint32_t zoneId = dgi.GetUint32();
+    if (parentId != _parentId) {
+      Logger::Verbose(
+          std::format("[SS] Distributed Object: '{}' received location "
+                      "acknowledgement from: {} but my parent is: {}",
+                      _doId, parentId, _parentId));
+    } else if (zoneId != _zoneId) {
+      Logger::Verbose(
+          std::format("[SS] Distributed Object: '{}' received location "
+                      "acknowledgement for zone: {} but my zone is: {}",
+                      _doId, zoneId, _zoneId));
+    } else {
+      Logger::Verbose(std::format("[SS] Distributed Object: '{}' parent "
+                                  "acknowledged my location change.",
+                                  _doId));
+      _parentSynchronized = true;
+    }
     break;
   }
   case STATESERVER_OBJECT_SET_LOCATION: {
@@ -304,19 +360,188 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
     break;
   }
   case STATESERVER_OBJECT_GET_FIELD: {
+    uint32_t context = dgi.GetUint32();
+    if (dgi.GetUint32() != _doId) {
+      break;
+    }
+
+    uint16_t fieldId = dgi.GetUint16();
+
+    auto rawField = std::make_shared<Datagram>();
+    bool success = HandleOneGet(rawField, fieldId);
+
+    auto dg = std::make_shared<Datagram>(sender, _doId,
+                                         STATESERVER_OBJECT_GET_FIELD_RESP);
+    dg->AddUint32(context);
+    dg->AddBool(success);
+    if (success) {
+      dg->AddData(rawField);
+    }
+    PublishDatagram(dg);
     break;
   }
   case STATESERVER_OBJECT_GET_FIELDS: {
+    uint32_t context = dgi.GetUint32();
+    if (dgi.GetUint32() != _doId) {
+      break;
+    }
+
+    uint16_t fieldCount = dgi.GetUint16();
+
+    // Read our requested fields into a sorted set.
+    std::set<uint16_t> requestedFields;
+    for (int i = 0; i < fieldCount; ++i) {
+      uint16_t fieldId = dgi.GetUint16();
+      if (!requestedFields.insert(fieldId).second) {
+        DCField *field = _dclass->get_inherited_field(i);
+        if (field) {
+          Logger::Warn(std::format("[SS] Distributed Object: '{}' received "
+                                   "duplicate field: {} in get fields",
+                                   _doId, field->get_name()));
+        }
+      }
+    }
+
+    // Try to get the values for all the fields.
+    bool success = true;
+    uint16_t fieldsFound = 0;
+    auto rawFields = std::make_shared<Datagram>();
+
+    for (const auto &fieldId : requestedFields) {
+      uint16_t length = rawFields->Size();
+      if (!HandleOneGet(rawFields, fieldId, true)) {
+        success = false;
+        break;
+      }
+
+      if (rawFields->Size() > length) {
+        fieldsFound++;
+      }
+    }
+
+    // Send get fields response.
+    auto dg = std::make_shared<Datagram>(sender, _doId,
+                                         STATESERVER_OBJECT_GET_FIELDS_RESP);
+    dg->AddUint32(context);
+    dg->AddBool(success);
+    if (success) {
+      dg->AddUint16(fieldsFound);
+      dg->AddData(rawFields);
+    }
+    PublishDatagram(dg);
     break;
   }
   case STATESERVER_OBJECT_SET_OWNER: {
+    uint64_t newOwner = dgi.GetUint64();
+
+    Logger::Verbose(
+        std::format("[SS] Distributed Object: '{}' updating owner to: {}",
+                    _doId, newOwner));
+
+    if (newOwner == _ownerChannel) {
+      return;
+    }
+
+    if (_ownerChannel) {
+      auto dg = std::make_shared<Datagram>(_ownerChannel, sender,
+                                           STATESERVER_OBJECT_CHANGING_OWNER);
+      dg->AddUint32(_doId);
+      dg->AddUint64(newOwner);
+      dg->AddUint64(_ownerChannel);
+      PublishDatagram(dg);
+    }
+
+    _ownerChannel = newOwner;
+
+    if (newOwner) {
+      SendOwnerEntry(newOwner);
+    }
     break;
   }
   case STATESERVER_OBJECT_GET_ZONE_OBJECTS:
   case STATESERVER_OBJECT_GET_ZONES_OBJECTS: {
+    uint32_t context = dgi.GetUint32();
+    uint32_t queriedParent = dgi.GetUint32();
+
+    Logger::Verbose(std::format("[SS] Distributed Object: '{}' handling get "
+                                "zones with parent: {} where my parent is: {}",
+                                _doId, queriedParent, _parentId));
+
+    uint16_t zoneCount = 1;
+    if (msgType == STATESERVER_OBJECT_GET_ZONES_OBJECTS) {
+      zoneCount = dgi.GetUint16();
+    }
+
+    if (queriedParent == _parentId) {
+      // Query was relayed from parent! See if we match any of the zones and if
+      // so, reply.
+      for (uint16_t i = 0; i < zoneCount; ++i) {
+        if (dgi.GetUint32() == _zoneId) {
+          // The parent forwarding this request down to us may or may
+          // not yet know about our presence (and therefore have us
+          // included in the count that it sent to the interested
+          // peer). If we are included in this count, we reply with a
+          // normal interest entry. If not, we reply with a standard
+          // location entry and allow the interested peer to resolve
+          // the difference itself.
+          if (_parentSynchronized) {
+            SendInterestEntry(sender, context);
+          } else {
+            SendLocationEntry(sender);
+          }
+          break;
+        }
+      }
+    } else if (queriedParent == _doId) {
+      uint32_t childCount = 0;
+
+      // Start datagram relay to children.
+      auto dg =
+          std::make_shared<Datagram>(ParentToChildren(_doId), sender,
+                                     STATESERVER_OBJECT_GET_ZONES_OBJECTS);
+      dg->AddUint32(context);
+      dg->AddUint32(queriedParent);
+      dg->AddUint16(zoneCount);
+
+      // Get all zones requested.
+      for (int i = 0; i < zoneCount; ++i) {
+        uint32_t zone = dgi.GetUint32();
+        childCount += _zoneObjects[zone].size();
+        dg->AddUint32(zone);
+      }
+
+      // Reply to requestor with count of objects expected.
+      auto countDg = std::make_shared<Datagram>(
+          sender, _doId, STATESERVER_OBJECT_GET_ZONES_COUNT_RESP);
+      countDg->AddUint32(context);
+      countDg->AddUint32(childCount);
+      PublishDatagram(countDg);
+
+      // Bounce the message down to all children and have them decide whether
+      //  to reply.
+      if (childCount > 0) {
+        PublishDatagram(dg);
+      }
+    }
     break;
   }
   case STATESERVER_GET_ACTIVE_ZONES: {
+    uint32_t context = dgi.GetUint32();
+
+    std::unordered_set<uint32_t> keys;
+    for (const auto &zones : _zoneObjects) {
+      keys.insert(zones.first);
+    }
+
+    auto dg = std::make_shared<Datagram>(sender, _doId,
+                                         STATESERVER_GET_ACTIVE_ZONES_RESP);
+    dg->AddUint32(context);
+    dg->AddUint16(keys.size());
+    for (const auto &zoneId : keys) {
+      dg->AddUint32(zoneId);
+    }
+
+    PublishDatagram(dg);
     break;
   }
   default:
@@ -484,6 +709,33 @@ void DistributedObject::SendAIEntry(const uint64_t &location) {
   PublishDatagram(dg);
 }
 
+void DistributedObject::SendOwnerEntry(const uint64_t &location) {
+  auto dg = std::make_shared<Datagram>(
+      location, _doId,
+      _ramFields.empty() ? STATESERVER_OBJECT_ENTER_OWNER_WITH_REQUIRED
+                         : STATESERVER_OBJECT_ENTER_OWNER_WITH_REQUIRED_OTHER);
+  AppendRequiredData(dg, true, true);
+  if (!_ramFields.empty()) {
+    AppendOtherData(dg, true, true);
+  }
+  PublishDatagram(dg);
+}
+
+void DistributedObject::SendInterestEntry(const uint64_t &location,
+                                          const uint32_t &context) {
+  auto dg = std::make_shared<Datagram>(
+      location, _doId,
+      _ramFields.empty()
+          ? STATESERVER_OBJECT_ENTER_INTEREST_WITH_REQUIRED
+          : STATESERVER_OBJECT_ENTER_INTEREST_WITH_REQUIRED_OTHER);
+  dg->AddUint32(context);
+  AppendRequiredData(dg, true);
+  if (!_ramFields.empty()) {
+    AppendOtherData(dg, true);
+  }
+  PublishDatagram(dg);
+}
+
 void DistributedObject::AppendRequiredData(const std::shared_ptr<Datagram> &dg,
                                            const bool &clientOnly,
                                            const bool &alsoOwner) {
@@ -599,6 +851,48 @@ bool DistributedObject::HandleOneUpdate(DatagramIterator &dgi,
   dg->AddUint16(fieldId);
   dg->AddData(data);
   PublishDatagram(dg);
+
+  return true;
+}
+
+bool DistributedObject::HandleOneGet(const std::shared_ptr<Datagram> &dg,
+                                     uint16_t fieldId,
+                                     const bool &succeedIfUnset,
+                                     const bool &isSubfield) {
+  DCField *field = _dclass->get_inherited_field(fieldId);
+  if (!field) {
+    Logger::Error(std::format(
+        "[SS] Distributed Object: '{}' get field for: {} not valid for class: ",
+        _doId, fieldId, _dclass->get_name()));
+    return false;
+  }
+
+  DCMolecularField *molecular = field->as_molecular_field();
+  if (molecular) {
+    int n = molecular->get_num_atomics();
+    dg->AddUint16(fieldId);
+    for (int i = 0; i < n; ++i) {
+      if (!HandleOneGet(dg, molecular->get_atomic(i)->get_number(),
+                        succeedIfUnset, true)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  if (_requiredFields.count(field)) {
+    if (!isSubfield) {
+      dg->AddUint16(fieldId);
+    }
+    dg->AddData(_requiredFields[field]);
+  } else if (_ramFields.count(field)) {
+    if (!isSubfield) {
+      dg->AddUint16(fieldId);
+    }
+    dg->AddData(_ramFields[field]);
+  } else {
+    return succeedIfUnset;
+  }
 
   return true;
 }

@@ -14,8 +14,8 @@ public:
                     const uint32_t &parentId, const uint32_t &zoneId,
                     DCClass *dclass, DatagramIterator &dgi, const bool &other);
 
-  uint64_t GetAI() const;
-  bool IsAIExplicitlySet() const;
+  [[nodiscard]] uint64_t GetAI() const;
+  [[nodiscard]] bool IsAIExplicitlySet() const;
 
 private:
   void Annihilate(const uint64_t &sender, const bool &notifyParent = true);
@@ -32,6 +32,8 @@ private:
 
   void SendLocationEntry(const uint64_t &location);
   void SendAIEntry(const uint64_t &location);
+  void SendOwnerEntry(const uint64_t &location);
+  void SendInterestEntry(const uint64_t &location, const uint32_t &context);
 
   void AppendRequiredData(const std::shared_ptr<Datagram> &dg,
                           const bool &clientOnly = false,
@@ -42,6 +44,9 @@ private:
 
   void SaveField(DCField *field, const std::vector<uint8_t> &data);
   bool HandleOneUpdate(DatagramIterator &dgi, const uint64_t &sender);
+  bool HandleOneGet(const std::shared_ptr<Datagram> &dg, uint16_t fieldId,
+                    const bool &succeedIfUnset = false,
+                    const bool &isSubfield = false);
 
   StateServer *_stateServer;
   uint32_t _doId;

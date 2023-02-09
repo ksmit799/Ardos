@@ -23,7 +23,8 @@ Datagram::Datagram(const uint64_t &toChannel, const uint64_t &fromChannel,
 }
 
 Datagram::Datagram(const std::unordered_set<uint64_t> &toChannels,
-                   const uint64_t &fromChannel, const uint16_t &msgType) {
+                   const uint64_t &fromChannel, const uint16_t &msgType)
+    : _buf(new uint8_t[kMinDgSize]), _bufLength(kMinDgSize), _bufOffset(0) {
   AddUint8(toChannels.size());
   for (const auto &channel : toChannels) {
     AddUint64(channel);
@@ -185,6 +186,18 @@ void Datagram::AddData(const std::vector<uint8_t> &v) {
     EnsureLength(v.size());
     memcpy(_buf + _bufOffset, &v[0], v.size());
     _bufOffset += v.size();
+  }
+}
+
+/**
+ * Adds another datagrams data directly to the end of this datagram.
+ * @param v
+ */
+void Datagram::AddData(const std::shared_ptr<Datagram> &v) {
+  if (v->Size()) {
+    EnsureLength(v->Size());
+    memcpy(_buf + _bufOffset, v->GetData(), v->Size());
+    _bufOffset += v->Size();
   }
 }
 
