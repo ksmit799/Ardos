@@ -2,6 +2,7 @@
 #define ARDOS_MESSAGE_TYPES_H
 
 const uint64_t INVALID_CHANNEL = 0;
+const uint32_t INVALID_DO_ID = 0;
 const uint64_t CONTROL_MESSAGE = 1;
 
 const uint32_t STATESERVER_CONTEXT_WAKE_CHILDREN = 1001;

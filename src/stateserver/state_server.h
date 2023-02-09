@@ -15,13 +15,15 @@ class StateServer : public ChannelSubscriber {
 public:
   StateServer();
 
+  void RemoveDistributedObject(const uint32_t &doId);
+
 private:
   void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;
   void HandleGenerate(DatagramIterator &dgi, const bool &other);
   void HandleDeleteAI(DatagramIterator &dgi, const uint64_t &sender);
 
   uint64_t _channel;
-  std::unordered_map<uint32_t, DistributedObject *> _dist_objs;
+  std::unordered_map<uint32_t, std::unique_ptr<DistributedObject>> _distObjs;
 };
 
 } // namespace Ardos
