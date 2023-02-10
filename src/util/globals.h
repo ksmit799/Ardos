@@ -2,6 +2,7 @@
 #define ARDOS_GLOBALS_H
 
 #include <memory>
+#include <thread>
 
 #include <dcFile.h>
 #include <uvw/loop.h>
