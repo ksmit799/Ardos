@@ -28,6 +28,8 @@ void MDParticipant::Shutdown() {
     PublishDatagram(dg);
   }
 
+  NetworkClient::Shutdown();
+
   delete this;
 }
 

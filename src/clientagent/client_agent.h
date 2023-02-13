@@ -2,6 +2,7 @@
 #define ARDOS_CLIENT_AGENT_H
 
 #include <memory>
+#include <queue>
 
 #include <uvw.hpp>
 
@@ -11,14 +12,18 @@ class ClientAgent {
 public:
   ClientAgent();
 
+  uint64_t AllocateChannel();
+  void FreeChannel(const uint64_t &channel);
+
 private:
   std::shared_ptr<uvw::TCPHandle> _listenHandle;
 
-  uint64_t _channelsMin;
-  uint64_t _channelsMax;
-
   std::string _host = "127.0.0.1";
   int _port = 6667;
+
+  uint64_t _nextChannel;
+  uint64_t _channelsMax;
+  std::queue<uint64_t> _freedChannels;
 };
 
 } // namespace Ardos

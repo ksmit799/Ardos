@@ -34,8 +34,7 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::TCPHandle> &socket)
 }
 
 NetworkClient::~NetworkClient() {
-  _socket->close();
-  _socket.reset();
+  Shutdown();
 }
 
 /**
@@ -49,6 +48,15 @@ bool NetworkClient::Disconnected() const { return _disconnected; }
  * @return
  */
 uvw::Addr NetworkClient::GetRemoteAddress() { return _remoteAddress; }
+
+void NetworkClient::Shutdown() {
+  _disconnected = true;
+
+  _socket->close();
+  _socket.reset();
+
+  _socket = nullptr;
+}
 
 void NetworkClient::HandleClose(uv_errno_t code) {
   if (_disconnected) {

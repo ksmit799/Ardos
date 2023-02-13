@@ -24,7 +24,7 @@ ClientAgent::ClientAgent() {
 
   // Channel allocation configuration.
   auto channelsParam = config["channels"];
-  _channelsMin = channelsParam["min"].as<uint64_t>();
+  _nextChannel = channelsParam["min"].as<uint64_t>();
   _channelsMax = channelsParam["max"].as<uint64_t>();
 
   // Socket events.
@@ -41,6 +41,24 @@ ClientAgent::ClientAgent() {
 
   // Start listening!
   _listenHandle->bind(_host, _port);
+}
+
+uint64_t ClientAgent::AllocateChannel() {
+  if (_nextChannel <= _channelsMax) {
+    return _nextChannel++;
+  } else {
+    if (!_freedChannels.empty()) {
+      uint64_t channel = _freedChannels.front();
+      _freedChannels.pop();
+      return channel;
+    }
+  }
+
+  return 0;
+}
+
+void ClientAgent::FreeChannel(const uint64_t &channel) {
+  _freedChannels.push(channel);
 }
 
 } // namespace Ardos
