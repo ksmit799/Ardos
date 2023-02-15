@@ -22,6 +22,16 @@ ClientAgent::ClientAgent() {
     _port = portParam.as<int>();
   }
 
+  // Server version configuration.
+  _version = config["version"].as<std::string>();
+
+  // DC hash configuration.
+  // Can be manually overriden in CA config.
+  _dcHash = g_dc_file->get_hash();
+  if (auto manualHash = config["manual-dc-hash"]) {
+    _dcHash = manualHash.as<uint32_t>();
+  }
+
   // Channel allocation configuration.
   auto channelsParam = config["channels"];
   _nextChannel = channelsParam["min"].as<uint64_t>();
@@ -82,6 +92,18 @@ void ClientAgent::FreeChannel(const uint64_t &channel) {
  * is configured).
  * @return
  */
-uint64_t ClientAgent::GetAuthShim() { return _udAuthShim; }
+uint64_t ClientAgent::GetAuthShim() const { return _udAuthShim; }
+
+/**
+ * Returns the configured server version.
+ * @return
+ */
+std::string ClientAgent::GetVersion() { return _version; }
+
+/**
+ * Returns the computed DC hash or a configured override.
+ * @return
+ */
+uint32_t ClientAgent::GetHash() const { return _dcHash; }
 
 } // namespace Ardos

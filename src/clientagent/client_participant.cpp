@@ -132,9 +132,102 @@ void ClientParticipant::SendDisconnect(const uint16_t &reason,
   NetworkClient::Shutdown();
 }
 
-void ClientParticipant::HandlePreHello(DatagramIterator &dgi) {}
+void ClientParticipant::HandlePreHello(DatagramIterator &dgi) {
+  uint16_t msgType = dgi.GetUint16();
 
-void ClientParticipant::HandlePreAuth(DatagramIterator &dgi) {}
+#ifdef ARDOS_USE_LEGACY_CLIENT
+  switch (msgType) {
+  case CLIENT_LOGIN_FAIRIES:
+  case CLIENT_LOGIN_TOONTOWN:
+    HandleLoginLegacy(dgi);
+    break;
+  default:
+    SendDisconnect(CLIENT_DISCONNECT_NO_HELLO, "First packet is not LOGIN");
+  }
+#else
+  if (msgType != CLIENT_HELLO) {
+    SendDisconnect(CLIENT_DISCONNECT_NO_HELLO,
+                   "First packet is not CLIENT_HELLO");
+    return;
+  }
+
+  uint32_t hashVal = dgi.GetUint32();
+  std::string version = dgi.GetString();
+
+  if (version != _clientAgent->GetVersion()) {
+    SendDisconnect(CLIENT_DISCONNECT_BAD_VERSION,
+                   "Your client is out-of-date!");
+    return;
+  }
+
+  if (hashVal != _clientAgent->GetHash()) {
+    SendDisconnect(CLIENT_DISCONNECT_BAD_DCHASH, "Mismatched DC hash!", true);
+    return;
+  }
+
+  _authState = AUTH_STATE_ANONYMOUS;
+
+  auto dg = std::make_shared<Datagram>();
+  dg->AddUint16(CLIENT_HELLO_RESP);
+  SendDatagram(dg);
+#endif // ARDOS_USE_LEGACY_CLIENT
+}
+
+#ifdef ARDOS_USE_LEGACY_CLIENT
+void ClientParticipant::HandleLoginLegacy(DatagramIterator &dgi) {
+  uint64_t authShim = _clientAgent->GetAuthShim();
+  if (!authShim) {
+    Logger::Error("[CA] No configured auth shim for legacy login!");
+    SendDisconnect(CLIENT_DISCONNECT_GENERIC, "No available login handler!");
+    return;
+  }
+
+  std::string loginToken = dgi.GetString();
+  std::string clientVersion = dgi.GetString();
+  uint32_t hashVal = dgi.GetUint32();
+  dgi.GetUint32(); // Token type.
+  dgi.GetString(); // Unused.
+
+  if (clientVersion != _clientAgent->GetVersion()) {
+    SendDisconnect(CLIENT_DISCONNECT_BAD_VERSION,
+                   "Your client is out-of-date!");
+    return;
+  }
+
+  if (hashVal != _clientAgent->GetHash()) {
+    SendDisconnect(CLIENT_DISCONNECT_BAD_DCHASH, "Mismatched DC hash!", true);
+    return;
+  }
+
+  // We've got a matching version and hash, send off the login request to the
+  // configured shim UberDOG!
+  auto dg = std::make_shared<Datagram>(authShim, _channel,
+                                       STATESERVER_OBJECT_SET_FIELD);
+  dg->AddUint32(authShim);
+  dg->AddUint16(0); // TODO: Field number.
+  dg->AddString(loginToken);
+  PublishDatagram(dg);
+}
+#endif // ARDOS_USE_LEGACY_CLIENT
+
+void ClientParticipant::HandlePreAuth(DatagramIterator &dgi) {
+  uint16_t msgType = dgi.GetUint16();
+  switch (msgType) {
+  case CLIENT_DISCONNECT: {
+    _cleanDisconnect = true;
+    NetworkClient::Shutdown();
+    break;
+  }
+  case CLIENT_OBJECT_SET_FIELD:
+    HandleClientObjectUpdateField(dgi);
+    break;
+  case CLIENT_HEARTBEAT:
+    HandleClientHeartbeat();
+    break;
+  default:
+    SendDisconnect(CLIENT_DISCONNECT_ANONYMOUS_VIOLATION, "", true);
+  }
+}
 
 void ClientParticipant::HandleAuthenticated(DatagramIterator &dgi) {}
 

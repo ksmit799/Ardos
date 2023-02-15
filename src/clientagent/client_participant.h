@@ -35,6 +35,10 @@ private:
   void HandlePreAuth(DatagramIterator &dgi);
   void HandleAuthenticated(DatagramIterator &dgi);
 
+#ifdef ARDOS_USE_LEGACY_CLIENT
+  void HandleLoginLegacy(DatagramIterator &dgi);
+#endif
+
   ClientAgent *_clientAgent;
 
   uint64_t _channel;
