@@ -15,6 +15,8 @@ public:
   uint64_t AllocateChannel();
   void FreeChannel(const uint64_t &channel);
 
+  uint64_t GetAuthShim();
+
 private:
   std::shared_ptr<uvw::TCPHandle> _listenHandle;
 
@@ -24,6 +26,8 @@ private:
   uint64_t _nextChannel;
   uint64_t _channelsMax;
   std::queue<uint64_t> _freedChannels;
+
+  uint64_t _udAuthShim = 0;
 };
 
 } // namespace Ardos
