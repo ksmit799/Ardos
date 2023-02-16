@@ -4,9 +4,16 @@
 #include <memory>
 #include <queue>
 
+#include <dcClass.h>
 #include <uvw.hpp>
 
 namespace Ardos {
+
+struct Uberdog {
+  uint32_t doId;
+  DCClass *dcc;
+  bool anonymous;
+};
 
 class ClientAgent {
 public:
@@ -15,9 +22,12 @@ public:
   uint64_t AllocateChannel();
   void FreeChannel(const uint64_t &channel);
 
-  [[nodiscard]] uint64_t GetAuthShim() const;
-  std::string GetVersion();
+  [[nodiscard]] uint32_t GetAuthShim() const;
+  [[nodiscard]] std::string GetVersion() const;
   [[nodiscard]] uint32_t GetHash() const;
+  [[nodiscard]] long GetHeartbeatInterval() const;
+  [[nodiscard]] long GetAuthTimeout() const;
+  [[nodiscard]] std::unordered_map<uint32_t, Uberdog> Uberdogs() const;
 
 private:
   std::shared_ptr<uvw::TCPHandle> _listenHandle;
@@ -27,12 +37,16 @@ private:
 
   std::string _version;
   uint32_t _dcHash;
+  long _heartbeatInterval;
+  long _authTimeout;
+
+  std::unordered_map<uint32_t, Uberdog> _uberdogs;
 
   uint64_t _nextChannel;
   uint64_t _channelsMax;
   std::queue<uint64_t> _freedChannels;
 
-  uint64_t _udAuthShim = 0;
+  uint32_t _udAuthShim = 0;
 };
 
 } // namespace Ardos

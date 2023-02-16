@@ -234,6 +234,14 @@ void DatagramIterator::UnpackField(DCPackerInterface *field,
 uint16_t DatagramIterator::Tell() const { return _offset; }
 
 /**
+ * Increases the read offset by the number of bytes.
+ * @param bytes
+ */
+void DatagramIterator::Skip(const size_t &bytes) {
+  _offset += bytes;
+}
+
+/**
  * Sets the current read offset (in bytes).
  * @param offset
  */

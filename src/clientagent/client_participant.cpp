@@ -1,6 +1,9 @@
 #include "client_participant.h"
 
+#include <dcField.h>
+
 #include "../net/message_types.h"
+#include "../util/globals.h"
 #include "../util/logger.h"
 
 namespace Ardos {
@@ -21,6 +24,27 @@ ClientParticipant::ClientParticipant(
 
   SubscribeChannel(_channel);
   SubscribeChannel(BCHAN_CLIENTS);
+
+  if (_clientAgent->GetHeartbeatInterval()) {
+    // Set up the heartbeat timeout timer.
+    _heartbeatTimer = g_loop->resource<uvw::TimerHandle>();
+    _heartbeatTimer->on<uvw::TimerEvent>(
+        [this](const uvw::TimerEvent &, uvw::TimerHandle &) {
+          HandleHeartbeatTimeout();
+        });
+  }
+
+  if (_clientAgent->GetAuthTimeout()) {
+    // Set up the auth timeout timer.
+    _authTimer = g_loop->resource<uvw::TimerHandle>();
+    _authTimer->on<uvw::TimerEvent>(
+        [this](const uvw::TimerEvent &, uvw::TimerHandle &) {
+          HandleAuthTimeout();
+        });
+
+    _authTimer->start(uvw::TimerHandle::Time{_clientAgent->GetAuthTimeout()},
+                      uvw::TimerHandle::Time{0});
+  }
 }
 
 /**
@@ -34,6 +58,20 @@ void ClientParticipant::Shutdown() {
 }
 
 void ClientParticipant::Annihilate() {
+  // Stop the heartbeat timer (if we have one.)
+  if (_heartbeatTimer) {
+    _heartbeatTimer->stop();
+    _heartbeatTimer->close();
+    _heartbeatTimer.reset();
+  }
+
+  // Stop the auth timer (if we have one.)
+  if (_authTimer) {
+    _authTimer->stop();
+    _authTimer->close();
+    _authTimer.reset();
+  }
+
   // Unsubscribe from all channels so DELETE messages aren't sent back to us.
   ChannelSubscriber::Shutdown();
   _clientAgent->FreeChannel(_channel);
@@ -132,6 +170,47 @@ void ClientParticipant::SendDisconnect(const uint16_t &reason,
   NetworkClient::Shutdown();
 }
 
+/**
+ * Resets this client's heartbeat disconnect timer.
+ */
+void ClientParticipant::HandleClientHeartbeat() {
+  if (_heartbeatTimer) {
+    _heartbeatTimer->stop();
+    _heartbeatTimer->start(
+        uvw::TimerHandle::Time{_clientAgent->GetHeartbeatInterval()},
+        uvw::TimerHandle::Time{0});
+  }
+}
+
+/**
+ * This client hasn't sent a heartbeat packet in the required interval.
+ * Disconnect them.
+ */
+void ClientParticipant::HandleHeartbeatTimeout() {
+  // Stop the heartbeat timer.
+  _heartbeatTimer->stop();
+  _heartbeatTimer->close();
+  _heartbeatTimer.reset();
+
+  SendDisconnect(CLIENT_DISCONNECT_NO_HEARTBEAT,
+                 "Client did not send heartbeat in required interval");
+}
+
+/**
+ * Check to see if this client has authenticated within the required time.
+ */
+void ClientParticipant::HandleAuthTimeout() {
+  // Stop the auth timer.
+  _authTimer->stop();
+  _authTimer->close();
+  _authTimer.reset();
+
+  if (_authState != AUTH_STATE_ESTABLISHED) {
+    SendDisconnect(CLIENT_DISCONNECT_GENERIC,
+                   "Client did not authenticate in the required time");
+  }
+}
+
 void ClientParticipant::HandlePreHello(DatagramIterator &dgi) {
   uint16_t msgType = dgi.GetUint16();
 
@@ -150,6 +229,8 @@ void ClientParticipant::HandlePreHello(DatagramIterator &dgi) {
                    "First packet is not CLIENT_HELLO");
     return;
   }
+
+  HandleClientHeartbeat();
 
   uint32_t hashVal = dgi.GetUint32();
   std::string version = dgi.GetString();
@@ -181,6 +262,8 @@ void ClientParticipant::HandleLoginLegacy(DatagramIterator &dgi) {
     SendDisconnect(CLIENT_DISCONNECT_GENERIC, "No available login handler!");
     return;
   }
+
+  HandleClientHeartbeat();
 
   std::string loginToken = dgi.GetString();
   std::string clientVersion = dgi.GetString();
@@ -225,10 +308,152 @@ void ClientParticipant::HandlePreAuth(DatagramIterator &dgi) {
     HandleClientHeartbeat();
     break;
   default:
-    SendDisconnect(CLIENT_DISCONNECT_ANONYMOUS_VIOLATION, "", true);
+    SendDisconnect(
+        CLIENT_DISCONNECT_ANONYMOUS_VIOLATION,
+        std::format("Message: {} not allowed prior to authentication!",
+                    msgType),
+        true);
   }
 }
 
-void ClientParticipant::HandleAuthenticated(DatagramIterator &dgi) {}
+void ClientParticipant::HandleAuthenticated(DatagramIterator &dgi) {
+  uint16_t msgType = dgi.GetUint16();
+  switch (msgType) {
+  case CLIENT_DISCONNECT: {
+    _cleanDisconnect = true;
+    NetworkClient::Shutdown();
+    break;
+  }
+  case CLIENT_OBJECT_SET_FIELD:
+    HandleClientObjectUpdateField(dgi);
+    break;
+  case CLIENT_OBJECT_LOCATION:
+    HandleClientObjectLocation(dgi);
+    break;
+  case CLIENT_ADD_INTEREST:
+    HandleClientAddInterest(dgi, false);
+    break;
+  case CLIENT_ADD_INTEREST_MULTIPLE:
+    HandleClientAddInterest(dgi, true);
+    break;
+  case CLIENT_REMOVE_INTEREST:
+    HandleClientRemoveInterest(dgi);
+    break;
+  case CLIENT_HEARTBEAT:
+    HandleClientHeartbeat();
+    break;
+  default:
+    SendDisconnect(CLIENT_DISCONNECT_INVALID_MSGTYPE,
+                   std::format("Client sent invalid message: {}", msgType),
+                   true);
+  }
+}
+
+/**
+ * Lookup a Distributed Object in-view of this client and return its class.
+ * @param doId
+ */
+DCClass *ClientParticipant::LookupObject(const uint32_t &doId) {
+  // First, see if it's an UberDOG.
+  auto uberdogs = _clientAgent->Uberdogs();
+  if (uberdogs.contains(doId)) {
+    return uberdogs[doId].dcc;
+  }
+
+  // Next, check the object cache, but this client only knows about it
+  // if it occurs in seen objects or owned objects.
+  if (_ownedObjects.contains(doId)) {
+    return _ownedObjects[doId].dcc;
+  }
+  if (_seenObjects.contains(doId) && _visibleObjects.contains(doId)) {
+    return _visibleObjects[doId].dcc;
+  }
+  if (_declaredObjects.contains(doId)) {
+    return _declaredObjects[doId].dcc;
+  }
+
+  return nullptr;
+}
+
+/**
+ * The client is attempting to update a field on a Distributed Object.
+ * @param dgi
+ */
+void ClientParticipant::HandleClientObjectUpdateField(DatagramIterator &dgi) {
+  uint32_t doId = dgi.GetUint32();
+  uint16_t fieldId = dgi.GetUint16();
+
+  DCClass *dcc = LookupObject(doId);
+  if (!dcc) {
+    if (_historicalObjects.contains(doId)) {
+      // The client isn't disconnected in this case because it could be a
+      // delayed message for a once visible object. Make sure to skip the rest
+      // of the payload to simulate the message being handled correctly.
+      dgi.Skip(dgi.GetRemainingSize());
+    } else {
+      SendDisconnect(
+          CLIENT_DISCONNECT_MISSING_OBJECT,
+          std::format("Client tried to send update to non-existent object: {}",
+                      doId));
+    }
+    return;
+  }
+
+  // If the client is not in an established auth state, it may only send updates
+  // to anonymous UberDOG's.
+  auto uberdogs = _clientAgent->Uberdogs();
+  if (_authState != AUTH_STATE_ESTABLISHED) {
+    if (!uberdogs.contains(doId) || !uberdogs[doId].anonymous) {
+      SendDisconnect(
+          CLIENT_DISCONNECT_ANONYMOUS_VIOLATION,
+          std::format("Client tried to send update to non-anonymous object: {}",
+                      doId),
+          true);
+      return;
+    }
+  }
+
+  // Check that the field id actually exists on the object.
+  DCField *field = dcc->get_field_by_index(fieldId);
+  if (!field) {
+    SendDisconnect(CLIENT_DISCONNECT_FORBIDDEN_FIELD,
+                   std::format("Client tried to send update to non-existent "
+                               "field: {} on object: {}",
+                               fieldId, doId),
+                   true);
+    return;
+  }
+
+  // Check that the client is actually allowed to send updates to this field.
+  bool isOwned = _ownedObjects.contains(doId);
+  if (!field->is_clsend() && !(isOwned && field->is_ownsend())) {
+    if (!_fieldsSendable.contains(doId) ||
+        !_fieldsSendable[doId].contains(fieldId)) {
+      SendDisconnect(CLIENT_DISCONNECT_FORBIDDEN_FIELD,
+                     std::format("Client tried to send update to non-sendable "
+                                 "field: {} of class: {} (DoId: {})",
+                                 field->get_name(), dcc->get_name(), doId));
+      return;
+    }
+  }
+
+  std::vector<uint8_t> data;
+  dgi.UnpackField(field, data);
+
+  // Forward the field update to the state server.
+  auto dg =
+      std::make_shared<Datagram>(doId, _channel, STATESERVER_OBJECT_SET_FIELD);
+  dg->AddUint32(doId);
+  dg->AddUint16(fieldId);
+  dg->AddData(data);
+  PublishDatagram(dg);
+}
+
+void ClientParticipant::HandleClientObjectLocation(DatagramIterator &dgi) {}
+
+void ClientParticipant::HandleClientAddInterest(DatagramIterator &dgi,
+                                                const bool &multiple) {}
+
+void ClientParticipant::HandleClientRemoveInterest(DatagramIterator &dgi) {}
 
 } // namespace Ardos

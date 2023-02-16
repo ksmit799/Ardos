@@ -32,6 +32,46 @@ ClientAgent::ClientAgent() {
     _dcHash = manualHash.as<uint32_t>();
   }
 
+  // Heartbeat interval configuration.
+  // By default, heartbeats are disabled.
+  _heartbeatInterval = 0;
+  if (auto heartbeatParam = config["heartbeat-interval"]) {
+    _heartbeatInterval = heartbeatParam.as<long>();
+  }
+
+  // Auth timeout configuration.
+  // By default, auth timeout is disabled.
+  _authTimeout = 0;
+  if (auto timeoutParam = config["auth-timeout"]) {
+    _authTimeout = timeoutParam.as<long>();
+  }
+
+  // UberDOG's configuration.
+  auto uberdogs = Config::Instance()->GetNode("uberdogs");
+  for (auto uberdog : uberdogs) {
+    DCClass *dcc =
+        g_dc_file->get_class_by_name(uberdog["class"].as<std::string>());
+    if (!dcc) {
+      Logger::Error(std::format(
+          "[CA] UberDOG: {} Distributed Class: {} does not exist!",
+          uberdog["id"].as<uint32_t>(), uberdog["class"].as<std::string>()));
+      exit(1);
+    }
+
+    Uberdog ud{};
+    ud.doId = uberdog["id"].as<uint32_t>();
+    ud.dcc = dcc;
+
+    // UberDOG's are anonymous by default (non-authed CA's can't update fields
+    // on them.)
+    ud.anonymous = false;
+    if (auto anonParam = uberdog["anonymous"]) {
+      ud.anonymous = anonParam.as<bool>();
+    }
+
+    _uberdogs[ud.doId] = ud;
+  }
+
   // Channel allocation configuration.
   auto channelsParam = config["channels"];
   _nextChannel = channelsParam["min"].as<uint64_t>();
@@ -41,7 +81,7 @@ ClientAgent::ClientAgent() {
   // This allows clients authenticating over Disney specific login methods to
   // authenticate with the cluster.
   if (auto shimParam = config["ud-auth-shim"]) {
-    _udAuthShim = shimParam.as<uint64_t>();
+    _udAuthShim = shimParam.as<uint32_t>();
   }
 
   // Socket events.
@@ -88,22 +128,42 @@ void ClientAgent::FreeChannel(const uint64_t &channel) {
 }
 
 /**
- * Returns the channel ID of the configured UD Authentication Shim (or 0 if none
+ * Returns the DoId of the configured UD Authentication Shim (or 0 if none
  * is configured).
  * @return
  */
-uint64_t ClientAgent::GetAuthShim() const { return _udAuthShim; }
+uint32_t ClientAgent::GetAuthShim() const { return _udAuthShim; }
 
 /**
  * Returns the configured server version.
  * @return
  */
-std::string ClientAgent::GetVersion() { return _version; }
+std::string ClientAgent::GetVersion() const { return _version; }
 
 /**
  * Returns the computed DC hash or a configured override.
  * @return
  */
 uint32_t ClientAgent::GetHash() const { return _dcHash; }
+
+/**
+ * Returns the expected client heartbeat interval.
+ * @return
+ */
+long ClientAgent::GetHeartbeatInterval() const { return _heartbeatInterval; }
+
+/**
+ * Returns the number of MS a client is expected to auth within.
+ * @return
+ */
+long ClientAgent::GetAuthTimeout() const { return _authTimeout; }
+
+/**
+ * Returns the configured UberDOG's.
+ * @return
+ */
+std::unordered_map<uint32_t, Uberdog> ClientAgent::Uberdogs() const {
+  return _uberdogs;
+}
 
 } // namespace Ardos
