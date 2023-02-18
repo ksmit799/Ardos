@@ -72,6 +72,29 @@ ClientAgent::ClientAgent() {
     _uberdogs[ud.doId] = ud;
   }
 
+  // Owned objects relocation configuration.
+  _relocateAllowed = true;
+  if (auto relocateParam = config["relocate-allowed"]) {
+    _relocateAllowed = relocateParam.as<bool>();
+  }
+
+  // Interests permission level configuration.
+  _interestsPermission = INTERESTS_DISABLED;
+  if (auto interestParam = config["interests"]) {
+    auto level = interestParam.as<std::string>();
+    if (level == "enabled") {
+      _interestsPermission = INTERESTS_ENABLED;
+    } else if (level == "visible") {
+      _interestsPermission = INTERESTS_VISIBLE;
+    }
+  }
+
+  // Interest operation timeout config.
+  _interestTimeout = 500;
+  if (auto timeoutParam = config["interest-timeout"]) {
+    _interestTimeout = timeoutParam.as<unsigned long>();
+  }
+
   // Channel allocation configuration.
   auto channelsParam = config["channels"];
   _nextChannel = channelsParam["min"].as<uint64_t>();
@@ -150,13 +173,15 @@ uint32_t ClientAgent::GetHash() const { return _dcHash; }
  * Returns the expected client heartbeat interval.
  * @return
  */
-long ClientAgent::GetHeartbeatInterval() const { return _heartbeatInterval; }
+unsigned long ClientAgent::GetHeartbeatInterval() const {
+  return _heartbeatInterval;
+}
 
 /**
  * Returns the number of MS a client is expected to auth within.
  * @return
  */
-long ClientAgent::GetAuthTimeout() const { return _authTimeout; }
+unsigned long ClientAgent::GetAuthTimeout() const { return _authTimeout; }
 
 /**
  * Returns the configured UberDOG's.
@@ -164,6 +189,31 @@ long ClientAgent::GetAuthTimeout() const { return _authTimeout; }
  */
 std::unordered_map<uint32_t, Uberdog> ClientAgent::Uberdogs() const {
   return _uberdogs;
+}
+
+/**
+ * Returns whether or not clients are allowed to relocate the location of
+ * objects they have ownership of.
+ * @return
+ */
+bool ClientAgent::GetRelocateAllowed() const { return _relocateAllowed; }
+
+/**
+ * Returns the permission level of clients setting their own interests.
+ * Options are: Enabled, Visible only (they must have visibility of the parent),
+ * Disabled.
+ * @return
+ */
+InterestsPermission ClientAgent::GetInterestsPermission() const {
+  return _interestsPermission;
+}
+
+/**
+ * Returns the number of MS an interest operation can run for before timing out.
+ * @return
+ */
+unsigned long ClientAgent::GetInterestTimeout() const {
+  return _interestTimeout;
 }
 
 } // namespace Ardos

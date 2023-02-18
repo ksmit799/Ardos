@@ -15,6 +15,12 @@ struct Uberdog {
   bool anonymous;
 };
 
+enum InterestsPermission {
+  INTERESTS_ENABLED,
+  INTERESTS_VISIBLE,
+  INTERESTS_DISABLED,
+};
+
 class ClientAgent {
 public:
   ClientAgent();
@@ -25,9 +31,12 @@ public:
   [[nodiscard]] uint32_t GetAuthShim() const;
   [[nodiscard]] std::string GetVersion() const;
   [[nodiscard]] uint32_t GetHash() const;
-  [[nodiscard]] long GetHeartbeatInterval() const;
-  [[nodiscard]] long GetAuthTimeout() const;
+  [[nodiscard]] unsigned long GetHeartbeatInterval() const;
+  [[nodiscard]] unsigned long GetAuthTimeout() const;
   [[nodiscard]] std::unordered_map<uint32_t, Uberdog> Uberdogs() const;
+  [[nodiscard]] bool GetRelocateAllowed() const;
+  [[nodiscard]] InterestsPermission GetInterestsPermission() const;
+  [[nodiscard]] unsigned long GetInterestTimeout() const;
 
 private:
   std::shared_ptr<uvw::TCPHandle> _listenHandle;
@@ -37,8 +46,11 @@ private:
 
   std::string _version;
   uint32_t _dcHash;
-  long _heartbeatInterval;
-  long _authTimeout;
+  unsigned long _heartbeatInterval;
+  unsigned long _authTimeout;
+  bool _relocateAllowed;
+  InterestsPermission _interestsPermission;
+  unsigned long _interestTimeout;
 
   std::unordered_map<uint32_t, Uberdog> _uberdogs;
 

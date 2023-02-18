@@ -5,6 +5,7 @@
 #include "../net/datagram_iterator.h"
 #include "../net/network_client.h"
 #include "client_agent.h"
+#include "interest_operation.h"
 
 namespace Ardos {
 
@@ -27,6 +28,12 @@ struct OwnedObject : DeclaredObject {
 struct VisibleObject : DeclaredObject {
   uint32_t parent;
   uint32_t zone;
+};
+
+struct Interest {
+  uint16_t id;
+  uint32_t parent;
+  std::unordered_set<uint32_t> zones;
 };
 
 class ClientParticipant : public NetworkClient, public ChannelSubscriber {
@@ -54,6 +61,10 @@ private:
   void HandlePreAuth(DatagramIterator &dgi);
   void HandleAuthenticated(DatagramIterator &dgi);
 
+#ifdef ARDOS_USE_LEGACY_CLIENT
+  void HandleLoginLegacy(DatagramIterator &dgi);
+#endif
+
   DCClass *LookupObject(const uint32_t &doId);
 
   void HandleClientObjectUpdateField(DatagramIterator &dgi);
@@ -61,9 +72,21 @@ private:
   void HandleClientAddInterest(DatagramIterator &dgi, const bool &multiple);
   void HandleClientRemoveInterest(DatagramIterator &dgi);
 
-#ifdef ARDOS_USE_LEGACY_CLIENT
-  void HandleLoginLegacy(DatagramIterator &dgi);
-#endif
+  void BuildInterest(DatagramIterator &dgi, const bool &multiple,
+                     Interest &out);
+  void AddInterest(Interest &i, const uint32_t &context,
+                   const uint64_t &caller = 0);
+
+  std::vector<Interest> LookupInterests(const uint32_t &parentId,
+                                        const uint32_t &zoneId);
+
+  void NotifyInterestDone(const uint16_t &interestId, const uint64_t &caller);
+  void HandleInterestDone(const uint16_t &interestId, const uint32_t &context);
+
+  void CloseZones(const uint32_t &parent,
+                  const std::unordered_set<uint32_t> &killedZones);
+
+  void HandleRemoveObject(const uint32_t &doId);
 
   ClientAgent *_clientAgent;
 
@@ -79,7 +102,9 @@ private:
   std::unordered_set<uint32_t> _seenObjects;
   // A list of all objects that were once visible, but are no longer.
   std::unordered_set<uint32_t> _historicalObjects;
-  // A mao of objects that this client has ownership of.
+  // A list of objects that's lifetime is bound to this clients' session.
+  std::unordered_set<uint32_t> _sessionObjects;
+  // A map of objects that this client has ownership of.
   std::unordered_map<uint32_t, OwnedObject> _ownedObjects;
   // A map of all currently visible objects to their data.
   std::unordered_map<uint32_t, VisibleObject> _visibleObjects;
@@ -88,6 +113,13 @@ private:
 
   // A map of DoId's to fields marked explicitly send-able.
   std::unordered_map<uint32_t, std::unordered_set<uint16_t>> _fieldsSendable;
+
+  // Context ID for handling interest responses from the state server.
+  uint32_t _nextContext = 0;
+  // A map of interest id's to interest handles.
+  std::unordered_map<uint16_t, Interest> _interests;
+  // A map of interest contexts to their in-progress operations.
+  std::unordered_map<uint32_t, InterestOperation*> _pendingInterests;
 };
 
 } // namespace Ardos
