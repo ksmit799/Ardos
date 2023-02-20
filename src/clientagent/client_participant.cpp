@@ -317,27 +317,170 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     break;
   }
   case STATESERVER_OBJECT_SET_FIELD: {
+    uint32_t doId = dgi.GetUint32();
+    if (!LookupObject(doId)) {
+      if (TryQueuePending(doId, dgi.GetUnderlyingDatagram())) {
+        return;
+      }
+
+      Logger::Warn(std::format("[CA] Client: {} received server-side field "
+                               "update for unknown object: {}",
+                               _channel, doId));
+      return;
+    }
+
+    if (sender != _channel) {
+      uint16_t fieldId = dgi.GetUint16();
+      HandleSetField(doId, fieldId, dgi);
+    }
     break;
   }
   case STATESERVER_OBJECT_SET_FIELDS: {
+    uint32_t doId = dgi.GetUint32();
+    if (!LookupObject(doId)) {
+      if (TryQueuePending(doId, dgi.GetUnderlyingDatagram())) {
+        return;
+      }
+
+      Logger::Warn(
+          std::format("[CA] Client: {} received server-side multi-field "
+                      "update for unknown object: {}",
+                      _channel, doId));
+      return;
+    }
+
+    if (sender != _channel) {
+      uint16_t numFields = dgi.GetUint16();
+      HandleSetFields(doId, numFields, dgi);
+    }
     break;
   }
   case STATESERVER_OBJECT_DELETE_RAM: {
+    uint32_t doId = dgi.GetUint32();
+
+    Logger::Verbose(std::format(
+        "[CA] Client: {} received DeleteRam for object with DoId: {}", _channel,
+        doId));
+
+    if (!LookupObject(doId)) {
+      if (TryQueuePending(doId, dgi.GetUnderlyingDatagram())) {
+        return;
+      }
+
+      Logger::Warn(std::format(
+          "[CA] Client: {} received server-side delete for unknown object: {}",
+          _channel, doId));
+      return;
+    }
+
+    if (_sessionObjects.contains(doId)) {
+      // Erase the object from our session objects, otherwise it'll be deleted
+      // again when we disconnect.
+      _sessionObjects.erase(doId);
+
+      SendDisconnect(
+          CLIENT_DISCONNECT_SESSION_OBJECT_DELETED,
+          std::format(
+              "The session object with DoId: {} has been unexpectedly deleted",
+              doId));
+      return;
+    }
+
+    if (_seenObjects.contains(doId)) {
+      HandleRemoveObject(doId);
+      _seenObjects.erase(doId);
+    }
+
+    if (_ownedObjects.contains(doId)) {
+      HandleRemoveOwnership(doId);
+      _ownedObjects.erase(doId);
+    }
+
+    _historicalObjects.insert(doId);
+    _visibleObjects.erase(doId);
     break;
   }
   case STATESERVER_OBJECT_ENTER_OWNER_WITH_REQUIRED:
   case STATESERVER_OBJECT_ENTER_OWNER_WITH_REQUIRED_OTHER: {
+    uint32_t doId = dgi.GetUint32();
+    uint32_t parent = dgi.GetUint32();
+    uint32_t zone = dgi.GetUint32();
+    uint16_t dcId = dgi.GetUint16();
+
+    if (!_ownedObjects.contains(doId)) {
+      OwnedObject obj{};
+      obj.doId = doId;
+      obj.parent = parent;
+      obj.zone = zone;
+      obj.dcc = g_dc_file->get_class(dcId);
+      _ownedObjects[doId] = obj;
+    }
+
+    bool withOther =
+        (msgType == STATESERVER_OBJECT_ENTER_OWNER_WITH_REQUIRED_OTHER);
+    HandleAddOwnership(doId, parent, zone, dcId, dgi, withOther);
     break;
   }
   case STATESERVER_OBJECT_ENTER_LOCATION_WITH_REQUIRED:
   case STATESERVER_OBJECT_ENTER_LOCATION_WITH_REQUIRED_OTHER: {
+    uint32_t doId = dgi.GetUint32();
+    uint32_t parent = dgi.GetUint32();
+    uint32_t zone = dgi.GetUint32();
+
+    for (const auto &it : _pendingInterests) {
+      InterestOperation *iop = it.second;
+      if (iop->_parent == parent && iop->_zones.contains(zone)) {
+        iop->QueueDatagram(dgi.GetUnderlyingDatagram());
+        _pendingObjects.emplace(doId, it.first);
+        return;
+      }
+    }
+
+    // Object entrance doesn't pertain to any pending interest operation,
+    // so seek back to where we started and handle it normally.
+    dgi.SeekPayload();
+    dgi.Skip(sizeof(uint64_t) + sizeof(uint16_t)); // Sender + MsgType.
+
+    bool withOther =
+        (msgType == STATESERVER_OBJECT_ENTER_LOCATION_WITH_REQUIRED_OTHER);
+    HandleObjectEntrance(dgi, withOther);
     break;
   }
   case STATESERVER_OBJECT_ENTER_INTEREST_WITH_REQUIRED:
   case STATESERVER_OBJECT_ENTER_INTEREST_WITH_REQUIRED_OTHER: {
+    uint32_t requestContext = dgi.GetUint32();
+    auto it = _pendingInterests.find(requestContext);
+    if (it == _pendingInterests.end()) {
+      Logger::Warn(std::format("[CA] Client: {} received object entrance into "
+                               "interest with unknown context: {}",
+                               _channel, requestContext));
+      return;
+    }
+
+    _pendingObjects[dgi.GetUint32()] = requestContext;
+
+    it->second->QueueExpected(dgi.GetUnderlyingDatagram());
+    if (it->second->IsReady()) {
+      it->second->Finish();
+    }
     break;
   }
   case STATESERVER_OBJECT_GET_ZONES_COUNT_RESP: {
+    uint32_t context = dgi.GetUint32();
+    uint32_t count = dgi.GetUint32();
+
+    auto it = _pendingInterests.find(context);
+    if (it == _pendingInterests.end()) {
+      Logger::Error(std::format(
+          "[CA] Client: {} received GET_ZONES_COUNT for unknown context: {}",
+          _channel, context));
+      return;
+    }
+
+    it->second->SetExpected(count);
+    if (it->second->IsReady()) {
+      it->second->Finish();
+    }
     break;
   }
   case STATESERVER_OBJECT_CHANGING_LOCATION: {
@@ -724,7 +867,37 @@ void ClientParticipant::HandleClientAddInterest(DatagramIterator &dgi,
   AddInterest(i, context);
 }
 
-void ClientParticipant::HandleClientRemoveInterest(DatagramIterator &dgi) {}
+void ClientParticipant::HandleClientRemoveInterest(DatagramIterator &dgi) {
+  if (_clientAgent->GetInterestsPermission() == INTERESTS_DISABLED) {
+    SendDisconnect(CLIENT_DISCONNECT_FORBIDDEN_INTEREST,
+                   "Client is not allowed to remove interests", true);
+    return;
+  }
+
+  uint32_t context = dgi.GetUint32();
+  uint16_t id = dgi.GetUint16();
+
+  // Make sure the interest actually exists.
+  if (!_interests.contains(id)) {
+    SendDisconnect(
+        CLIENT_DISCONNECT_GENERIC,
+        std::format("Tried to remove a non-existent interest: {}", id), true);
+    return;
+  }
+
+  Interest &i = _interests[id];
+  if (_clientAgent->GetInterestsPermission() == INTERESTS_VISIBLE &&
+      !LookupObject(i.parent)) {
+    SendDisconnect(CLIENT_DISCONNECT_FORBIDDEN_INTEREST,
+                   std::format("Cannot remove interest for parent: {} because "
+                               "parent is not visible to client",
+                               i.parent),
+                   true);
+    return;
+  }
+
+  RemoveInterest(i, context);
+}
 
 void ClientParticipant::BuildInterest(DatagramIterator &dgi,
                                       const bool &multiple, Interest &out) {
@@ -942,6 +1115,13 @@ void ClientParticipant::HandleRemoveObject(const uint32_t &doId) {
   SendDatagram(dg);
 }
 
+void ClientParticipant::HandleRemoveOwnership(const uint32_t &doId) {
+  auto dg = std::make_shared<Datagram>();
+  dg->AddUint16(CLIENT_OBJECT_LEAVING_OWNER);
+  dg->AddUint32(doId);
+  SendDatagram(dg);
+}
+
 void ClientParticipant::HandleObjectEntrance(DatagramIterator &dgi,
                                              const bool &other) {
   uint32_t doId = dgi.GetUint32();
@@ -983,6 +1163,64 @@ void ClientParticipant::HandleAddObject(
   dg->AddUint32(doId);
   dg->AddLocation(parentId, zoneId);
   dg->AddUint16(dcId);
+  dg->AddData(dgi.GetRemainingBytes());
+  SendDatagram(dg);
+}
+
+bool ClientParticipant::TryQueuePending(const uint32_t &doId,
+                                        const std::shared_ptr<Datagram> &dg) {
+  auto it = _pendingObjects.find(doId);
+  if (it != _pendingObjects.end()) {
+    // The datagram should be queued under the appropriate interest operation.
+    _pendingInterests.find(it->second)->second->QueueDatagram(dg);
+    return true;
+  }
+
+  // We have no idea what DoId is being talked about.
+  return false;
+}
+
+void ClientParticipant::HandleSetField(const uint32_t &doId,
+                                       const uint16_t &fieldId,
+                                       DatagramIterator &dgi) {
+  auto dg = std::make_shared<Datagram>();
+  dg->AddUint16(CLIENT_OBJECT_SET_FIELD);
+  dg->AddUint32(doId);
+  dg->AddUint16(fieldId);
+  dg->AddData(dgi.GetRemainingBytes());
+  SendDatagram(dg);
+}
+
+void ClientParticipant::HandleSetFields(const uint32_t &doId,
+                                        const uint16_t &numFields,
+                                        DatagramIterator &dgi) {
+  auto dg = std::make_shared<Datagram>();
+  dg->AddUint16(CLIENT_OBJECT_SET_FIELDS);
+  dg->AddUint32(doId);
+  dg->AddUint16(numFields);
+  dg->AddData(dgi.GetRemainingBytes());
+  SendDatagram(dg);
+}
+
+void ClientParticipant::HandleAddOwnership(
+    const uint32_t &doId, const uint32_t &parentId, const uint32_t &zoneId,
+    const uint16_t &dcId, DatagramIterator &dgi, const bool &other) {
+  auto dg = std::make_shared<Datagram>();
+#ifdef ARDOS_USE_LEGACY_CLIENT
+  // Fairies only accepts OTHER_OWNER entries and has a slightly different data
+  // order.
+  // TODO: Check if this is the same for Toontown/Pirates.
+  dg->AddUint16(CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER);
+  dg->AddUint16(dcId);
+  dg->AddUint32(doId);
+  dg->AddLocation(parentId, zoneId);
+#else
+  dg->AddUint16(other ? CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER
+                      : CLIENT_ENTER_OBJECT_REQUIRED_OWNER);
+  dg->AddUint32(doId);
+  dg->AddLocation(parentId, zoneId);
+  dg->AddUint16(dcId);
+#endif
   dg->AddData(dgi.GetRemainingBytes());
   SendDatagram(dg);
 }

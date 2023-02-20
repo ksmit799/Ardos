@@ -38,6 +38,8 @@ private:
   uint16_t _interestId;
   uint32_t _clientContext;
   uint32_t _requestContext;
+  uint32_t _parent;
+  std::unordered_set<uint32_t> _zones;
   std::shared_ptr<uvw::TimerHandle> _timeout;
   bool _hasTotal = false;
   uint32_t _total = 0;

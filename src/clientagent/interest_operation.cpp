@@ -13,7 +13,7 @@ InterestOperation::InterestOperation(
     const uint32_t &requestContext, const uint32_t &parent,
     const std::unordered_set<uint32_t> &zones, const uint64_t &caller)
     : _client(client), _interestId(interestId), _clientContext(clientContext),
-      _requestContext(requestContext) {
+      _requestContext(requestContext), _parent(parent), _zones(zones) {
   _callers.insert(caller);
 
   // Interest operations can time out if the state server is taking too long.

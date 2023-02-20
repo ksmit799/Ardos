@@ -96,12 +96,25 @@ private:
                   const std::unordered_set<uint32_t> &killedZones);
 
   void HandleRemoveObject(const uint32_t &doId);
+  void HandleRemoveOwnership(const uint32_t &doId);
 
   void HandleObjectEntrance(DatagramIterator &dgi, const bool &other);
 
   void HandleAddObject(const uint32_t &doId, const uint32_t &parentId,
                        const uint32_t &zoneId, const uint16_t &dcId,
                        DatagramIterator &dgi, const bool &other = false);
+
+  bool TryQueuePending(const uint32_t &doId,
+                       const std::shared_ptr<Datagram> &dg);
+
+  void HandleSetField(const uint32_t &doId, const uint16_t &fieldId,
+                      DatagramIterator &dgi);
+  void HandleSetFields(const uint32_t &doId, const uint16_t &numFields,
+                       DatagramIterator &dgi);
+
+  void HandleAddOwnership(const uint32_t &doId, const uint32_t &parentId,
+                          const uint32_t &zoneId, const uint16_t &dcId,
+                          DatagramIterator &dgi, const bool &other = false);
 
   ClientAgent *_clientAgent;
 
