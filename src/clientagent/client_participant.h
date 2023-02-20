@@ -116,6 +116,9 @@ private:
                           const uint32_t &zoneId, const uint16_t &dcId,
                           DatagramIterator &dgi, const bool &other = false);
 
+  void HandleChangeLocation(const uint32_t &doId, const uint32_t &newParent,
+                            const uint32_t &newZone);
+
   ClientAgent *_clientAgent;
 
   uint64_t _channel;

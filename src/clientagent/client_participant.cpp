@@ -484,9 +484,108 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     break;
   }
   case STATESERVER_OBJECT_CHANGING_LOCATION: {
+    uint32_t doId = dgi.GetUint32();
+    if (TryQueuePending(doId, dgi.GetUnderlyingDatagram())) {
+      return;
+    }
+
+    uint32_t newParent = dgi.GetUint32();
+    uint32_t newZone = dgi.GetUint32();
+
+    bool disable = true;
+    for (const auto &it : _interests) {
+      const Interest &i = it.second;
+      if (i.parent == newParent) {
+        for (const auto &it2 : i.zones) {
+          if (it2 == newZone) {
+            disable = false;
+            break;
+          }
+        }
+      }
+    }
+
+    bool visible = _visibleObjects.contains(doId);
+    bool owned = _ownedObjects.contains(doId);
+
+    if (!visible && !owned) {
+      // We don't actually *see* this object, we're receiving this message as a
+      // fluke.
+      return;
+    }
+
+    bool session = _sessionObjects.contains(doId);
+
+    if (visible) {
+      _visibleObjects[doId].parent = newParent;
+      _visibleObjects[doId].zone = newZone;
+    }
+
+    if (owned) {
+      _ownedObjects[doId].parent = newParent;
+      _ownedObjects[doId].zone = newZone;
+    }
+
+    // Disable this object if:
+    // 1 - We don't have interest in its location (i.e. disable == true)
+    // 2 - It's visible (owned objects may exist without being visible.)
+    // 3 - If it's owned, it isn't a session object
+    if (disable && visible) {
+      if (session) {
+        if (owned) {
+          // Owned session object: do not disable, but send
+          // CLIENT_OBJECT_LOCATION
+          HandleChangeLocation(doId, newParent, newZone);
+        } else {
+          SendDisconnect(CLIENT_DISCONNECT_SESSION_OBJECT_DELETED,
+                         std::format("The session object with id: {} has "
+                                     "unexpectedly left interest",
+                                     doId));
+        }
+        return;
+      }
+
+      HandleRemoveObject(doId);
+      _seenObjects.erase(doId);
+      _historicalObjects.insert(doId);
+      _visibleObjects.erase(doId);
+    } else {
+      HandleChangeLocation(doId, newParent, newZone);
+    }
     break;
   }
   case STATESERVER_OBJECT_CHANGING_OWNER: {
+    uint32_t doId = dgi.GetUint32();
+    uint64_t newOwner = dgi.GetUint64();
+
+    // Don't care about the old owner.
+    dgi.Skip(sizeof(uint64_t));
+
+    if (newOwner == _channel) {
+      // We should already own this object, nothing changes, and we might get
+      // another enter owner message.
+      return;
+    }
+
+    if (!_ownedObjects.contains(doId)) {
+      Logger::Error(std::format(
+          "[CA] Client: {} received changing owner for unowned object: {}",
+          _channel, doId));
+      return;
+    }
+
+    // If it's a session object, disconnect the client.
+    if (_sessionObjects.contains(doId)) {
+      SendDisconnect(
+          CLIENT_DISCONNECT_SESSION_OBJECT_DELETED,
+          std::format(
+              "The session object with id: {} has unexpectedly left ownership",
+              doId));
+      return;
+    }
+
+    HandleRemoveOwnership(doId);
+    _ownedObjects.erase(doId);
     break;
   }
   default:
@@ -616,6 +715,25 @@ void ClientParticipant::HandleLoginLegacy(DatagramIterator &dgi) {
     return;
   }
 
+  // Get the configured shim UberDOG.
+  DCClass *authClass = LookupObject(authShim);
+  if (!authClass) {
+    Logger::Error(std::format(
+        "[CA] Auth shim DoId: {} is not a configured UberDOG", authShim));
+    SendDisconnect(CLIENT_DISCONNECT_GENERIC, "No available login handler!");
+    return;
+  }
+
+  // Get the login handler id. This is a generic handle for all Disney login
+  // messages.
+  DCField *authField = authClass->get_field_by_name("login");
+  if (!authField) {
+    Logger::Error(std::format(
+        "[CA] Auth shim UberDOG: {} does not define a login field", authShim));
+    SendDisconnect(CLIENT_DISCONNECT_GENERIC, "No available login handler!");
+    return;
+  }
+
   HandleClientHeartbeat();
 
   std::string loginToken = dgi.GetString();
@@ -640,7 +758,7 @@ void ClientParticipant::HandleLoginLegacy(DatagramIterator &dgi) {
   auto dg = std::make_shared<Datagram>(authShim, _channel,
                                        STATESERVER_OBJECT_SET_FIELD);
   dg->AddUint32(authShim);
-  dg->AddUint16(0); // TODO: Field number.
+  dg->AddUint16(authField->get_number());
   dg->AddString(loginToken);
   PublishDatagram(dg);
 }
@@ -1222,6 +1340,16 @@ void ClientParticipant::HandleAddOwnership(
   dg->AddUint16(dcId);
 #endif
   dg->AddData(dgi.GetRemainingBytes());
+  SendDatagram(dg);
+}
+
+void ClientParticipant::HandleChangeLocation(const uint32_t &doId,
+                                             const uint32_t &newParent,
+                                             const uint32_t &newZone) {
+  auto dg = std::make_shared<Datagram>();
+  dg->AddUint16(CLIENT_OBJECT_LOCATION);
+  dg->AddUint32(doId);
+  dg->AddLocation(newParent, newZone);
   SendDatagram(dg);
 }
 

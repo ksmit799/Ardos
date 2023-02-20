@@ -67,7 +67,6 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram> &dg) {
       case CONTROL_REMOVE_RANGE:
         break;
       case CONTROL_ADD_POST_REMOVE:
-        // TODO: We shouldn't need the sender channel right?
         dgi.GetUint64(); // Sender channel.
         _postRemoves.emplace_back(dgi.GetDatagram());
         break;
