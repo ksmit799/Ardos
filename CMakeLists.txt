@@ -37,6 +37,12 @@ if (WIN32)
     add_definitions(-DNOMINMAX -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS)
 endif ()
 
+# Ardos configuration variables.
+set(ARDOS_USE_LEGACY_CLIENT OFF CACHE BOOL "If on, the Client Agent will be compatible with legacy OTP message types and clients.")
+if (ARDOS_USE_LEGACY_CLIENT)
+    add_definitions(-DARDOS_USE_LEGACY_CLIENT)
+endif ()
+
 # TODO: Don't use glob recurse.
 # Each source directory should have its own CMAKE file.
 file(GLOB_RECURSE ARDOS_SOURCES "${PROJECT_SOURCE_DIR}/src/*.cpp" "${PROJECT_SOURCE_DIR}/src/*.c")

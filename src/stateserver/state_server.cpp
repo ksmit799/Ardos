@@ -23,6 +23,7 @@ StateServer::StateServer() : ChannelSubscriber() {
   // Start listening to our channel.
   _channel = config["channel"].as<uint64_t>();
   SubscribeChannel(_channel);
+  SubscribeChannel(BCHAN_STATESERVERS);
 }
 
 void StateServer::RemoveDistributedObject(const uint32_t &doId) {

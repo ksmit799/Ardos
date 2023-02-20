@@ -176,6 +176,14 @@ std::shared_ptr<Datagram> DatagramIterator::GetDatagram() {
 }
 
 /**
+ * Returns the underlying datagram being iterated.
+ * @return
+ */
+std::shared_ptr<Datagram> DatagramIterator::GetUnderlyingDatagram() {
+  return _dg;
+}
+
+/**
  * Reads the packed field from this datagram into the supplied buffer.
  * @param field
  * @param buffer
@@ -232,6 +240,12 @@ void DatagramIterator::UnpackField(DCPackerInterface *field,
  * @return
  */
 uint16_t DatagramIterator::Tell() const { return _offset; }
+
+/**
+ * Increases the read offset by the number of bytes.
+ * @param bytes
+ */
+void DatagramIterator::Skip(const size_t &bytes) { _offset += bytes; }
 
 /**
  * Sets the current read offset (in bytes).

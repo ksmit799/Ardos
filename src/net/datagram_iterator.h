@@ -53,10 +53,12 @@ public:
   std::vector<uint8_t> GetBlob();
   std::vector<uint8_t> GetData(const size_t &size);
   std::shared_ptr<Datagram> GetDatagram();
+  std::shared_ptr<Datagram> GetUnderlyingDatagram();
 
   void UnpackField(DCPackerInterface *field, std::vector<uint8_t> &buffer);
 
-  uint16_t Tell() const;
+  [[nodiscard]] uint16_t Tell() const;
+  void Skip(const size_t &bytes);
   void Seek(const size_t &offset);
   void SeekPayload();
 

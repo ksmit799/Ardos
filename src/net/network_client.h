@@ -18,6 +18,8 @@ protected:
   [[nodiscard]] bool Disconnected() const;
   uvw::Addr GetRemoteAddress();
 
+  void Shutdown();
+
   virtual void HandleDisconnect(uv_errno_t code) = 0;
   virtual void HandleClientDatagram(const std::shared_ptr<Datagram> &dg) = 0;
   void SendDatagram(const std::shared_ptr<Datagram> &dg);
