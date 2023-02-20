@@ -41,6 +41,8 @@ public:
   ClientParticipant(ClientAgent *clientAgent,
                     const std::shared_ptr<uvw::TCPHandle> &socket);
 
+  friend class InterestOperation;
+
 private:
   void Shutdown() override;
   void Annihilate();
@@ -81,16 +83,30 @@ private:
                                         const uint32_t &zoneId);
 
   void NotifyInterestDone(const uint16_t &interestId, const uint64_t &caller);
+  void NotifyInterestDone(const InterestOperation *iop);
   void HandleInterestDone(const uint16_t &interestId, const uint32_t &context);
+  void HandleAddInterest(const Interest &i, const uint32_t &context);
+
+  void HandleRemoveInterest(const uint16_t &interestId,
+                            const uint32_t &context);
+  void RemoveInterest(Interest &i, const uint32_t &context,
+                      const uint64_t &caller = 0);
 
   void CloseZones(const uint32_t &parent,
                   const std::unordered_set<uint32_t> &killedZones);
 
   void HandleRemoveObject(const uint32_t &doId);
 
+  void HandleObjectEntrance(DatagramIterator &dgi, const bool &other);
+
+  void HandleAddObject(const uint32_t &doId, const uint32_t &parentId,
+                       const uint32_t &zoneId, const uint16_t &dcId,
+                       DatagramIterator &dgi, const bool &other = false);
+
   ClientAgent *_clientAgent;
 
   uint64_t _channel;
+  uint64_t _allocatedChannel;
 
   std::shared_ptr<uvw::TimerHandle> _heartbeatTimer;
   std::shared_ptr<uvw::TimerHandle> _authTimer;
@@ -110,6 +126,8 @@ private:
   std::unordered_map<uint32_t, VisibleObject> _visibleObjects;
   // A map of all declared objects to their data.
   std::unordered_map<uint32_t, DeclaredObject> _declaredObjects;
+  // A map of DoId's to objects that we need to buffer DG's  for.
+  std::unordered_map<uint32_t, uint32_t> _pendingObjects;
 
   // A map of DoId's to fields marked explicitly send-able.
   std::unordered_map<uint32_t, std::unordered_set<uint16_t>> _fieldsSendable;
@@ -119,7 +137,7 @@ private:
   // A map of interest id's to interest handles.
   std::unordered_map<uint16_t, Interest> _interests;
   // A map of interest contexts to their in-progress operations.
-  std::unordered_map<uint32_t, InterestOperation*> _pendingInterests;
+  std::unordered_map<uint32_t, InterestOperation *> _pendingInterests;
 };
 
 } // namespace Ardos

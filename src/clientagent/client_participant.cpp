@@ -22,6 +22,8 @@ ClientParticipant::ClientParticipant(
     return;
   }
 
+  _allocatedChannel = _channel;
+
   SubscribeChannel(_channel);
   SubscribeChannel(BCHAN_CLIENTS);
 
@@ -74,9 +76,27 @@ void ClientParticipant::Annihilate() {
 
   // Unsubscribe from all channels so DELETE messages aren't sent back to us.
   ChannelSubscriber::Shutdown();
-  _clientAgent->FreeChannel(_channel);
+  _clientAgent->FreeChannel(_allocatedChannel);
 
   // Delete all session objects.
+  while (!_sessionObjects.empty()) {
+    uint32_t doId = *_sessionObjects.begin();
+    _sessionObjects.erase(doId);
+    Logger::Verbose(std::format(
+        "[CA] Client: {} exited, deleting session object: {}", _channel, doId));
+
+    auto dg = std::make_shared<Datagram>(doId, _channel,
+                                         STATESERVER_OBJECT_DELETE_RAM);
+    dg->AddUint32(doId);
+    PublishDatagram(dg);
+  }
+
+  // Clear out all pending interest operations.
+  // Note: PendingInterests delete themselves on Finish, so we have to be
+  // careful how we advance 'it'.
+  for (auto it = _pendingInterests.begin(); it != _pendingInterests.end();) {
+    (it++)->second->Finish();
+  }
 
   Shutdown();
 }
@@ -140,7 +160,197 @@ void ClientParticipant::HandleClientDatagram(
  * Handles a datagram incoming from the Message Director.
  * @param dg
  */
-void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {}
+void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
+  DatagramIterator dgi(dg);
+  dgi.SeekPayload();
+
+  uint64_t sender = dgi.GetUint64();
+  if (sender == _channel) {
+    // Ignore loopback messages.
+    return;
+  }
+
+  uint16_t msgType = dgi.GetUint16();
+  switch (msgType) {
+  case CLIENTAGENT_EJECT: {
+    uint16_t reason = dgi.GetUint16();
+    std::string message = dgi.GetString();
+    SendDisconnect(reason, message);
+    break;
+  }
+  case CLIENTAGENT_DROP: {
+    _cleanDisconnect = true;
+    NetworkClient::Shutdown();
+    break;
+  }
+  case CLIENTAGENT_SET_STATE:
+    _authState = (AuthState)dgi.GetUint16();
+    break;
+  case CLIENTAGENT_ADD_INTEREST: {
+    uint32_t context = _nextContext++;
+
+    Interest i;
+    BuildInterest(dgi, false, i);
+    HandleAddInterest(i, context);
+    AddInterest(i, context, sender);
+  }
+  case CLIENTAGENT_ADD_INTEREST_MULTIPLE: {
+    uint32_t context = _nextContext++;
+
+    Interest i;
+    BuildInterest(dgi, true, i);
+    HandleAddInterest(i, context);
+    AddInterest(i, context, sender);
+    break;
+  }
+  case CLIENTAGENT_REMOVE_INTEREST: {
+    uint32_t context = _nextContext++;
+
+    uint16_t id = dgi.GetUint16();
+    Interest &i = _interests[id];
+    HandleRemoveInterest(id, context);
+    RemoveInterest(i, context, sender);
+    break;
+  }
+  case CLIENTAGENT_SET_CLIENT_ID: {
+    if (_channel != _allocatedChannel) {
+      UnsubscribeChannel(_channel);
+    }
+
+    _channel = dgi.GetUint64();
+    SubscribeChannel(_channel);
+    break;
+  }
+  case CLIENTAGENT_SEND_DATAGRAM:
+    SendDatagram(dgi.GetDatagram());
+    break;
+  case CLIENTAGENT_OPEN_CHANNEL:
+    SubscribeChannel(dgi.GetUint64());
+    break;
+  case CLIENTAGENT_CLOSE_CHANNEL:
+    UnsubscribeChannel(dgi.GetUint64());
+    break;
+  case CLIENTAGENT_ADD_POST_REMOVE:
+    // TODO.
+    break;
+  case CLIENTAGENT_CLEAR_POST_REMOVES:
+    // TODO.
+    break;
+  case CLIENTAGENT_DECLARE_OBJECT: {
+    uint32_t doId = dgi.GetUint32();
+    uint16_t dcId = dgi.GetUint16();
+
+    if (_declaredObjects.contains(doId)) {
+      Logger::Warn(std::format(
+          "[CA] Client: {} received duplicate object declaration: {}", _channel,
+          doId));
+      break;
+    }
+
+    DeclaredObject obj{};
+    obj.doId = doId;
+    obj.dcc = g_dc_file->get_class(dcId);
+    _declaredObjects[doId] = obj;
+    break;
+  }
+  case CLIENTAGENT_UNDECLARE_OBJECT: {
+    uint32_t doId = dgi.GetUint32();
+    if (!_declaredObjects.contains(doId)) {
+      Logger::Warn(std::format(
+          "[CA] Client: {} received un-declare object for unknown DoId: ",
+          _channel, doId));
+      break;
+    }
+
+    _declaredObjects.erase(doId);
+    break;
+  }
+  case CLIENTAGENT_SET_FIELDS_SENDABLE: {
+    uint32_t doId = dgi.GetUint32();
+    uint16_t fieldCount = dgi.GetUint16();
+
+    std::unordered_set<uint16_t> fields;
+    for (uint16_t i = 0; i < fieldCount; ++i) {
+      fields.insert(dgi.GetUint16());
+    }
+
+    _fieldsSendable[doId] = fields;
+    break;
+  }
+  case CLIENTAGENT_ADD_SESSION_OBJECT: {
+    uint32_t doId = dgi.GetUint32();
+    if (_sessionObjects.contains(doId)) {
+      Logger::Warn(std::format(
+          "[CA] Client: {} received duplicate session object declaration: {}",
+          _channel, doId));
+      break;
+    }
+
+    Logger::Verbose(std::format("[CA] Client: {} added session object: {}",
+                                _channel, doId));
+
+    _sessionObjects.insert(doId);
+    break;
+  }
+  case CLIENTAGENT_REMOVE_SESSION_OBJECT: {
+    uint32_t doId = dgi.GetUint32();
+    if (!_sessionObjects.contains(doId)) {
+      Logger::Warn(std::format(
+          "[CA] Client: {} received remove session object for unknown DoId: {}",
+          _channel, doId));
+      break;
+    }
+
+    Logger::Verbose(
+        std::format("[CA] Client: {} removed session object with DoId: {}",
+                    _channel, doId));
+
+    _sessionObjects.erase(doId);
+    break;
+  }
+  case CLIENTAGENT_GET_TLVS_RESP: {
+    // TODO.
+    break;
+  }
+  case CLIENTAGENT_GET_NETWORK_ADDRESS: {
+    // TODO.
+    break;
+  }
+  case STATESERVER_OBJECT_SET_FIELD: {
+    break;
+  }
+  case STATESERVER_OBJECT_SET_FIELDS: {
+    break;
+  }
+  case STATESERVER_OBJECT_DELETE_RAM: {
+    break;
+  }
+  case STATESERVER_OBJECT_ENTER_OWNER_WITH_REQUIRED:
+  case STATESERVER_OBJECT_ENTER_OWNER_WITH_REQUIRED_OTHER: {
+    break;
+  }
+  case STATESERVER_OBJECT_ENTER_LOCATION_WITH_REQUIRED:
+  case STATESERVER_OBJECT_ENTER_LOCATION_WITH_REQUIRED_OTHER: {
+    break;
+  }
+  case STATESERVER_OBJECT_ENTER_INTEREST_WITH_REQUIRED:
+  case STATESERVER_OBJECT_ENTER_INTEREST_WITH_REQUIRED_OTHER: {
+    break;
+  }
+  case STATESERVER_OBJECT_GET_ZONES_COUNT_RESP: {
+    break;
+  }
+  case STATESERVER_OBJECT_CHANGING_LOCATION: {
+    break;
+  }
+  case STATESERVER_OBJECT_CHANGING_OWNER: {
+    break;
+  }
+  default:
+    Logger::Error(std::format("Client: {} received unknown MsgType: {}",
+                              _channel, msgType));
+  }
+}
 
 /**
  * Disconnects this client with a reason and message.
@@ -621,6 +831,18 @@ void ClientParticipant::NotifyInterestDone(const uint16_t &interestId,
   PublishDatagram(dg);
 }
 
+void ClientParticipant::NotifyInterestDone(const InterestOperation *iop) {
+  if (iop->_callers.empty()) {
+    return;
+  }
+
+  auto dg = std::make_shared<Datagram>(iop->_callers, _channel,
+                                       CLIENTAGENT_DONE_INTEREST_RESP);
+  dg->AddUint64(_channel);
+  dg->AddUint16(iop->_interestId);
+  PublishDatagram(dg);
+}
+
 void ClientParticipant::HandleInterestDone(const uint16_t &interestId,
                                            const uint32_t &context) {
   auto dg = std::make_shared<Datagram>();
@@ -628,6 +850,52 @@ void ClientParticipant::HandleInterestDone(const uint16_t &interestId,
   dg->AddUint32(context);
   dg->AddUint16(interestId);
   SendDatagram(dg);
+}
+
+void ClientParticipant::HandleAddInterest(const Interest &i,
+                                          const uint32_t &context) {
+  bool multiple = i.zones.empty();
+
+  auto dg = std::make_shared<Datagram>();
+  dg->AddUint16(multiple ? CLIENT_ADD_INTEREST : CLIENT_ADD_INTEREST_MULTIPLE);
+  dg->AddUint32(context);
+  dg->AddUint16(i.id);
+  dg->AddUint32(i.parent);
+  if (multiple) {
+    dg->AddUint16(i.zones.size());
+  }
+  for (const auto &zone : i.zones) {
+    dg->AddUint32(zone);
+  }
+  SendDatagram(dg);
+}
+
+void ClientParticipant::HandleRemoveInterest(const uint16_t &interestId,
+                                             const uint32_t &context) {
+  auto dg = std::make_shared<Datagram>();
+  dg->AddUint16(CLIENT_REMOVE_INTEREST);
+  dg->AddUint32(context);
+  dg->AddUint16(interestId);
+  SendDatagram(dg);
+}
+
+void ClientParticipant::RemoveInterest(Interest &i, const uint32_t &context,
+                                       const uint64_t &caller) {
+  std::unordered_set<uint32_t> killedZones;
+  for (const auto &zone : i.zones) {
+    if (LookupInterests(i.parent, zone).size() == 1) {
+      // We're the only interest who can see this zone, so let's kill it.
+      killedZones.insert(zone);
+    }
+  }
+
+  // Now that we know which zones to kill, let's get to it.
+  CloseZones(i.parent, killedZones);
+
+  NotifyInterestDone(i.id, caller);
+  HandleInterestDone(i.id, context);
+
+  _interests.erase(i.id);
 }
 
 void ClientParticipant::CloseZones(
@@ -671,6 +939,51 @@ void ClientParticipant::HandleRemoveObject(const uint32_t &doId) {
   auto dg = std::make_shared<Datagram>();
   dg->AddUint16(CLIENT_OBJECT_LEAVING);
   dg->AddUint32(doId);
+  SendDatagram(dg);
+}
+
+void ClientParticipant::HandleObjectEntrance(DatagramIterator &dgi,
+                                             const bool &other) {
+  uint32_t doId = dgi.GetUint32();
+  uint32_t parent = dgi.GetUint32();
+  uint32_t zone = dgi.GetUint32();
+  uint16_t dcId = dgi.GetUint16();
+
+  // This object is no longer pending.
+  _pendingObjects.erase(doId);
+
+  if (_seenObjects.contains(doId)) {
+    return;
+  }
+
+  if (_ownedObjects.contains(doId) && _sessionObjects.contains(doId)) {
+    return;
+  }
+
+  if (!_visibleObjects.contains(doId)) {
+    VisibleObject obj{};
+    obj.doId = doId;
+    obj.dcc = g_dc_file->get_class(dcId);
+    obj.parent = parent;
+    obj.zone = zone;
+    _visibleObjects[doId] = obj;
+  }
+
+  _seenObjects.insert(doId);
+
+  HandleAddObject(doId, parent, zone, dcId, dgi, other);
+}
+
+void ClientParticipant::HandleAddObject(
+    const uint32_t &doId, const uint32_t &parentId, const uint32_t &zoneId,
+    const uint16_t &dcId, DatagramIterator &dgi, const bool &other) {
+  auto dg = std::make_shared<Datagram>();
+  dg->AddUint16(other ? CLIENT_ENTER_OBJECT_REQUIRED_OTHER
+                      : CLIENT_ENTER_OBJECT_REQUIRED);
+  dg->AddUint32(doId);
+  dg->AddLocation(parentId, zoneId);
+  dg->AddUint16(dcId);
+  dg->AddData(dgi.GetRemainingBytes());
   SendDatagram(dg);
 }
 
