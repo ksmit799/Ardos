@@ -1,0 +1,54 @@
+# Console output log level.
+# Options are verbose, info, warn, error or none.
+log-level: verbose
+
+# DC (Distributed Class) file paths.
+# These should be kept in-sync globally.
+dc-files:
+  - otp.dc
+
+# Do we want distributed objects to live on this instance?
+want-state-server: true
+
+# Do we want players to be able to connect to this instance?
+want-client-agent: true
+
+# Do we want to handle database operations on this instance?
+want-database: true
+
+# Message Director configuration.
+message-director:
+  # Listen configuration.
+  host: 127.0.0.1
+  port: 7100
+
+  # RabbitMQ configuration.
+  rabbitmq-host: 127.0.0.1
+  rabbitmq-port: 5672
+  rabbitmq-user: guest
+  rabbitmq-password: guest
+
+# State Server configuration.
+state-server:
+  channel: 1000
+
+# Client Agent configuration.
+client-agent:
+  # Listen configuration.
+  host: 127.0.0.1
+  port: 6667
+
+  # The logical version of the server.
+  # This, along with the computed (or manual) DC hash, is used as a first point of contact to authenticate clients.
+  version: dev
+
+  # A manual override for the computed DC hash.
+  # This should rarely need to be used.
+  manual-dc-hash: 0xABCD1234
+
+  # The range of channels this CA can allocate.
+  channels:
+    min: 1000000000
+    max: 1009999999
+
+# Database configuration.
