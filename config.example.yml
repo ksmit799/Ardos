@@ -6,6 +6,7 @@ log-level: verbose
 # These should be kept in-sync globally.
 dc-files:
   - otp.dc
+  - game.dc
 
 # Do we want distributed objects to live on this instance?
 want-state-server: true
@@ -15,6 +16,16 @@ want-client-agent: true
 
 # Do we want to handle database operations on this instance?
 want-database: true
+
+# UberDOG definitions.
+# Some example ones follow:
+uberdogs:
+  - id: 4665
+    class: AuthManager
+    anonymous: true # Allows un-authenticated clients to communicate with this object.
+
+  - id: 4666
+    class: FriendsManager
 
 # Message Director configuration.
 message-director:
@@ -45,6 +56,11 @@ client-agent:
   # A manual override for the computed DC hash.
   # This should rarely need to be used.
   manual-dc-hash: 0xABCD1234
+
+  # Shim's logins from Disney specific clients to an UberDOG.
+  # (DoId matches AuthManager defined above.)
+  # NOTE: You must build Ardos with ARDOS_USE_LEGACY_CLIENT to use this option.
+  ud-auth-shim: 4665
 
   # The range of channels this CA can allocate.
   channels:
