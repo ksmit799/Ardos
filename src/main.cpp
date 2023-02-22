@@ -9,8 +9,10 @@ int main(int argc, char *argv[]) {
   // Parse CLI args.
   // We only have one for now, which is our config file name.
   std::string configName = "config.yaml";
-  if (argc && strcmp(argv[0], "--config") == 0) {
-    configName = argv[1];
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+      configName = argv[++i];
+    }
   }
 
   Config::Instance()->LoadConfig(configName);
