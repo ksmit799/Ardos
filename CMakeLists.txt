@@ -21,12 +21,15 @@ include_directories(libs/uvw/src)
 add_subdirectory(libs/yaml-cpp)
 include_directories(libs/yaml-cpp/include)
 
-# Include MongoDB driver.
-find_package(libmongocxx REQUIRED)
-find_package(libbsoncxx REQUIRED)
+set(ARDOS_WANT_DB_SERVER ON CACHE BOOL "If on, Ardos will be built with the Database Server component.")
+if (ARDOS_WANT_DB_SERVER)
+    # Include MongoDB driver.
+    find_package(libmongocxx REQUIRED)
+    find_package(libbsoncxx REQUIRED)
 
-include_directories(${LIBMONGOCXX_INCLUE_DIR})
-include_directories(${LIBBSONCXX_INCLUDE_DIR})
+    include_directories(${LIBMONGOCXX_INCLUE_DIR})
+    include_directories(${LIBBSONCXX_INCLUDE_DIR})
+endif()
 
 # Include AMQP-CPP (RabbitMQ).
 add_subdirectory(libs/AMQP-CPP)

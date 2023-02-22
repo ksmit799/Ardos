@@ -162,7 +162,13 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
               }
 
               if (Config::Instance()->GetBool("want-database")) {
+#ifdef ARDOS_WANT_DB_SERVER
                 new Database();
+#else
+                Logger::Error("want-database was set to true but Ardos was "
+                              "built without ARDOS_WANT_DB_SERVER");
+                exit(1);
+#endif
               }
 
               // Start listening for incoming connections.
