@@ -49,8 +49,8 @@ void ChannelSubscriber::Shutdown() {
   _consumeTag = "";
 
   // Cleanup our local channel subscriptions.
-  for (const auto &channel : _localChannels) {
-    UnsubscribeChannel(std::stoull(channel));
+  while (!_localChannels.empty()) {
+    UnsubscribeChannel(std::stoull(_localChannels.front()));
   }
 }
 
