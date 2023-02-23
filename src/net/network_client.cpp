@@ -52,10 +52,10 @@ uvw::Addr NetworkClient::GetRemoteAddress() { return _remoteAddress; }
 void NetworkClient::Shutdown() {
   _disconnected = true;
 
-  _socket->close();
-  _socket.reset();
-
-  _socket = nullptr;
+  if (_socket) {
+    _socket->close();
+    _socket.reset();
+  }
 }
 
 void NetworkClient::HandleClose(uv_errno_t code) {
