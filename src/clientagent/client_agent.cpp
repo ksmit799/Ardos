@@ -121,6 +121,7 @@ ClientAgent::ClientAgent() {
 
   // Start listening!
   _listenHandle->bind(_host, _port);
+  _listenHandle->listen();
 
   Logger::Info(std::format("[CA] Listening on {}:{}", _host, _port));
 }
