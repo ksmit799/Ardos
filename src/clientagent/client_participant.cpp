@@ -753,6 +753,8 @@ void ClientParticipant::HandleLoginLegacy(DatagramIterator &dgi) {
     return;
   }
 
+  _authState = AUTH_STATE_ANONYMOUS;
+
   // We've got a matching version and hash, send off the login request to the
   // configured shim UberDOG!
   auto dg = std::make_shared<Datagram>(authShim, _channel,
