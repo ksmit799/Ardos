@@ -1,6 +1,7 @@
 #include "channel_subscriber.h"
 
 #include "../net/datagram_iterator.h"
+#include "../util/logger.h"
 #include "message_director.h"
 
 namespace Ardos {
@@ -33,6 +34,14 @@ ChannelSubscriber::ChannelSubscriber() {
             reinterpret_cast<const uint8_t *>(message.body()),
             message.bodySize());
         HandleDatagram(dg);
+      })
+      .onCancelled([this](const std::string &consumerTag) {
+        Logger::Error("[MD] Channel Subscriber was cancelled unexpectedly.");
+        Shutdown();
+      })
+      .onError([](const char *message) {
+        Logger::Error(
+            std::format("[MD] Channel Subscriber received error: {}", message));
       });
 }
 
@@ -63,7 +72,7 @@ void ChannelSubscriber::SubscribeChannel(const uint64_t &channel) {
     return;
   }
 
-  _localChannels.emplace_back(channelStr);
+  _localChannels.push_back(channelStr);
 
   // Next, lets check if this channel is already being listened to elsewhere.
   // If it is, increment the subscriber count.
