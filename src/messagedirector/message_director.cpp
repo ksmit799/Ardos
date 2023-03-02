@@ -253,7 +253,15 @@ void MessageDirector::StartConsuming() {
         // Acknowledge the message.
         _globalChannel->ack(deliveryTag);
 
-        // We should only need to create one shared datagram for all subscribers.
+        // First, check if we have at least one channel subscriber listening to
+        // the channel in this cluster.
+        if (!ChannelSubscriber::_globalChannels.contains(
+                message.routingkey())) {
+          return;
+        }
+
+        // We should only need to create one shared datagram for all
+        // subscribers.
         auto dg = std::make_shared<Datagram>(
             reinterpret_cast<const uint8_t *>(message.body()),
             message.bodySize());
@@ -268,8 +276,7 @@ void MessageDirector::StartConsuming() {
         Logger::Error("[MD] Channel consuming cancelled unexpectedly.");
       })
       .onError([](const char *message) {
-        Logger::Error(
-            std::format("[MD] Received error: {}", message));
+        Logger::Error(std::format("[MD] Received error: {}", message));
       });
 }
 
