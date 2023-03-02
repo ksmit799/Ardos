@@ -18,44 +18,13 @@ ChannelSubscriber::ChannelSubscriber() {
   _globalChannel = MessageDirector::Instance()->GetGlobalChannel();
   _localQueue = MessageDirector::Instance()->GetLocalQueue();
 
-  // We've received a message from the MD. Handle it.
-  _globalChannel->consume(_localQueue)
-      .onSuccess([this](const std::string &tag) { _consumeTag = tag; })
-      .onReceived([this](const AMQP::Message &message, uint64_t deliveryTag,
-                         bool redelivered) {
-        // First, check if this ChannelSubscriber cares about the message.
-        if (std::find(_localChannels.begin(), _localChannels.end(),
-                      message.routingkey()) == _localChannels.end()) {
-          return;
-        }
-
-        // We do care about the message, handle it!
-        auto dg = std::make_shared<Datagram>(
-            reinterpret_cast<const uint8_t *>(message.body()),
-            message.bodySize());
-        HandleDatagram(dg);
-      })
-      .onCancelled([this](const std::string &consumerTag) {
-        Logger::Error("[MD] Channel Subscriber was cancelled unexpectedly.");
-        Shutdown();
-      })
-      .onError([](const char *message) {
-        Logger::Error(
-            std::format("[MD] Channel Subscriber received error: {}", message));
-      });
+  MessageDirector::Instance()->AddSubscriber(this);
 }
 
 ChannelSubscriber::~ChannelSubscriber() { ChannelSubscriber::Shutdown(); }
 
 void ChannelSubscriber::Shutdown() {
-  // Make sure we have a valid consumer tag.
-  if (_consumeTag.empty()) {
-    return;
-  }
-
-  // Stop receiving message callbacks.
-  _globalChannel->cancel(_consumeTag);
-  _consumeTag = "";
+  MessageDirector::Instance()->RemoveSubscriber(this);
 
   // Cleanup our local channel subscriptions.
   while (!_localChannels.empty()) {
@@ -124,6 +93,18 @@ void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram> &dg) {
                             reinterpret_cast<const char *>(dg->GetData()),
                             (size_t)dg->Size());
   }
+}
+
+void ChannelSubscriber::HandleUpdate(std::string_view channel,
+                                     const std::shared_ptr<Datagram> &dg) {
+  // First, check if this ChannelSubscriber cares about the message.
+  if (std::find(_localChannels.begin(), _localChannels.end(), channel) ==
+      _localChannels.end()) {
+    return;
+  }
+
+  // We do care about the message, handle it!
+  HandleDatagram(dg);
 }
 
 } // namespace Ardos

@@ -11,6 +11,8 @@ namespace Ardos {
 
 class ChannelSubscriber {
 public:
+  friend class MessageDirector;
+
   ChannelSubscriber();
   ~ChannelSubscriber();
 
@@ -24,6 +26,9 @@ protected:
   virtual void HandleDatagram(const std::shared_ptr<Datagram> &dg) = 0;
 
 private:
+  void HandleUpdate(std::string_view channel,
+                    const std::shared_ptr<Datagram> &dg);
+
   // A static map of globally registered channels.
   static std::unordered_map<std::string, unsigned int> _globalChannels;
 
@@ -32,7 +37,6 @@ private:
 
   AMQP::Channel *_globalChannel;
   std::string _localQueue;
-  std::string _consumeTag;
 };
 
 } // namespace Ardos

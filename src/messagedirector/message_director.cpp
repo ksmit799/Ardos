@@ -1,7 +1,9 @@
 #include "message_director.h"
 
 #include "../clientagent/client_agent.h"
+#ifdef ARDOS_WANT_DB_SERVER
 #include "../database/database.h"
+#endif
 #include "../stateserver/state_server.h"
 #include "../util/config.h"
 #include "../util/globals.h"
@@ -94,12 +96,6 @@ MessageDirector::MessageDirector() {
 }
 
 /**
- * Returns the underlying AMQP connection.
- * @return
- */
-AMQP::Connection *MessageDirector::GetConnection() { return _connection; }
-
-/**
  * Returns the "global" channel used for routing messages.
  * @return
  */
@@ -139,7 +135,7 @@ void MessageDirector::onData(AMQP::Connection *connection, const char *buffer,
 void MessageDirector::onReady(AMQP::Connection *connection) {
   // Create our "global" exchange.
   _globalChannel = new AMQP::Channel(_connection);
-  _globalChannel->declareExchange(kGlobalExchange, AMQP::direct)
+  _globalChannel->declareExchange(kGlobalExchange, AMQP::fanout)
       .onSuccess([this]() {
         // Create our local queue.
         // This queue is specific to this process, and will be automatically
@@ -148,6 +144,8 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
             .onSuccess([this](const std::string &name, int msgCount,
                               int consumerCount) {
               _localQueue = name;
+
+              StartConsuming();
 
               // TODO: We should probably have a callback for role startup to
               // happen in main.
@@ -225,6 +223,54 @@ void MessageDirector::onError(AMQP::Connection *connection,
 void MessageDirector::onClosed(AMQP::Connection *connection) {
   _connectHandle->close();
   _listenHandle->close();
+}
+
+/**
+ * Adds a channel subscriber to start receiving consume messages.
+ * @param subscriber
+ */
+void MessageDirector::AddSubscriber(ChannelSubscriber *subscriber) {
+  _subscribers.insert(subscriber);
+}
+
+/**
+ * Removes a channel subscriber (no longer receives consume messages.)
+ * @param subscriber
+ */
+void MessageDirector::RemoveSubscriber(ChannelSubscriber *subscriber) {
+  _subscribers.erase(subscriber);
+}
+
+/**
+ * Start consuming messages from RabbitMQ.
+ * Messages are handled by each Channel Subscriber.
+ */
+void MessageDirector::StartConsuming() {
+  _globalChannel->consume(_localQueue)
+      .onSuccess([this](const std::string &tag) { _consumeTag = tag; })
+      .onReceived([this](const AMQP::Message &message, uint64_t deliveryTag,
+                         bool redelivered) {
+        // Acknowledge the message.
+        _globalChannel->ack(deliveryTag);
+
+        // We should only need to create one shared datagram for all subscribers.
+        auto dg = std::make_shared<Datagram>(
+            reinterpret_cast<const uint8_t *>(message.body()),
+            message.bodySize());
+
+        // Forward the message to channel subscribers.
+        // If they're not subscribed to the channel, they'll ignore it.
+        for (const auto &subscriber : _subscribers) {
+          subscriber->HandleUpdate(message.routingkey(), dg);
+        }
+      })
+      .onCancelled([](const std::string &consumerTag) {
+        Logger::Error("[MD] Channel consuming cancelled unexpectedly.");
+      })
+      .onError([](const char *message) {
+        Logger::Error(
+            std::format("[MD] Received error: {}", message));
+      });
 }
 
 } // namespace Ardos
