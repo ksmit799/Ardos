@@ -588,6 +588,17 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     _ownedObjects.erase(doId);
     break;
   }
+#ifdef ARDOS_USE_LEGACY_CLIENT
+  case CLIENT_LOGIN_FAIRIES_RESP:
+  case CLIENT_LOGIN_TOONTOWN_RESP: {
+    // Just forward the response off to the client.
+    auto loginDg = std::make_shared<Datagram>();
+    loginDg->AddUint16(msgType);
+    loginDg->AddData(dgi.GetRemainingBytes());
+    SendDatagram(loginDg);
+    break;
+  }
+#endif
   default:
     Logger::Error(std::format("Client: {} received unknown MsgType: {}",
                               _channel, msgType));
