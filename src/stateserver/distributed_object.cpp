@@ -98,8 +98,6 @@ void DistributedObject::Annihilate(const uint64_t &sender,
 
   _stateServer->RemoveDistributedObject(_doId);
   Logger::Verbose(std::format("[SS] Distributed Object: '{}' deleted.", _doId));
-
-  Shutdown();
 }
 
 void DistributedObject::DeleteChildren(const uint64_t &sender) {
@@ -393,7 +391,7 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
     for (int i = 0; i < fieldCount; ++i) {
       uint16_t fieldId = dgi.GetUint16();
       if (!requestedFields.insert(fieldId).second) {
-        DCField *field = _dclass->get_inherited_field(i);
+        DCField *field = _dclass->get_field_by_index(i);
         if (field) {
           Logger::Warn(std::format("[SS] Distributed Object: '{}' received "
                                    "duplicate field: {} in get fields",
@@ -794,7 +792,7 @@ bool DistributedObject::HandleOneUpdate(DatagramIterator &dgi,
   std::vector<uint8_t> data;
   uint16_t fieldId = dgi.GetUint16();
 
-  DCField *field = _dclass->get_inherited_field(fieldId);
+  DCField *field = _dclass->get_field_by_index(fieldId);
   if (!field) {
     Logger::Error(std::format("[SS] Distributed Object: '{}' received field "
                               "update for invalid field: {} - {}",
@@ -859,7 +857,7 @@ bool DistributedObject::HandleOneGet(const std::shared_ptr<Datagram> &dg,
                                      uint16_t fieldId,
                                      const bool &succeedIfUnset,
                                      const bool &isSubfield) {
-  DCField *field = _dclass->get_inherited_field(fieldId);
+  DCField *field = _dclass->get_field_by_index(fieldId);
   if (!field) {
     Logger::Error(std::format(
         "[SS] Distributed Object: '{}' get field for: {} not valid for class: ",
