@@ -221,9 +221,12 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     SubscribeChannel(_channel);
     break;
   }
-  case CLIENTAGENT_SEND_DATAGRAM:
-    SendDatagram(dgi.GetDatagram());
+  case CLIENTAGENT_SEND_DATAGRAM: {
+    auto forwardDg = std::make_shared<Datagram>();
+    forwardDg->AddData(dgi.GetRemainingBytes());
+    SendDatagram(forwardDg);
     break;
+  }
   case CLIENTAGENT_OPEN_CHANNEL:
     SubscribeChannel(dgi.GetUint64());
     break;
@@ -971,7 +974,12 @@ void ClientParticipant::HandleClientAddInterest(DatagramIterator &dgi,
     return;
   }
 
+#ifdef ARDOS_USE_LEGACY_CLIENT
+  uint16_t handleId = dgi.GetUint16();
   uint32_t context = dgi.GetUint32();
+#elif
+  uint32_t context = dgi.GetUint32();
+#endif
 
   Interest i;
   BuildInterest(dgi, multiple, i);
@@ -1020,8 +1028,13 @@ void ClientParticipant::HandleClientRemoveInterest(DatagramIterator &dgi) {
 }
 
 void ClientParticipant::BuildInterest(DatagramIterator &dgi,
-                                      const bool &multiple, Interest &out) {
+                                      const bool &multiple, Interest &out, const uint16_t &handleId) {
+#ifdef ARDOS_USE_LEGACY_CLIENT
+  uint16_t interestId = handleId;
+#elif
   uint16_t interestId = dgi.GetUint16();
+#endif
+
   uint32_t parent = dgi.GetUint32();
 
   out.id = interestId;
@@ -1140,8 +1153,13 @@ void ClientParticipant::HandleInterestDone(const uint16_t &interestId,
                                            const uint32_t &context) {
   auto dg = std::make_shared<Datagram>();
   dg->AddUint16(CLIENT_DONE_INTEREST_RESP);
+#ifdef ARDOS_USE_LEGACY_CLIENT
+  dg->AddUint16(interestId);
+  dg->AddUint32(context);
+#elif
   dg->AddUint32(context);
   dg->AddUint16(interestId);
+#endif
   SendDatagram(dg);
 }
 
@@ -1280,9 +1298,17 @@ void ClientParticipant::HandleAddObject(
   auto dg = std::make_shared<Datagram>();
   dg->AddUint16(other ? CLIENT_ENTER_OBJECT_REQUIRED_OTHER
                       : CLIENT_ENTER_OBJECT_REQUIRED);
+  Logger::Info(std::format("Send entry: {}", doId));
+#ifdef ARDOS_USE_LEGACY_CLIENT
+  // TODO: Check if this is the same for Toontown/Pirates.
+  dg->AddLocation(parentId, zoneId);
+  dg->AddUint16(dcId);
+  dg->AddUint32(doId);
+#elif
   dg->AddUint32(doId);
   dg->AddLocation(parentId, zoneId);
   dg->AddUint16(dcId);
+#endif
   dg->AddData(dgi.GetRemainingBytes());
   SendDatagram(dg);
 }

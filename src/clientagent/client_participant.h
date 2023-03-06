@@ -74,8 +74,8 @@ private:
   void HandleClientAddInterest(DatagramIterator &dgi, const bool &multiple);
   void HandleClientRemoveInterest(DatagramIterator &dgi);
 
-  void BuildInterest(DatagramIterator &dgi, const bool &multiple,
-                     Interest &out);
+  void BuildInterest(DatagramIterator &dgi, const bool &multiple, Interest &out,
+                     const uint16_t &handleId = 0);
   void AddInterest(Interest &i, const uint32_t &context,
                    const uint64_t &caller = 0);
 
