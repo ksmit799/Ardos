@@ -154,6 +154,13 @@ void ClientParticipant::HandleClientDatagram(
                    "Datagram contains excess data.", true);
     return;
   }
+
+#ifdef ARDOS_USE_LEGACY_CLIENT
+  // A successfully handled message in legacy mode doubles as a heartbeat
+  // message. (Fairies automatically detects quiet periods and will send a
+  // standard heartbeat message out.)
+  HandleClientHeartbeat();
+#endif
 }
 
 /**
@@ -1028,7 +1035,8 @@ void ClientParticipant::HandleClientRemoveInterest(DatagramIterator &dgi) {
 }
 
 void ClientParticipant::BuildInterest(DatagramIterator &dgi,
-                                      const bool &multiple, Interest &out, const uint16_t &handleId) {
+                                      const bool &multiple, Interest &out,
+                                      const uint16_t &handleId) {
 #ifdef ARDOS_USE_LEGACY_CLIENT
   uint16_t interestId = handleId;
 #elif

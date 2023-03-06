@@ -16,7 +16,7 @@ DistributedObject::DistributedObject(StateServer *stateServer,
                                      const uint32_t &zoneId, DCClass *dclass,
                                      DatagramIterator &dgi, const bool &other)
     : ChannelSubscriber(), _stateServer(stateServer), _doId(doId),
-      _parentId(parentId), _zoneId(zoneId), _dclass(dclass) {
+      _parentId(INVALID_DO_ID), _zoneId(INVALID_DO_ID), _dclass(dclass) {
   // Unpack required fields.
   for (int i = 0; i < _dclass->get_num_inherited_fields(); ++i) {
     auto field = _dclass->get_inherited_field(i);
@@ -197,9 +197,9 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
     break;
   }
   case STATESERVER_OBJECT_GET_AI: {
-    Logger::Verbose(std::format(
-        "[SS] Distributed Object: '{}' received AI query from: ", _doId,
-        sender));
+    Logger::Verbose(
+        std::format("[SS] Distributed Object: '{}' received AI query from: {}",
+                    _doId, sender));
 
     auto dg = std::make_shared<Datagram>(sender, _doId,
                                          STATESERVER_OBJECT_GET_AI_RESP);
@@ -336,7 +336,7 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
     uint32_t zoneId = dgi.GetUint32();
 
     // Insert the child DoId into the specified zone.
-    if (parentId == _parentId) {
+    if (parentId == _doId) {
       _zoneObjects[zoneId].insert(doId);
     }
     break;
@@ -544,8 +544,8 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
   }
   default:
     Logger::Warn(std::format(
-        "[SS] Distributed Object: '{}' ignoring unknown message type: ", _doId,
-        msgType));
+        "[SS] Distributed Object: '{}' ignoring unknown message type: {}",
+        _doId, msgType));
   }
 }
 
@@ -666,7 +666,7 @@ void DistributedObject::HandleAIChange(const uint64_t &newAI,
 
   if (newAI) {
     Logger::Verbose(std::format(
-        "[SS] Distributed Object: '{}' sending AI entry to: ", _doId, newAI));
+        "[SS] Distributed Object: '{}' sending AI entry to: {}", _doId, newAI));
     SendAIEntry(newAI);
   }
 }
