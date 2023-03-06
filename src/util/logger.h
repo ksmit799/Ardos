@@ -16,12 +16,12 @@ enum LogLevel {
 class Logger {
 public:
   static void SetLogLevel(const LogLevel &level);
-  static void SetLogLevel(const std::string& level);
+  static void SetLogLevel(std::string_view level);
 
-  static void Verbose(const std::string &message);
-  static void Info(const std::string &message);
-  static void Warn(const std::string &message);
-  static void Error(const std::string &message);
+  static void Verbose(std::string_view message);
+  static void Info(std::string_view message);
+  static void Warn(std::string_view message);
+  static void Error(std::string_view message);
 
 protected:
   Logger() = default;

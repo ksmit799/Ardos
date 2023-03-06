@@ -11,17 +11,16 @@ LogLevel Logger::_logLevel = LL_Warning;
 
 void Logger::SetLogLevel(const LogLevel &level) { _logLevel = level; }
 
-void Logger::SetLogLevel(const std::string &level) {
-  if (strcmp(level.c_str(), "verbose") == 0) {
+void Logger::SetLogLevel(const std::string_view level) {
+  if (level.compare("verbose") == 0) {
     SetLogLevel(LL_Verbose);
-  } else if (strcmp(level.c_str(), "info") == 0) {
+  } else if (level.compare("info") == 0) {
     SetLogLevel(LL_Info);
-  } else if (strcmp(level.c_str(), "warning") == 0 ||
-             strcmp(level.c_str(), "warn") == 0) {
+  } else if (level.compare("warning") == 0 || level.compare("warn") == 0) {
     SetLogLevel(LL_Warning);
-  } else if (strcmp(level.c_str(), "error") == 0) {
+  } else if (level.compare("error") == 0) {
     SetLogLevel(LL_Error);
-  } else if (strcmp(level.c_str(), "none") == 0) {
+  } else if (level.compare("none") == 0) {
     SetLogLevel(LL_None);
   } else {
     Logger::Error(std::format(
@@ -30,7 +29,7 @@ void Logger::SetLogLevel(const std::string &level) {
   }
 }
 
-void Logger::Verbose(const std::string &out) {
+void Logger::Verbose(const std::string_view out) {
   if (_logLevel < LL_Verbose) {
     return;
   }
@@ -39,7 +38,7 @@ void Logger::Verbose(const std::string &out) {
             << "[VERBOSE]: " << out << std::endl;
 }
 
-void Logger::Info(const std::string &out) {
+void Logger::Info(const std::string_view out) {
   if (_logLevel < LL_Info) {
     return;
   }
@@ -48,7 +47,7 @@ void Logger::Info(const std::string &out) {
             << "[INFO]: " << out << std::endl;
 }
 
-void Logger::Warn(const std::string &out) {
+void Logger::Warn(const std::string_view out) {
   if (_logLevel < LL_Warning) {
     return;
   }
@@ -57,7 +56,7 @@ void Logger::Warn(const std::string &out) {
             << "[WARNING]: " << out << std::endl;
 }
 
-void Logger::Error(const std::string &out) {
+void Logger::Error(const std::string_view out) {
   if (_logLevel < LL_Error) {
     return;
   }
