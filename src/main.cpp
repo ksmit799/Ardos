@@ -2,6 +2,7 @@
 #include "util/config.h"
 #include "util/globals.h"
 #include "util/logger.h"
+#include "util/metrics.h"
 
 using namespace Ardos;
 
@@ -45,6 +46,10 @@ int main(int argc, char *argv[]) {
   // Setup main event loop.
   g_main_thread_id = std::this_thread::get_id();
   g_loop = uvw::Loop::getDefault();
+
+  // Initialize Metrics (Prometheus).
+  // Metrics can be configured via the config file.
+  Metrics::Instance();
 
   // Initialize the Message Director.
   // This will automatically start up configured roles once a connection to

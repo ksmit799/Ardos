@@ -8,6 +8,7 @@
 #include "../util/config.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
+#include "../util/metrics.h"
 #include "md_participant.h"
 
 namespace Ardos {
@@ -89,6 +90,9 @@ MessageDirector::MessageDirector() {
       [this](const uvw::DataEvent &event, uvw::TCPHandle &) {
         _connection->parse(event.data.get(), event.length);
       });
+
+  // Initialize metrics.
+  InitMetrics();
 
   // Start connecting/listening!
   _listenHandle->bind(_host, _port);
@@ -231,6 +235,11 @@ void MessageDirector::onClosed(AMQP::Connection *connection) {
  */
 void MessageDirector::AddSubscriber(ChannelSubscriber *subscriber) {
   _subscribers.insert(subscriber);
+
+  // Increment subscribers metric.
+  if (_subscribersGauge) {
+    _subscribersGauge->Increment();
+  }
 }
 
 /**
@@ -239,6 +248,74 @@ void MessageDirector::AddSubscriber(ChannelSubscriber *subscriber) {
  */
 void MessageDirector::RemoveSubscriber(ChannelSubscriber *subscriber) {
   _subscribers.erase(subscriber);
+
+  // Decrement subscribers metric.
+  if (_subscribersGauge) {
+    _subscribersGauge->Decrement();
+  }
+}
+
+/**
+ * Called when a participant connects.
+ */
+void MessageDirector::ParticipantJoined() {
+  if (_participantsGauge) {
+    _participantsGauge->Increment();
+  }
+}
+
+/**
+ * Called when a participant disconnects.
+ */
+void MessageDirector::ParticipantLeft() {
+  if (_participantsGauge) {
+    _participantsGauge->Decrement();
+  }
+}
+
+/**
+ * Initializes metrics collection for the message director.
+ */
+void MessageDirector::InitMetrics() {
+  // Make sure we want to collect metrics on this cluster.
+  if (!Metrics::Instance()->WantMetrics()) {
+    return;
+  }
+
+  auto registry = Metrics::Instance()->GetRegistry();
+
+  auto &packetsBuilder = prometheus::BuildCounter()
+                             .Name("md_observed_datagrams_total")
+                             .Help("Number of datagrams observed")
+                             .Register(*registry);
+
+  auto &datagramsBuilder = prometheus::BuildCounter()
+                               .Name("md_handled_datagrams_total")
+                               .Help("Number of datagrams handled")
+                               .Register(*registry);
+
+  auto &datagramsSizeBuilder = prometheus::BuildHistogram()
+                                   .Name("md_datagrams_bytes_size")
+                                   .Help("Bytes size of handled datagrams")
+                                   .Register(*registry);
+
+  auto &subscribersBuilder = prometheus::BuildGauge()
+                                 .Name("md_subscribers_size")
+                                 .Help("Number of registered subscribers")
+                                 .Register(*registry);
+
+  auto &participantsBuilder = prometheus::BuildGauge()
+                                  .Name("md_participants_size")
+                                  .Help("Number of connected participants")
+                                  .Register(*registry);
+
+  _datagramsObservedCounter = &packetsBuilder.Add({});
+  _datagramsProcessedCounter = &datagramsBuilder.Add({});
+  _datagramsSizeHistogram = &datagramsSizeBuilder.Add(
+      {}, prometheus::Histogram::BucketBoundaries{1, 4, 16, 64, 256, 1024, 4096,
+                                                  16384, 65536});
+  _subscribersGauge = &subscribersBuilder.Add({});
+  _participantsGauge = &participantsBuilder.Add({});
 }
 
 /**
@@ -253,11 +330,26 @@ void MessageDirector::StartConsuming() {
         // Acknowledge the message.
         _globalChannel->ack(deliveryTag);
 
+        // Increment observed datagrams metric.
+        if (_datagramsObservedCounter) {
+          _datagramsObservedCounter->Increment();
+        }
+
         // First, check if we have at least one channel subscriber listening to
         // the channel in this cluster.
         if (!ChannelSubscriber::_globalChannels.contains(
                 message.routingkey())) {
           return;
+        }
+
+        // Increment processed datagrams metric.
+        if (_datagramsProcessedCounter) {
+          _datagramsProcessedCounter->Increment();
+        }
+
+        // Datagram size metrics.
+        if (_datagramsSizeHistogram) {
+          _datagramsSizeHistogram->Observe((double)message.bodySize());
         }
 
         // We should only need to create one shared datagram for all

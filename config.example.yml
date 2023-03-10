@@ -17,6 +17,9 @@ want-client-agent: true
 # Do we want to handle database operations on this instance?
 want-database: true
 
+# Do we want metrics collection on this instance?
+want-metrics: true
+
 # UberDOG definitions.
 # Some example ones follow:
 uberdogs:
@@ -26,6 +29,12 @@ uberdogs:
 
   - id: 4666
     class: FriendsManager
+
+# Metrics (Prometheus) configuration.
+# This should be configured as a target in your Prometheus config.
+metrics:
+  host: 127.0.0.1
+  port: 9985
 
 # Message Director configuration.
 message-director:
