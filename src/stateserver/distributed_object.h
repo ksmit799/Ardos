@@ -14,6 +14,8 @@ public:
                     const uint32_t &parentId, const uint32_t &zoneId,
                     DCClass *dclass, DatagramIterator &dgi, const bool &other);
 
+  [[nodiscard]] size_t Size() const;
+  
   [[nodiscard]] uint64_t GetAI() const;
   [[nodiscard]] bool IsAIExplicitlySet() const;
 

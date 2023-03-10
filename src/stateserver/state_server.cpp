@@ -6,6 +6,7 @@
 #include "../util/config.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
+#include "../util/metrics.h"
 #include "distributed_object.h"
 
 namespace Ardos {
@@ -24,10 +25,17 @@ StateServer::StateServer() : ChannelSubscriber() {
   _channel = config["channel"].as<uint64_t>();
   SubscribeChannel(_channel);
   SubscribeChannel(BCHAN_STATESERVERS);
+
+  // Initialize metrics.
+  InitMetrics();
 }
 
 void StateServer::RemoveDistributedObject(const uint32_t &doId) {
   _distObjs.erase(doId);
+
+  if (_objectsGauge) {
+    _objectsGauge->Decrement();
+  }
 }
 
 void StateServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
@@ -84,6 +92,14 @@ void StateServer::HandleGenerate(DatagramIterator &dgi, const bool &other) {
   // Create the distributed object.
   _distObjs[doId] = std::make_unique<DistributedObject>(
       this, doId, parentId, zoneId, dcClass, dgi, other);
+
+  if (_objectsGauge) {
+    _objectsGauge->Increment();
+  }
+
+  if (_objectsSizeHistogram) {
+    _objectsSizeHistogram->Observe((double)_distObjs[doId]->Size());
+  }
 }
 
 void StateServer::HandleDeleteAI(DatagramIterator &dgi,
@@ -105,6 +121,30 @@ void StateServer::HandleDeleteAI(DatagramIterator &dgi,
                                        STATESERVER_DELETE_AI_OBJECTS);
   dg->AddUint64(aiChannel);
   PublishDatagram(dg);
+}
+
+void StateServer::InitMetrics() {
+  // Make sure we want to collect metrics on this cluster.
+  if (!Metrics::Instance()->WantMetrics()) {
+    return;
+  }
+
+  auto registry = Metrics::Instance()->GetRegistry();
+
+  auto &objectsBuilder = prometheus::BuildGauge()
+                             .Name("ss_objects_size")
+                             .Help("Number of distributed objects")
+                             .Register(*registry);
+
+  auto &objectsSizeBuilder = prometheus::BuildHistogram()
+                                 .Name("ss_objects_bytes_size")
+                                 .Help("Bytes size of distributed objects")
+                                 .Register(*registry);
+
+  _objectsGauge = &objectsBuilder.Add({});
+  _objectsSizeHistogram = &objectsSizeBuilder.Add(
+      {}, prometheus::Histogram::BucketBoundaries{0, 4, 16, 64, 256, 1024, 4096,
+                                                  16384, 65536});
 }
 
 } // namespace Ardos
