@@ -37,11 +37,12 @@ Metrics::Metrics() {
   }
 
   // Create an HTTP server on the configured host/port.
-  prometheus::Exposer exposer{std::format("{}:{}", _host, _port)};
+  _exposer =
+      std::make_unique<prometheus::Exposer>(std::format("{}:{}", _host, _port));
 
   // Ask the exposer to scrape the registry on incoming HTTP requests.
   _registry = std::make_shared<prometheus::Registry>();
-  exposer.RegisterCollectable(_registry);
+  _exposer->RegisterCollectable(_registry);
 
   Logger::Info(std::format("[METRICS] Listening on {}:{}", _host, _port));
 }

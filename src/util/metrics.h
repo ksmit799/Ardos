@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 
+#include <prometheus/exposer.h>
 #include <prometheus/registry.h>
 
 namespace Ardos {
@@ -24,6 +25,7 @@ private:
   std::string _host = "127.0.0.1";
   int _port = 9985;
 
+  std::unique_ptr<prometheus::Exposer> _exposer;
   std::shared_ptr<prometheus::Registry> _registry;
 };
 
