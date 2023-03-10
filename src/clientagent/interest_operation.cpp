@@ -23,6 +23,8 @@ InterestOperation::InterestOperation(
         HandleInterestTimeout();
       });
 
+  _startTime = g_loop->now();
+
   _timeout->start(uvw::TimerHandle::Time{timeout}, uvw::TimerHandle::Time{0});
 }
 
@@ -35,10 +37,13 @@ InterestOperation::~InterestOperation() {
 void InterestOperation::HandleInterestTimeout() {
   Logger::Warn(std::format("Interest operation: {}:{} timed out, forcing...",
                            _interestId, _clientContext));
-  Finish();
+
+  _client->_clientAgent->RecordInterestTimeout();
+
+  Finish(true);
 }
 
-void InterestOperation::Finish() {
+void InterestOperation::Finish(const bool &isTimeout) {
   // Stop and release the time-out timer.
   if (_timeout) {
     _timeout->stop();
@@ -72,6 +77,13 @@ void InterestOperation::Finish() {
   // Dispatch other received and queued datagrams.
   for (const auto &dg : dispatch) {
     _client->HandleDatagram(dg);
+  }
+
+  // Time to complete interest operation metrics.
+  if (_startTime.count() > 0 && !isTimeout) {
+    _client->_clientAgent->RecordInterestTime(
+        (double)(g_loop->now() - _startTime).count() /
+        1000); // Convert from MS to S.
   }
 
   _finished = true;
