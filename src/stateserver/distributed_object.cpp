@@ -61,6 +61,19 @@ DistributedObject::DistributedObject(StateServer *stateServer,
   WakeChildren();
 }
 
+size_t DistributedObject::Size() const {
+  size_t objectSize{0};
+
+  for (const auto &field : _requiredFields) {
+    objectSize += field.second.size();
+  }
+  for (const auto &field : _ramFields) {
+    objectSize += field.second.size();
+  }
+
+  return objectSize;
+}
+
 uint64_t DistributedObject::GetAI() const { return _aiChannel; }
 
 bool DistributedObject::IsAIExplicitlySet() const { return _aiExplicitlySet; }

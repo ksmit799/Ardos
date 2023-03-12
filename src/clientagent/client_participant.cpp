@@ -47,6 +47,8 @@ ClientParticipant::ClientParticipant(
     _authTimer->start(uvw::TimerHandle::Time{_clientAgent->GetAuthTimeout()},
                       uvw::TimerHandle::Time{0});
   }
+
+  _clientAgent->ParticipantJoined();
 }
 
 /**
@@ -55,6 +57,8 @@ ClientParticipant::ClientParticipant(
 void ClientParticipant::Shutdown() {
   ChannelSubscriber::Shutdown();
   NetworkClient::Shutdown();
+
+  _clientAgent->ParticipantLeft();
 
   delete this;
 }
@@ -124,6 +128,10 @@ void ClientParticipant::HandleDisconnect(uv_errno_t code) {
 void ClientParticipant::HandleClientDatagram(
     const std::shared_ptr<Datagram> &dg) {
   DatagramIterator dgi(dg);
+
+  // Metrics.
+  _clientAgent->RecordDatagram(dg->Size());
+
   try {
     switch (_authState) {
     case AUTH_STATE_NEW:

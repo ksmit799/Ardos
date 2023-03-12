@@ -3,6 +3,9 @@
 
 #include <memory>
 
+#include <prometheus/gauge.h>
+#include <prometheus/histogram.h>
+
 #include "../messagedirector/channel_subscriber.h"
 #include "../net/datagram.h"
 #include "../net/datagram_iterator.h"
@@ -22,8 +25,13 @@ private:
   void HandleGenerate(DatagramIterator &dgi, const bool &other);
   void HandleDeleteAI(DatagramIterator &dgi, const uint64_t &sender);
 
+  void InitMetrics();
+
   uint64_t _channel;
   std::unordered_map<uint32_t, std::unique_ptr<DistributedObject>> _distObjs;
+
+  prometheus::Gauge *_objectsGauge = nullptr;
+  prometheus::Histogram *_objectsSizeHistogram = nullptr;
 };
 
 } // namespace Ardos

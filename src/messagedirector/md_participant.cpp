@@ -12,6 +12,8 @@ MDParticipant::MDParticipant(const std::shared_ptr<uvw::TCPHandle> &socket)
   auto address = GetRemoteAddress();
   Logger::Info(std::format("[MD] Participant connected from {}:{}", address.ip,
                            address.port));
+
+  MessageDirector::Instance()->ParticipantJoined();
 }
 
 /**
@@ -29,6 +31,8 @@ void MDParticipant::Shutdown() {
   }
 
   NetworkClient::Shutdown();
+
+  MessageDirector::Instance()->ParticipantLeft();
 
   delete this;
 }

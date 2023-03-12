@@ -4,6 +4,9 @@
 #include <unordered_set>
 
 #include <amqpcpp.h>
+#include <prometheus/counter.h>
+#include <prometheus/gauge.h>
+#include <prometheus/histogram.h>
 #include <uvw.hpp>
 
 namespace Ardos {
@@ -28,14 +31,18 @@ public:
   void AddSubscriber(ChannelSubscriber *subscriber);
   void RemoveSubscriber(ChannelSubscriber *subscriber);
 
+  void ParticipantJoined();
+  void ParticipantLeft();
+
 private:
   MessageDirector();
 
+  void InitMetrics();
   void StartConsuming();
 
   static MessageDirector *_instance;
 
-  std::unordered_set<ChannelSubscriber*> _subscribers;
+  std::unordered_set<ChannelSubscriber *> _subscribers;
 
   std::shared_ptr<uvw::TCPHandle> _connectHandle;
   std::shared_ptr<uvw::TCPHandle> _listenHandle;
@@ -46,6 +53,12 @@ private:
 
   std::string _host = "127.0.0.1";
   int _port = 7100;
+
+  prometheus::Counter *_datagramsObservedCounter = nullptr;
+  prometheus::Counter *_datagramsProcessedCounter = nullptr;
+  prometheus::Histogram *_datagramsSizeHistogram = nullptr;
+  prometheus::Gauge *_subscribersGauge = nullptr;
+  prometheus::Gauge *_participantsGauge = nullptr;
 };
 
 } // namespace Ardos

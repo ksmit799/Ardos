@@ -3,6 +3,7 @@
 #include "../util/config.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
+#include "../util/metrics.h"
 #include "client_participant.h"
 
 namespace Ardos {
@@ -119,6 +120,9 @@ ClientAgent::ClientAgent() {
         new ClientParticipant(this, client);
       });
 
+  // Initialize metrics.
+  InitMetrics();
+
   // Start listening!
   _listenHandle->bind(_host, _port);
   _listenHandle->listen();
@@ -133,13 +137,19 @@ ClientAgent::ClientAgent() {
  */
 uint64_t ClientAgent::AllocateChannel() {
   if (_nextChannel <= _channelsMax) {
-    return _nextChannel++;
-  } else {
-    if (!_freedChannels.empty()) {
-      uint64_t channel = _freedChannels.front();
-      _freedChannels.pop();
-      return channel;
+    if (_freeChannelsGauge) {
+      _freeChannelsGauge->Decrement();
     }
+
+    return _nextChannel++;
+  } else if (!_freedChannels.empty()) {
+    if (_freeChannelsGauge) {
+      _freeChannelsGauge->Decrement();
+    }
+
+    uint64_t channel = _freedChannels.front();
+    _freedChannels.pop();
+    return channel;
   }
 
   return 0;
@@ -151,6 +161,10 @@ uint64_t ClientAgent::AllocateChannel() {
  */
 void ClientAgent::FreeChannel(const uint64_t &channel) {
   _freedChannels.push(channel);
+
+  if (_freeChannelsGauge) {
+    _freeChannelsGauge->Increment();
+  }
 }
 
 /**
@@ -217,6 +231,113 @@ InterestsPermission ClientAgent::GetInterestsPermission() const {
  */
 unsigned long ClientAgent::GetInterestTimeout() const {
   return _interestTimeout;
+}
+
+/**
+ * Called when a participant connects.
+ */
+void ClientAgent::ParticipantJoined() {
+  if (_participantsGauge) {
+    _participantsGauge->Increment();
+  }
+}
+
+/**
+ * Called when a participant disconnects.
+ */
+void ClientAgent::ParticipantLeft() {
+  if (_participantsGauge) {
+    _participantsGauge->Decrement();
+  }
+}
+
+/**
+ * Records a handled datagram by a connected client.
+ */
+void ClientAgent::RecordDatagram(const uint16_t &size) {
+  if (_datagramsProcessedCounter) {
+    _datagramsProcessedCounter->Increment();
+  }
+
+  if (_datagramsSizeHistogram) {
+    _datagramsSizeHistogram->Observe((double)size);
+  }
+}
+
+/**
+ * Records a timed out interest operation.
+ */
+void ClientAgent::RecordInterestTimeout() {
+  if (_interestsTimeoutCounter) {
+    _interestsTimeoutCounter->Increment();
+  }
+}
+
+/**
+ * Records the time taken for an interest operation to complete.
+ * @param seconds
+ */
+void ClientAgent::RecordInterestTime(const double &seconds) {
+  if (_interestsTimeHistogram) {
+    _interestsTimeHistogram->Observe(seconds);
+  }
+}
+
+/**
+ * Initializes metrics collection for the client agent.
+ */
+void ClientAgent::InitMetrics() {
+  // Make sure we want to collect metrics on this cluster.
+  if (!Metrics::Instance()->WantMetrics()) {
+    return;
+  }
+
+  auto registry = Metrics::Instance()->GetRegistry();
+
+  auto &datagramsBuilder = prometheus::BuildCounter()
+                               .Name("ca_handled_datagrams_total")
+                               .Help("Number of datagrams handled")
+                               .Register(*registry);
+
+  auto &datagramsSizeBuilder = prometheus::BuildHistogram()
+                                   .Name("ca_datagrams_bytes_size")
+                                   .Help("Bytes size of handled datagrams")
+                                   .Register(*registry);
+
+  auto &participantsBuilder = prometheus::BuildGauge()
+                                  .Name("ca_participants_size")
+                                  .Help("Number of connected participants")
+                                  .Register(*registry);
+
+  auto &freeChannelsBuilder = prometheus::BuildGauge()
+                                  .Name("ca_free_channels_size")
+                                  .Help("Number of free channels")
+                                  .Register(*registry);
+
+  auto &timeoutsBuilder = prometheus::BuildCounter()
+                              .Name("ca_interests_timeout_total")
+                              .Help("Number of interest timeouts")
+                              .Register(*registry);
+
+  auto &interestsTimeBuilder =
+      prometheus::BuildHistogram()
+          .Name("ca_interests_time_seconds")
+          .Help("Time to complete an interest operation")
+          .Register(*registry);
+
+  _datagramsProcessedCounter = &datagramsBuilder.Add({});
+  _datagramsSizeHistogram = &datagramsSizeBuilder.Add(
+      {}, prometheus::Histogram::BucketBoundaries{1, 4, 16, 64, 256, 1024, 4096,
+                                                  16384, 65536});
+  _participantsGauge = &participantsBuilder.Add({});
+  _freeChannelsGauge = &freeChannelsBuilder.Add({});
+  _interestsTimeoutCounter = &timeoutsBuilder.Add({});
+  _interestsTimeHistogram = &interestsTimeBuilder.Add(
+      {}, prometheus::Histogram::BucketBoundaries{0, 0.5, 1, 1.5, 2, 2.5, 3,
+                                                  3.5, 4, 4.5, 5});
+
+  // Initialize free channels to our range of allocated channels.
+  _freeChannelsGauge->Set((double)(_channelsMax - _nextChannel));
 }
 
 } // namespace Ardos

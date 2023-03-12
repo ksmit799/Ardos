@@ -5,6 +5,9 @@
 #include <queue>
 
 #include <dcClass.h>
+#include <prometheus/counter.h>
+#include <prometheus/gauge.h>
+#include <prometheus/histogram.h>
 #include <uvw.hpp>
 
 namespace Ardos {
@@ -38,7 +41,15 @@ public:
   [[nodiscard]] InterestsPermission GetInterestsPermission() const;
   [[nodiscard]] unsigned long GetInterestTimeout() const;
 
+  void ParticipantJoined();
+  void ParticipantLeft();
+  void RecordDatagram(const uint16_t &size);
+  void RecordInterestTimeout();
+  void RecordInterestTime(const double &seconds);
+
 private:
+  void InitMetrics();
+
   std::shared_ptr<uvw::TCPHandle> _listenHandle;
 
   std::string _host = "127.0.0.1";
@@ -59,6 +70,13 @@ private:
   std::queue<uint64_t> _freedChannels;
 
   uint32_t _udAuthShim = 0;
+
+  prometheus::Counter *_datagramsProcessedCounter = nullptr;
+  prometheus::Histogram *_datagramsSizeHistogram = nullptr;
+  prometheus::Gauge *_participantsGauge = nullptr;
+  prometheus::Gauge *_freeChannelsGauge = nullptr;
+  prometheus::Counter *_interestsTimeoutCounter = nullptr;
+  prometheus::Histogram *_interestsTimeHistogram = nullptr;
 };
 
 } // namespace Ardos

@@ -29,11 +29,14 @@ if (ARDOS_WANT_DB_SERVER)
 
     include_directories(${LIBMONGOCXX_INCLUE_DIR})
     include_directories(${LIBBSONCXX_INCLUDE_DIR})
-endif()
+endif ()
 
 # Include AMQP-CPP (RabbitMQ).
 add_subdirectory(libs/AMQP-CPP)
 include_directories(libs/AMQP-CPP/include)
+
+# Include Prometheus metrics.
+find_package(prometheus-cpp CONFIG REQUIRED)
 
 # Optimize windows build.
 if (WIN32)
@@ -57,4 +60,4 @@ add_executable(ardos ${ARDOS_SOURCES} ${ARDOS_HEADERS})
 add_subdirectory(libs/dclass)
 include_directories(libs/dclass)
 
-target_link_libraries(ardos PRIVATE uv yaml-cpp ${LIBMONGOCXX_LIBRARIES} ${LIBBSONCXX_LIBRARIES} amqpcpp)
+target_link_libraries(ardos PRIVATE uv yaml-cpp ${LIBMONGOCXX_LIBRARIES} ${LIBBSONCXX_LIBRARIES} amqpcpp prometheus-cpp::pull)

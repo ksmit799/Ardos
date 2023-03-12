@@ -22,7 +22,7 @@ public:
                     const uint64_t &caller);
   ~InterestOperation();
 
-  void Finish();
+  void Finish(const bool &isTimeout = false);
 
   friend class ClientParticipant;
 
@@ -44,6 +44,7 @@ private:
   bool _hasTotal = false;
   uint32_t _total = 0;
   bool _finished = false;
+  uvw::TimerHandle::Time _startTime{0};
 
   std::unordered_set<uint64_t> _callers;
 
