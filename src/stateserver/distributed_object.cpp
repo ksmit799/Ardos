@@ -62,7 +62,7 @@ DistributedObject::DistributedObject(StateServer *stateServer,
 }
 
 size_t DistributedObject::Size() const {
-  size_t objectSize;
+  size_t objectSize{0};
 
   for (const auto &field : _requiredFields) {
     objectSize += field.second.size();
