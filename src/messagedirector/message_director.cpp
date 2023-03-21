@@ -2,7 +2,7 @@
 
 #include "../clientagent/client_agent.h"
 #ifdef ARDOS_WANT_DB_SERVER
-#include "../database/database.h"
+#include "../database/database_server.h"
 #endif
 #include "../net/address_utils.h"
 #include "../stateserver/state_server.h"
@@ -167,7 +167,7 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
 
               if (Config::Instance()->GetBool("want-database")) {
 #ifdef ARDOS_WANT_DB_SERVER
-                new Database();
+                new DatabaseServer();
 #else
                 Logger::Error("want-database was set to true but Ardos was "
                               "built without ARDOS_WANT_DB_SERVER");

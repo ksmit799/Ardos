@@ -27,8 +27,10 @@ if (ARDOS_WANT_DB_SERVER)
     find_package(libmongocxx REQUIRED)
     find_package(libbsoncxx REQUIRED)
 
-    include_directories(${LIBMONGOCXX_INCLUE_DIR})
-    include_directories(${LIBBSONCXX_INCLUDE_DIR})
+    include_directories(${LIBMONGOCXX_INCLUDE_DIRS})
+    include_directories(${LIBBSONCXX_INCLUDE_DIRS})
+
+    add_definitions(-DARDOS_WANT_DB_SERVER)
 endif ()
 
 # Include AMQP-CPP (RabbitMQ).
