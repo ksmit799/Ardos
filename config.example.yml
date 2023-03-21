@@ -77,3 +77,13 @@ client-agent:
     max: 1009999999
 
 # Database configuration.
+database-server:
+  channel: 4003
+
+  # MongoDB configuration.
+  mongodb-uri: mongodb://127.0.0.1/ardos
+
+  # The range of DoId's this database server can allocate.
+  generate:
+    min: 100000000
+    max: 399999999
