@@ -62,6 +62,8 @@ public:
   void Seek(const size_t &offset);
   void SeekPayload();
 
+  void SkipField(DCPackerInterface *field);
+
   size_t GetRemainingSize();
   std::vector<uint8_t> GetRemainingBytes();
 
