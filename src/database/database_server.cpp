@@ -5,12 +5,16 @@
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/json.hpp>
 #include <dcClass.h>
+#include <dcPacker.h>
 
 #include "../net/message_types.h"
 #include "../util/config.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
 #include "database_utils.h"
+
+// For document, finalize, et al.
+using namespace bsoncxx::builder::stream;
 
 namespace Ardos {
 
@@ -30,6 +34,11 @@ DatabaseServer::DatabaseServer() : ChannelSubscriber() {
     exit(1);
   }
 
+  // DoId allocation range configuration.
+  auto generateParam = config["generate"];
+  _minDoId = generateParam["min"].as<uint32_t>();
+  _maxDoId = generateParam["max"].as<uint32_t>();
+
   try {
     // Make a connection to MongoDB.
     _uri = mongocxx::uri{config["mongodb-uri"].as<std::string>()};
@@ -44,6 +53,22 @@ DatabaseServer::DatabaseServer() : ChannelSubscriber() {
     Logger::Error(
         std::format("[DB] Failed to connect to MongoDB: {}", e.what()));
     exit(1);
+  }
+
+  // Init the Ardos "globals" document.
+  // This contains information about the next available DoId to allocate and
+  // any previously freed DoId's (deleted objects.)
+  auto globalsExists =
+      _db["globals"].find_one(document{} << "_id"
+                                         << "GLOBALS" << finalize);
+  if (!globalsExists) {
+    // We don't have an existing globals document, insert one.
+    _db["globals"].insert_one(document{} << "_id"
+                                         << "GLOBALS"
+                                         << "doId" << open_document << "next"
+                                         << static_cast<int64_t>(_minDoId)
+                                         << "free" << open_array << close_array
+                                         << close_document << finalize);
   }
 
   // Start listening to our channel.
@@ -95,91 +120,26 @@ void DatabaseServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
   }
 }
 
-bool DatabaseServer::UnpackFields(DatagramIterator &dgi,
-                                  const uint16_t &fieldCount, FieldMap &out,
-                                  const bool &clearFields) {
-  for (uint16_t i = 0; i < fieldCount; ++i) {
-    uint16_t fieldId = dgi.GetUint16();
-    auto field = g_dc_file->get_field_by_index(fieldId);
-    if (!field) {
-      Logger::Error(std::format("[DB] Attempted to unpack invalid field ID: {}",
-                                fieldId));
-      return false;
-    }
+uint32_t DatabaseServer::AllocateDoId() {
+  // First, see if we have a valid next DoId for this allocation.
+  auto doIdObj = _db["globals"].find_one_and_update(
+      document{} << "_id"
+                 << "GLOBALS"
+                 << "doId.next" << open_document << "$gte"
+                 << static_cast<int64_t>(_minDoId) << close_document
+                 << "doId.next" << open_document << "$lte"
+                 << static_cast<int64_t>(_maxDoId) << close_document
+                 << finalize,
+      document{} << "$inc" << open_document << "doId.next" << 1
+                 << close_document << finalize);
 
-    // Make sure the field we're unpacking is marked 'DB'.
-    if (field->is_db()) {
-      try {
-        if (!clearFields) {
-          // We're not clearing the fields sent, so get the value.
-          dgi.UnpackField(field, out[field]);
-        } else if (field->has_default_value()) {
-          // We're clearing this field and it has a default value.
-          // Set it to that.
-          out[field] = field->get_default_value();
-        } else {
-          // We're clearing this field and it does not have a default value.
-          // Set it to a blank vector.
-          out[field] = std::vector<uint8_t>();
-        }
-      } catch (const DatagramIteratorEOF &) {
-        Logger::Error(std::format(
-            "[DB] Received truncated field in create/modify request: {}",
-            field->get_name()));
-        return false;
-      }
-    } else {
-      // Oops, we got a non-db field.
-      Logger::Error(
-          std::format("[DB] Got non-db field in create/modify request: {}",
-                      field->get_name()));
-
-      // Don't read-in a non-db field.
-      if (!clearFields) {
-        dgi.SkipField(field);
-      }
-    }
+  // We've been allocated a DoId!
+  if (doIdObj) {
+    return ;
   }
 
-  return true;
-}
-
-bool DatabaseServer::UnpackFields(DatagramIterator &dgi,
-                                  const uint16_t &fieldCount, FieldMap &out,
-                                  FieldMap &expectedOut) {
-  for (uint16_t i = 0; i < fieldCount; ++i) {
-    uint16_t fieldId = dgi.GetUint16();
-    auto field = g_dc_file->get_field_by_index(fieldId);
-    if (!field) {
-      Logger::Error(std::format("[DB] Attempted to unpack invalid field ID: {}",
-                                fieldId));
-      return false;
-    }
-
-    // Make sure the field we're unpacking is marked 'DB'.
-    if (field->is_db()) {
-      try {
-        // Unpack the expected field value.
-        dgi.UnpackField(field, expectedOut[field]);
-        // Unpack the updated field value.
-        dgi.UnpackField(field, out[field]);
-      } catch (const DatagramIteratorEOF &) {
-        Logger::Error(
-            std::format("[DB] Received truncated field in modify request: {}",
-                        field->get_name()));
-        return false;
-      }
-    } else {
-      // Oops, we got a non-db field.
-      Logger::Error(std::format("[DB] Got non-db field in modify request: {}",
-                                field->get_name()));
-
-      // We need valid db fields for _IF_EQUALS updates.
-      return false;
-    }
-  }
-
-  return true;
+  // If we couldn't find/modify a DoId within our range, check if we have any
+  // freed ones we can use.
 }
 
 void DatabaseServer::HandleCreate(DatagramIterator &dgi,
@@ -200,7 +160,7 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
 
   // Unpack the fields we've received in the create message.
   FieldMap objectFields;
-  if (!UnpackFields(dgi, fieldCount, objectFields)) {
+  if (!DatabaseUtils::UnpackFields(dgi, fieldCount, objectFields)) {
     HandleCreateDone(sender, context, INVALID_DO_ID);
     return;
   }
@@ -232,18 +192,37 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
     }
   }
 
-  auto builder = bsoncxx::builder::stream::document{};
+  // We can re-use the same DCPacker for each field.
+  DCPacker packer;
+
+  // Start unpacking fields into a bson stream.
+  // This is essentially the same thing as handling a client/server update.
+  auto builder = document{};
   try {
     for (const auto &field : objectFields) {
-      auto dg = std::make_shared<Datagram>();
-      dg->AddData(field.second);
-      DatagramIterator fieldDgi(dg);
-      DatabaseUtils::DCToBson(builder << field.first->get_name(),
-                              field.first->get_pack_type(), fieldDgi);
+      packer.set_unpack_data(field.second);
+      // Tell the packer we're starting to unpack the field.
+      packer.begin_unpack(field.first);
+
+      DatabaseUtils::FieldToBson(builder << field.first->get_name(), packer);
+
+      // We've finished unpacking the field.
+      packer.end_unpack();
     }
   } catch (const std::exception &) {
   }
-  auto fields = builder << bsoncxx::builder::stream::finalize;
+  auto fields = builder << finalize;
+
+  // Allocate a new DoId for this object.
+  uint32_t doId = 0;
+  if (doId == INVALID_DO_ID) {
+    HandleCreateDone(sender, context, INVALID_DO_ID);
+    return;
+  }
+
+  Logger::Verbose(std::format("[DB] Inserting new {} ({}): {}",
+                              dcClass->get_name(), doId,
+                              bsoncxx::to_json(fields)));
 }
 
 void DatabaseServer::HandleCreateDone(const uint64_t &channel,
