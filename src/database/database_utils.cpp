@@ -1,35 +1,161 @@
 #include "database_utils.h"
 
+#include <dcField.h>
+
+#include "../util/globals.h"
+#include "../util/logger.h"
+
 namespace Ardos {
 
-void DatabaseUtils::DCToBson(bsoncxx::builder::stream::single_context builder,
-                             DCPackType type, DatagramIterator &dgi) {
-  switch (type) {
+bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
+                                 const uint16_t &fieldCount, FieldMap &out,
+                                 const bool &clearFields) {
+  for (uint16_t i = 0; i < fieldCount; ++i) {
+    uint16_t fieldId = dgi.GetUint16();
+    auto field = g_dc_file->get_field_by_index(fieldId);
+    if (!field) {
+      Logger::Error(std::format("[DB] Attempted to unpack invalid field ID: {}",
+                                fieldId));
+      return false;
+    }
+
+    // Make sure the field we're unpacking is marked 'DB'.
+    if (field->is_db()) {
+      try {
+        if (!clearFields) {
+          // We're not clearing the fields sent, so get the value.
+          dgi.UnpackField(field, out[field]);
+        } else if (field->has_default_value()) {
+          // We're clearing this field and it has a default value.
+          // Set it to that.
+          out[field] = field->get_default_value();
+        } else {
+          // We're clearing this field and it does not have a default value.
+          // Set it to a blank vector.
+          out[field] = std::vector<uint8_t>();
+        }
+      } catch (const DatagramIteratorEOF &) {
+        Logger::Error(std::format(
+            "[DB] Received truncated field in create/modify request: {}",
+            field->get_name()));
+        return false;
+      }
+    } else {
+      // Oops, we got a non-db field.
+      Logger::Error(
+          std::format("[DB] Got non-db field in create/modify request: {}",
+                      field->get_name()));
+
+      // Don't read-in a non-db field.
+      if (!clearFields) {
+        dgi.SkipField(field);
+      }
+    }
+  }
+
+  return true;
+}
+
+bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
+                                 const uint16_t &fieldCount, FieldMap &out,
+                                 FieldMap &expectedOut) {
+  for (uint16_t i = 0; i < fieldCount; ++i) {
+    uint16_t fieldId = dgi.GetUint16();
+    auto field = g_dc_file->get_field_by_index(fieldId);
+    if (!field) {
+      Logger::Error(std::format("[DB] Attempted to unpack invalid field ID: {}",
+                                fieldId));
+      return false;
+    }
+
+    // Make sure the field we're unpacking is marked 'DB'.
+    if (field->is_db()) {
+      try {
+        // Unpack the expected field value.
+        dgi.UnpackField(field, expectedOut[field]);
+        // Unpack the updated field value.
+        dgi.UnpackField(field, out[field]);
+      } catch (const DatagramIteratorEOF &) {
+        Logger::Error(
+            std::format("[DB] Received truncated field in modify request: {}",
+                        field->get_name()));
+        return false;
+      }
+    } else {
+      // Oops, we got a non-db field.
+      Logger::Error(std::format("[DB] Got non-db field in modify request: {}",
+                                field->get_name()));
+
+      // We need valid db fields for _IF_EQUALS updates.
+      return false;
+    }
+  }
+
+  return true;
+}
+
+void DatabaseUtils::FieldToBson(
+    bsoncxx::builder::stream::single_context builder, DCPacker &packer) {
+  // Unpack the field into a bson format.
+  // Note that this function can be recursively called with certain pack types.
+  DCPackType packType = packer.get_pack_type();
+  switch (packType) {
   case PT_invalid:
     break;
   case PT_double:
+    builder << bsoncxx::types::b_double{packer.unpack_double()};
     break;
   case PT_int:
+    builder << bsoncxx::types::b_int32{packer.unpack_int()};
+    break;
   case PT_uint:
-    builder << bsoncxx::types::b_int32{dgi.GetUint8()};
+    // bson doesn't support unsigned integers.
+    // We can get around this by storing all unsigned integers as an int-64.
+    // This supports up to 32-bit unsigned integers, see the 64-bit
+    // implementation below.
+    builder << bsoncxx::types::b_int64{packer.unpack_uint()};
     break;
   case PT_int64:
+    builder << bsoncxx::types::b_int64{packer.unpack_int64()};
+    break;
   case PT_uint64:
-    builder << bsoncxx::types::b_int64{dgi.GetInt64()};
+    // As above, bson doesn't support unsigned integers.
+    // When storing 64-bit unsigned integers, we need to cast it to a signed
+    // 64-bit and remember to cast it back when reading from the database.
+    builder << bsoncxx::types::b_int64{
+        static_cast<int64_t>(packer.unpack_uint64())};
     break;
   case PT_string:
-    builder << bsoncxx::types::b_string{dgi.GetString()};
+    builder << bsoncxx::types::b_string{packer.unpack_string()};
     break;
-  case PT_blob:
-    builder << bsoncxx::types::b_int32{dgi.GetUint8()};
+  case PT_blob: {
+    std::vector<unsigned char> blob = packer.unpack_blob();
+    if (blob.data() == nullptr) {
+      // bson gets upset if passed a nullptr here, but it's valid for
+      // vector.data() to return nullptr if it's empty, so we just insert
+      // nothing:
+      builder << bsoncxx::types::b_binary{bsoncxx::binary_sub_type::k_binary, 0,
+                                          (const uint8_t *)1};
+    } else {
+      builder << bsoncxx::types::b_binary{bsoncxx::binary_sub_type::k_binary,
+                                          static_cast<uint32_t>(blob.size()),
+                                          blob.data()};
+    }
     break;
-  case PT_array:
+  }
+  case PT_array: {
+    auto arrayBuilder = builder << bsoncxx::builder::stream::open_array;
+
+    packer.push();
+    while (packer.more_nested_fields() && !packer.had_pack_error()) {
+      FieldToBson(arrayBuilder, packer);
+    }
+    packer.pop();
+
+    arrayBuilder << bsoncxx::builder::stream::close_array;
     break;
-  case PT_field:
-    break;
-  case PT_class:
-    break;
-  case PT_switch:
+  }
+  default:
     break;
   }
 }

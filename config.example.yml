@@ -81,7 +81,7 @@ database-server:
   channel: 4003
 
   # MongoDB configuration.
-  mongodb-uri: mongodb://127.0.0.1/ardos
+  mongodb-uri: mongodb://localhost:27017/ardos
 
   # The range of DoId's this database server can allocate.
   generate:
