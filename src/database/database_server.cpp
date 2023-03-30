@@ -135,11 +135,13 @@ uint32_t DatabaseServer::AllocateDoId() {
 
   // We've been allocated a DoId!
   if (doIdObj) {
-    return ;
+    return DatabaseUtils::BsonToNumber<uint32_t>(
+        doIdObj->view()["doId"]["next"].get_value());
   }
 
   // If we couldn't find/modify a DoId within our range, check if we have any
   // freed ones we can use.
+  return 0;
 }
 
 void DatabaseServer::HandleCreate(DatagramIterator &dgi,
@@ -214,7 +216,7 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
   auto fields = builder << finalize;
 
   // Allocate a new DoId for this object.
-  uint32_t doId = 0;
+  uint32_t doId = AllocateDoId();
   if (doId == INVALID_DO_ID) {
     HandleCreateDone(sender, context, INVALID_DO_ID);
     return;
