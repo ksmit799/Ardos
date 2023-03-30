@@ -2,6 +2,7 @@
 #define ARDOS_DATABASE_UTILS_H
 
 #include <bsoncxx/builder/stream/document.hpp>
+#include <bsoncxx/types/bson_value/view.hpp>
 #include <dcPacker.h>
 
 #include "../net/datagram_iterator.h"
@@ -37,6 +38,9 @@ public:
 
   static void FieldToBson(bsoncxx::builder::stream::single_context builder,
                           DCPacker &packer);
+
+  template <typename T>
+  static T BsonToNumber(const bsoncxx::types::bson_value::view &value);
 };
 
 } // namespace Ardos

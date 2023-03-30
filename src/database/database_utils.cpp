@@ -160,4 +160,29 @@ void DatabaseUtils::FieldToBson(
   }
 }
 
+template <typename T>
+T DatabaseUtils::BsonToNumber(const bsoncxx::types::bson_value::view &value) {
+  // TODO: Can we prevent a double alloc here?
+  int64_t i;
+  double d;
+
+  bool isDouble = false;
+
+  // We've got three fundamental number types 
+  if (value.type() == bsoncxx::type::k_int32) {
+    i = value.get_int32().value;
+  } else if (value.type() == bsoncxx::type::k_int64) {
+    i = value.get_int64().value;
+  } else if (value.type() == bsoncxx::type::k_double) {
+    d = value.get_double().value;
+    isDouble = true;
+  } else {
+    // Throw error.
+  }
+
+
+
+  return static_cast<T>(i);
+}
+
 } // namespace Ardos
