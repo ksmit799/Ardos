@@ -6,6 +6,7 @@
 #include <bsoncxx/json.hpp>
 #include <dcClass.h>
 #include <dcPacker.h>
+#include <mongocxx/exception/operation_exception.hpp>
 
 #include "../net/message_types.h"
 #include "../util/config.h"
@@ -121,27 +122,51 @@ void DatabaseServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
 }
 
 uint32_t DatabaseServer::AllocateDoId() {
-  // First, see if we have a valid next DoId for this allocation.
-  auto doIdObj = _db["globals"].find_one_and_update(
-      document{} << "_id"
-                 << "GLOBALS"
-                 << "doId.next" << open_document << "$gte"
-                 << static_cast<int64_t>(_minDoId) << close_document
-                 << "doId.next" << open_document << "$lte"
-                 << static_cast<int64_t>(_maxDoId) << close_document
-                 << finalize,
-      document{} << "$inc" << open_document << "doId.next" << 1
-                 << close_document << finalize);
+  try {
+    // First, see if we have a valid next DoId for this allocation.
+    auto doIdObj = _db["globals"].find_one_and_update(
+        document{} << "_id"
+                   << "GLOBALS"
+                   << "doId.next" << open_document << "$gte"
+                   << static_cast<int64_t>(_minDoId) << close_document
+                   << "doId.next" << open_document << "$lte"
+                   << static_cast<int64_t>(_maxDoId) << close_document
+                   << finalize,
+        document{} << "$inc" << open_document << "doId.next" << 1
+                   << close_document << finalize);
 
-  // We've been allocated a DoId!
-  if (doIdObj) {
-    return DatabaseUtils::BsonToNumber<uint32_t>(
-        doIdObj->view()["doId"]["next"].get_value());
+    // We've been allocated a DoId!
+    if (doIdObj) {
+      return DatabaseUtils::BsonToNumber<uint32_t>(
+          doIdObj->view()["doId"]["next"].get_value());
+    }
+
+    // If we couldn't find/modify a DoId within our range, check if we have any
+    // freed ones we can use.
+    auto freeObj = _db["globals"].find_one_and_update(
+        document{} << "_id"
+                   << "GLOBALS"
+                   << "doId.free.0" << open_document << "$exists" << true
+                   << close_document << finalize,
+        document{} << "$pop" << open_document << "doId.free" << -1
+                   << close_document << finalize);
+
+    if (freeObj) {
+      return DatabaseUtils::BsonToNumber<uint32_t>(
+          freeObj->view()["doId"]["free"].get_array().value[0].get_value());
+    }
+
+    // We've got none left, return an invalid DoId.
+    return INVALID_DO_ID;
+  } catch (const ConversionException &e) {
+    Logger::Error(std::format(
+        "[DB] Conversion error occurred while allocating DoId: {}", e.what()));
+    return INVALID_DO_ID;
+  } catch (const mongocxx::operation_exception &e) {
+    Logger::Error(std::format(
+        "[DB] MongoDB error occurred while allocating DoId: {}", e.what()));
+    return INVALID_DO_ID;
   }
-
-  // If we couldn't find/modify a DoId within our range, check if we have any
-  // freed ones we can use.
-  return 0;
 }
 
 void DatabaseServer::HandleCreate(DatagramIterator &dgi,
@@ -160,7 +185,7 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
     return;
   }
 
-  // Unpack the fields we've received in the create message.
+  // Unpack the fields we've received in the 'create' message.
   FieldMap objectFields;
   if (!DatabaseUtils::UnpackFields(dgi, fieldCount, objectFields)) {
     HandleCreateDone(sender, context, INVALID_DO_ID);
@@ -211,7 +236,12 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
       // We've finished unpacking the field.
       packer.end_unpack();
     }
-  } catch (const std::exception &) {
+  } catch (const ConversionException &e) {
+    Logger::Error(std::format(
+        "[DB] Failed to unpack object fields for create: {}", e.what()));
+
+    HandleCreateDone(sender, context, INVALID_DO_ID);
+    return;
   }
   auto fields = builder << finalize;
 
@@ -225,6 +255,22 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
   Logger::Verbose(std::format("[DB] Inserting new {} ({}): {}",
                               dcClass->get_name(), doId,
                               bsoncxx::to_json(fields)));
+
+  try {
+    _db["objects"].insert_one(document{} << "_id" << static_cast<int64_t>(doId)
+                                         << "dclass" << dcClass->get_name()
+                                         << "fields" << fields << finalize);
+  } catch (const mongocxx::operation_exception &e) {
+    // TODO: Free the allocated DoId, the insertion operation wasn't successful.
+    Logger::Error(std::format("[DB] Failed to insert new {} ({}): {}",
+                              dcClass->get_name(), doId, e.what()));
+
+    HandleCreateDone(sender, context, INVALID_DO_ID);
+    return;
+  }
+
+  // The object has been created successfully.
+  HandleCreateDone(sender, context, doId);
 }
 
 void DatabaseServer::HandleCreateDone(const uint64_t &channel,

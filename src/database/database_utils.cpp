@@ -101,7 +101,7 @@ void DatabaseUtils::FieldToBson(
   DCPackType packType = packer.get_pack_type();
   switch (packType) {
   case PT_invalid:
-    break;
+    throw ConversionException("Got invalid field type");
   case PT_double:
     builder << bsoncxx::types::b_double{packer.unpack_double()};
     break;
@@ -158,31 +158,11 @@ void DatabaseUtils::FieldToBson(
   default:
     break;
   }
-}
 
-template <typename T>
-T DatabaseUtils::BsonToNumber(const bsoncxx::types::bson_value::view &value) {
-  // TODO: Can we prevent a double alloc here?
-  int64_t i;
-  double d;
-
-  bool isDouble = false;
-
-  // We've got three fundamental number types 
-  if (value.type() == bsoncxx::type::k_int32) {
-    i = value.get_int32().value;
-  } else if (value.type() == bsoncxx::type::k_int64) {
-    i = value.get_int64().value;
-  } else if (value.type() == bsoncxx::type::k_double) {
-    d = value.get_double().value;
-    isDouble = true;
-  } else {
-    // Throw error.
+  // Throw a conversion exception if we had a packing error.
+  if (packer.had_error()) {
+    throw ConversionException("Packer had error");
   }
-
-
-
-  return static_cast<T>(i);
 }
 
 } // namespace Ardos
