@@ -169,6 +169,21 @@ uint32_t DatabaseServer::AllocateDoId() {
   }
 }
 
+void DatabaseServer::FreeDoId(const uint32_t &doId) {
+  Logger::Verbose(std::format("[DB] Freeing DoId: {}", doId));
+
+  try {
+    _db["globals"].update_one(
+        document{} << "_id"
+                   << "GLOBALS" << finalize,
+        document{} << "$push" << open_document << "doId.free"
+                   << static_cast<int64_t>(doId) << close_document << finalize);
+  } catch (const mongocxx::operation_exception &e) {
+    Logger::Error(
+        std::format("[DB] Failed to free DoId: {}: {}", doId, e.what()));
+  }
+}
+
 void DatabaseServer::HandleCreate(DatagramIterator &dgi,
                                   const uint64_t &sender) {
   uint32_t context = dgi.GetUint32();
@@ -261,9 +276,11 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
                                          << "dclass" << dcClass->get_name()
                                          << "fields" << fields << finalize);
   } catch (const mongocxx::operation_exception &e) {
-    // TODO: Free the allocated DoId, the insertion operation wasn't successful.
     Logger::Error(std::format("[DB] Failed to insert new {} ({}): {}",
                               dcClass->get_name(), doId, e.what()));
+
+    // Attempt to free the DoId we just allocated.
+    FreeDoId(doId);
 
     HandleCreateDone(sender, context, INVALID_DO_ID);
     return;
@@ -284,6 +301,28 @@ void DatabaseServer::HandleCreateDone(const uint64_t &channel,
 }
 
 void DatabaseServer::HandleDelete(DatagramIterator &dgi,
-                                  const uint64_t &sender) {}
+                                  const uint64_t &sender) {
+  uint32_t doId = dgi.GetUint32();
+
+  try {
+    auto result = _db["objects"].delete_one(
+        document{} << "_id" << static_cast<int64_t>(doId) << finalize);
+
+    // Make sure we actually deleted the object.
+    if (!result || result->deleted_count() != 1) {
+      Logger::Error(
+          std::format("[DB] Tried to delete non-existent object: {}", doId));
+      return;
+    }
+
+    // Free the DoId.
+    FreeDoId(doId);
+
+    Logger::Verbose(std::format("[DB] Deleted object: {}", doId));
+  } catch (const mongocxx::operation_exception &e) {
+    Logger::Error(std::format(
+        "[DB] Unexpected error while deleting object {}: {}", doId, e.what()));
+  }
+}
 
 } // namespace Ardos
