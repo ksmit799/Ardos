@@ -17,6 +17,7 @@ private:
   void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;
 
   uint32_t AllocateDoId();
+  void FreeDoId(const uint32_t &doId);
 
   void HandleCreate(DatagramIterator &dgi, const uint64_t &sender);
   void HandleCreateDone(const uint64_t &channel, const uint32_t &context,
