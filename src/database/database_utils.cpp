@@ -155,6 +155,14 @@ void DatabaseUtils::FieldToBson(
     arrayBuilder << bsoncxx::builder::stream::close_array;
     break;
   }
+  case PT_field: {
+    packer.push();
+    while (packer.more_nested_fields() && !packer.had_pack_error()) {
+      FieldToBson(builder, packer);
+    }
+    packer.pop();
+    break;
+  }
   default:
     break;
   }

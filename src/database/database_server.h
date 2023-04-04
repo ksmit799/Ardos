@@ -24,14 +24,15 @@ private:
 
   void HandleDelete(DatagramIterator &dgi, const uint64_t &sender);
 
+  uint32_t _minDoId;
+  uint32_t _maxDoId;
   uint64_t _channel;
+
   mongocxx::instance _instance{}; // N.B: This one and only instance must exist
                                   // for the entirety of the program.
   mongocxx::uri _uri;
   mongocxx::client _conn;
   mongocxx::database _db;
-  uint32_t _minDoId;
-  uint32_t _maxDoId;
 };
 
 } // namespace Ardos
