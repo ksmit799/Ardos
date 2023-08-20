@@ -12,6 +12,7 @@
 #include "../util/config.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
+#include "../util/metrics.h"
 #include "database_utils.h"
 
 // For document, finalize, et al.
@@ -77,6 +78,9 @@ DatabaseServer::DatabaseServer() : ChannelSubscriber() {
   SubscribeChannel(_channel);
   SubscribeChannel(BCHAN_DBSERVERS);
 
+  // Initialize metrics.
+  InitMetrics();
+
   Logger::Info(std::format("[DB] Connected to MongoDB: {}", _uri.to_string()));
 }
 
@@ -97,12 +101,16 @@ void DatabaseServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       HandleDelete(dgi, sender);
       break;
     case DBSERVER_OBJECT_GET_ALL:
-    case DBSERVER_OBJECT_GET_FIELD:
-    case DBSERVER_OBJECT_GET_FIELDS: {
+      HandleGetAll(dgi, sender);
       break;
-    }
+    case DBSERVER_OBJECT_GET_FIELD:
+    case DBSERVER_OBJECT_GET_FIELDS:
+      HandleGetField(dgi, sender, msgType == DBSERVER_OBJECT_GET_FIELDS);
+      break;
     case DBSERVER_OBJECT_SET_FIELD:
     case DBSERVER_OBJECT_SET_FIELDS:
+      HandleSetField(dgi, sender, msgType == DBSERVER_OBJECT_SET_FIELDS);
+      break;
     case DBSERVER_OBJECT_DELETE_FIELD:
     case DBSERVER_OBJECT_DELETE_FIELDS:
       break;
@@ -323,6 +331,26 @@ void DatabaseServer::HandleDelete(DatagramIterator &dgi,
     Logger::Error(std::format(
         "[DB] Unexpected error while deleting object {}: {}", doId, e.what()));
   }
+}
+
+void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
+                                  const uint64_t &sender) {}
+
+void DatabaseServer::HandleGetField(DatagramIterator &dgi,
+                                    const uint64_t &sender,
+                                    const bool &multiple) {}
+
+void DatabaseServer::HandleSetField(DatagramIterator &dgi,
+                                    const uint64_t &sender,
+                                    const bool &multiple) {}
+
+void DatabaseServer::InitMetrics() {
+  // Make sure we want to collect metrics on this cluster.
+  if (!Metrics::Instance()->WantMetrics()) {
+    return;
+  }
+
+  auto registry = Metrics::Instance()->GetRegistry();
 }
 
 } // namespace Ardos

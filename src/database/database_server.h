@@ -25,6 +25,15 @@ private:
 
   void HandleDelete(DatagramIterator &dgi, const uint64_t &sender);
 
+  void HandleGetAll(DatagramIterator &dgi, const uint64_t &sender);
+  void HandleGetField(DatagramIterator &dgi, const uint64_t &sender,
+                      const bool &multiple);
+
+  void HandleSetField(DatagramIterator &dgi, const uint64_t &sender,
+                      const bool &multiple);
+
+  void InitMetrics();
+
   uint32_t _minDoId;
   uint32_t _maxDoId;
   uint64_t _channel;
