@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
 
   // Setup main event loop.
   g_main_thread_id = std::this_thread::get_id();
-  g_loop = uvw::Loop::getDefault();
+  g_loop = uvw::loop::get_default();
 
   // Initialize Metrics (Prometheus).
   // Metrics can be configured via the config file.

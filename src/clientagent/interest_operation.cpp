@@ -17,15 +17,15 @@ InterestOperation::InterestOperation(
   _callers.insert(caller);
 
   // Interest operations can time out if the state server is taking too long.
-  _timeout = g_loop->resource<uvw::TimerHandle>();
-  _timeout->on<uvw::TimerEvent>(
-      [this](const uvw::TimerEvent &, uvw::TimerHandle &) {
+  _timeout = g_loop->resource<uvw::timer_handle>();
+  _timeout->on<uvw::timer_event>(
+      [this](const uvw::timer_event &, uvw::timer_handle &) {
         HandleInterestTimeout();
       });
 
   _startTime = g_loop->now();
 
-  _timeout->start(uvw::TimerHandle::Time{timeout}, uvw::TimerHandle::Time{0});
+  _timeout->start(uvw::timer_handle::time{timeout}, uvw::timer_handle::time{0});
 }
 
 InterestOperation::~InterestOperation() {

@@ -11,12 +11,12 @@ namespace Ardos {
 
 class NetworkClient {
 public:
-  explicit NetworkClient(const std::shared_ptr<uvw::TCPHandle> &socket);
+  explicit NetworkClient(const std::shared_ptr<uvw::tcp_handle> &socket);
   ~NetworkClient();
 
 protected:
   [[nodiscard]] bool Disconnected() const;
-  uvw::Addr GetRemoteAddress();
+  uvw::socket_address GetRemoteAddress();
 
   void Shutdown();
 
@@ -29,8 +29,8 @@ private:
   void HandleData(const std::unique_ptr<char[]> &data, size_t size);
   void ProcessBuffer();
 
-  std::shared_ptr<uvw::TCPHandle> _socket;
-  uvw::Addr _remoteAddress;
+  std::shared_ptr<uvw::tcp_handle> _socket;
+  uvw::socket_address _remoteAddress;
   std::vector<uint8_t> _data_buf;
   bool _disconnected = false;
 };

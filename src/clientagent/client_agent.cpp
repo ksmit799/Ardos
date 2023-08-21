@@ -11,7 +11,7 @@ namespace Ardos {
 ClientAgent::ClientAgent() {
   Logger::Info("Starting Client Agent component...");
 
-  _listenHandle = g_loop->resource<uvw::TCPHandle>();
+  _listenHandle = g_loop->resource<uvw::tcp_handle>();
 
   auto config = Config::Instance()->GetNode("client-agent");
 
@@ -109,10 +109,10 @@ ClientAgent::ClientAgent() {
   }
 
   // Socket events.
-  _listenHandle->on<uvw::ListenEvent>(
-      [this](const uvw::ListenEvent &, uvw::TCPHandle &srv) {
-        std::shared_ptr<uvw::TCPHandle> client =
-            srv.loop().resource<uvw::TCPHandle>();
+  _listenHandle->on<uvw::listen_event>(
+      [this](const uvw::listen_event &, uvw::tcp_handle &srv) {
+        std::shared_ptr<uvw::tcp_handle> client =
+            srv.parent().resource<uvw::tcp_handle>();
         srv.accept(*client);
 
         // Create a new client for this connected participant.

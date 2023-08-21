@@ -50,7 +50,7 @@ public:
 private:
   void InitMetrics();
 
-  std::shared_ptr<uvw::TCPHandle> _listenHandle;
+  std::shared_ptr<uvw::tcp_handle> _listenHandle;
 
   std::string _host = "127.0.0.1";
   int _port = 6667;

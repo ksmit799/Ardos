@@ -16,7 +16,7 @@ namespace Ardos {
 
 extern DCFile *g_dc_file;
 extern std::thread::id g_main_thread_id;
-extern std::shared_ptr<uvw::Loop> g_loop;
+extern std::shared_ptr<uvw::loop> g_loop;
 
 } // namespace Ardos
 

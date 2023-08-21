@@ -40,11 +40,11 @@ private:
   uint32_t _requestContext;
   uint32_t _parent;
   std::unordered_set<uint32_t> _zones;
-  std::shared_ptr<uvw::TimerHandle> _timeout;
+  std::shared_ptr<uvw::timer_handle> _timeout;
   bool _hasTotal = false;
   uint32_t _total = 0;
   bool _finished = false;
-  uvw::TimerHandle::Time _startTime{0};
+  uvw::timer_handle::time _startTime{0};
 
   std::unordered_set<uint64_t> _callers;
 

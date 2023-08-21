@@ -1,32 +1,34 @@
 #include "network_client.h"
 
+#include <cstring>
+
 namespace Ardos {
 
-NetworkClient::NetworkClient(const std::shared_ptr<uvw::TCPHandle> &socket)
+NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle> &socket)
     : _socket(socket) {
   // Configure socket options.
-  _socket->noDelay(true);
-  _socket->keepAlive(true, uvw::TCPHandle::Time{60});
+  _socket->no_delay(true);
+  _socket->keep_alive(true, uvw::tcp_handle::time{60});
 
   _remoteAddress = _socket->peer();
 
   // Setup event listeners.
-  _socket->on<uvw::ErrorEvent>(
-      [this](const uvw::ErrorEvent &event, uvw::TCPHandle &) {
+  _socket->on<uvw::error_event>(
+      [this](const uvw::error_event &event, uvw::tcp_handle &) {
         HandleClose((uv_errno_t)event.code());
       });
 
-  _socket->on<uvw::EndEvent>([this](const uvw::EndEvent &, uvw::TCPHandle &) {
+  _socket->on<uvw::end_event>([this](const uvw::end_event &, uvw::tcp_handle &) {
     HandleClose(UV_EOF);
   });
 
-  _socket->on<uvw::CloseEvent>(
-      [this](const uvw::CloseEvent &, uvw::TCPHandle &) {
+  _socket->on<uvw::close_event>(
+      [this](const uvw::close_event &, uvw::tcp_handle &) {
         HandleClose(UV_EOF);
       });
 
-  _socket->on<uvw::DataEvent>(
-      [this](const uvw::DataEvent &event, uvw::TCPHandle &) {
+  _socket->on<uvw::data_event>(
+      [this](const uvw::data_event &event, uvw::tcp_handle &) {
         HandleData(event.data, event.length);
       });
 
@@ -47,7 +49,7 @@ bool NetworkClient::Disconnected() const { return _disconnected; }
  * Returns this clients remote address.
  * @return
  */
-uvw::Addr NetworkClient::GetRemoteAddress() { return _remoteAddress; }
+uvw::socket_address NetworkClient::GetRemoteAddress() { return _remoteAddress; }
 
 void NetworkClient::Shutdown() {
   _disconnected = true;

@@ -26,8 +26,8 @@ MessageDirector *MessageDirector::Instance() {
 MessageDirector::MessageDirector() {
   Logger::Info("Starting Message Director component...");
 
-  _connectHandle = g_loop->resource<uvw::TCPHandle>();
-  _listenHandle = g_loop->resource<uvw::TCPHandle>();
+  _connectHandle = g_loop->resource<uvw::tcp_handle>();
+  _listenHandle = g_loop->resource<uvw::tcp_handle>();
 
   auto config = Config::Instance()->GetNode("message-director");
 
@@ -58,10 +58,10 @@ MessageDirector::MessageDirector() {
   }
 
   // Socket events.
-  _listenHandle->on<uvw::ListenEvent>(
-      [](const uvw::ListenEvent &, uvw::TCPHandle &srv) {
-        std::shared_ptr<uvw::TCPHandle> client =
-            srv.loop().resource<uvw::TCPHandle>();
+  _listenHandle->on<uvw::listen_event>(
+      [](const uvw::listen_event &, uvw::tcp_handle &srv) {
+        std::shared_ptr<uvw::tcp_handle> client =
+            srv.parent().resource<uvw::tcp_handle>();
         srv.accept(*client);
 
         // Create a new client for this connected participant.
@@ -69,16 +69,16 @@ MessageDirector::MessageDirector() {
         new MDParticipant(client);
       });
 
-  _connectHandle->once<uvw::ErrorEvent>(
-      [](const uvw::ErrorEvent &event, uvw::TCPHandle &) {
+  _connectHandle->on<uvw::error_event>(
+      [](const uvw::error_event &event, uvw::tcp_handle &) {
         // Just die on error, the message director always needs a connection to
         // RabbitMQ.
         Logger::Error(std::format("[MD] Socket error: {}", event.what()));
         exit(1);
       });
 
-  _connectHandle->once<uvw::ConnectEvent>(
-      [this, user, password](const uvw::ConnectEvent &, uvw::TCPHandle &tcp) {
+  _connectHandle->on<uvw::connect_event>(
+      [this, user, password](const uvw::connect_event &, uvw::tcp_handle &tcp) {
         // Authenticate with the RabbitMQ cluster.
         _connection =
             new AMQP::Connection(this, AMQP::Login(user, password), "/");
@@ -86,8 +86,8 @@ MessageDirector::MessageDirector() {
         _connectHandle->read();
       });
 
-  _connectHandle->on<uvw::DataEvent>(
-      [this](const uvw::DataEvent &event, uvw::TCPHandle &) {
+  _connectHandle->on<uvw::data_event>(
+      [this](const uvw::data_event &event, uvw::tcp_handle &) {
         _connection->parse(event.data.get(), event.length);
       });
 

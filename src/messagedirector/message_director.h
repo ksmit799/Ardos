@@ -44,8 +44,8 @@ private:
 
   std::unordered_set<ChannelSubscriber *> _subscribers;
 
-  std::shared_ptr<uvw::TCPHandle> _connectHandle;
-  std::shared_ptr<uvw::TCPHandle> _listenHandle;
+  std::shared_ptr<uvw::tcp_handle> _connectHandle;
+  std::shared_ptr<uvw::tcp_handle> _listenHandle;
   AMQP::Connection *_connection;
   AMQP::Channel *_globalChannel{};
   std::string _localQueue;
