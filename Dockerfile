@@ -1,4 +1,4 @@
-FROM ubuntu:23.10
+FROM ubuntu:23.10 as build
 
 # Install dependencies.
 RUN set -ex; \
@@ -41,5 +41,14 @@ COPY . /app
 WORKDIR /app/build
 RUN cmake .. -DCMAKE_BUILD_TYPE=Release && make
 
+FROM ubuntu:23.10
+
+# Copy the build artificat.
+COPY --from=build /app/build/bin /app
+COPY --from=build /usr/local/lib/lib* /usr/local/lib/
+COPY --from=build /app/build/libs/libuv/libuv.s* /usr/local/lib/
+
+RUN ldconfig
+
 # Run.
-ENTRYPOINT ["./build/ardos"]
+ENTRYPOINT ["./app/ardos"]
