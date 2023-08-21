@@ -7,7 +7,7 @@
 
 namespace Ardos {
 
-MDParticipant::MDParticipant(const std::shared_ptr<uvw::TCPHandle> &socket)
+MDParticipant::MDParticipant(const std::shared_ptr<uvw::tcp_handle> &socket)
     : NetworkClient(socket), ChannelSubscriber() {
   auto address = GetRemoteAddress();
   Logger::Info(std::format("[MD] Participant connected from {}:{}", address.ip,
@@ -44,7 +44,7 @@ void MDParticipant::Shutdown() {
 void MDParticipant::HandleDisconnect(uv_errno_t code) {
   auto address = GetRemoteAddress();
 
-  auto errorEvent = uvw::ErrorEvent{(int)code};
+  auto errorEvent = uvw::error_event{(int)code};
   Logger::Info(std::format("[MD] Lost connection from '{}' ({}:{}): {}",
                            _connName, address.ip, address.port,
                            errorEvent.what()));

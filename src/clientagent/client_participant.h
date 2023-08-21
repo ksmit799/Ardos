@@ -39,7 +39,7 @@ struct Interest {
 class ClientParticipant : public NetworkClient, public ChannelSubscriber {
 public:
   ClientParticipant(ClientAgent *clientAgent,
-                    const std::shared_ptr<uvw::TCPHandle> &socket);
+                    const std::shared_ptr<uvw::tcp_handle> &socket);
 
   friend class InterestOperation;
 
@@ -124,8 +124,8 @@ private:
   uint64_t _channel;
   uint64_t _allocatedChannel;
 
-  std::shared_ptr<uvw::TimerHandle> _heartbeatTimer;
-  std::shared_ptr<uvw::TimerHandle> _authTimer;
+  std::shared_ptr<uvw::timer_handle> _heartbeatTimer;
+  std::shared_ptr<uvw::timer_handle> _authTimer;
 
   AuthState _authState = AUTH_STATE_NEW;
   bool _cleanDisconnect = false;
