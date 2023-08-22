@@ -15,9 +15,9 @@ jobs:
       matrix:
         include:
           - dockerfile: ./Dockerfile
-            image: ${{ env.REGISTRY }}/ksmit799/ardos
+            image: ghcr.io/ksmit799/ardos
           - dockerfile: ./Dockerfile-legacy
-            image: ${{ env.REGISTRY }}/ksmit799/ardos-legacy
+            image: ghcr.io/ksmit799/ardos-legacy
 
     permissions:
       contents: read
