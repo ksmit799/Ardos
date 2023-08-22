@@ -6,11 +6,18 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push-image:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - dockerfile: ./Dockerfile
+            image: ${{ env.REGISTRY }}/ksmit799/ardos
+          - dockerfile: ./Dockerfile-legacy
+            image: ${{ env.REGISTRY }}/ksmit799/ardos-legacy
 
     permissions:
       contents: read
@@ -31,14 +38,15 @@ jobs:
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+        uses: docker/metadata-action@v4
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ matrix.image }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

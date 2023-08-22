@@ -34,7 +34,7 @@ COPY . /app
 
 # Build.
 WORKDIR /app/build
-RUN cmake .. -DCMAKE_BUILD_TYPE=Release && make
+RUN cmake .. -DCMAKE_BUILD_TYPE=Release -DARDOS_USE_LEGACY_CLIENT=ON && make
 
 FROM ubuntu:23.10
 
