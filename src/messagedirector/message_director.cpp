@@ -4,6 +4,7 @@
 #ifdef ARDOS_WANT_DB_SERVER
 #include "../database/database.h"
 #endif
+#include "../net/address_utils.h"
 #include "../stateserver/state_server.h"
 #include "../util/config.h"
 #include "../util/globals.h"
@@ -96,7 +97,8 @@ MessageDirector::MessageDirector() {
 
   // Start connecting/listening!
   _listenHandle->bind(_host, _port);
-  _connectHandle->connect(rHost, rPort);
+  _connectHandle->connect(AddressUtils::resolve_host(g_loop, rHost, rPort),
+                          rPort);
 }
 
 /**
