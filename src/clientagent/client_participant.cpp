@@ -51,19 +51,16 @@ ClientParticipant::ClientParticipant(
   _clientAgent->ParticipantJoined();
 }
 
+ClientParticipant::~ClientParticipant() {
+  NetworkClient::Shutdown();
+
+  _clientAgent->ParticipantLeft();
+}
+
 /**
  * Manually disconnect and delete this client participant.
  */
 void ClientParticipant::Shutdown() {
-  ChannelSubscriber::Shutdown();
-  NetworkClient::Shutdown();
-
-  _clientAgent->ParticipantLeft();
-
-  delete this;
-}
-
-void ClientParticipant::Annihilate() {
   // Stop the heartbeat timer (if we have one.)
   if (_heartbeatTimer) {
     _heartbeatTimer->stop();
@@ -101,8 +98,6 @@ void ClientParticipant::Annihilate() {
   for (auto it = _pendingInterests.begin(); it != _pendingInterests.end();) {
     (it++)->second->Finish();
   }
-
-  Shutdown();
 }
 
 /**
@@ -118,7 +113,7 @@ void ClientParticipant::HandleDisconnect(uv_errno_t code) {
                                 address.ip, address.port, errorEvent.what()));
   }
 
-  Annihilate();
+  Shutdown();
 }
 
 /**
@@ -635,9 +630,9 @@ void ClientParticipant::SendDisconnect(const uint16_t &reason,
   dg->AddString(message);
   SendDatagram(dg);
 
-  // This will call Annihilate from HandleDisconnect.
+  // This will call Shutdown from HandleDisconnect.
   _cleanDisconnect = true;
-  NetworkClient::Shutdown();
+  Shutdown();
 }
 
 /**

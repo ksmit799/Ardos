@@ -16,6 +16,11 @@ MDParticipant::MDParticipant(const std::shared_ptr<uvw::tcp_handle> &socket)
   MessageDirector::Instance()->ParticipantJoined();
 }
 
+MDParticipant::~MDParticipant() {
+  NetworkClient::Shutdown();
+  MessageDirector::Instance()->ParticipantLeft();
+}
+
 /**
  * Manually disconnect and delete this MD participant.
  */
@@ -29,12 +34,6 @@ void MDParticipant::Shutdown() {
   for (const auto &dg : _postRemoves) {
     PublishDatagram(dg);
   }
-
-  NetworkClient::Shutdown();
-
-  MessageDirector::Instance()->ParticipantLeft();
-
-  delete this;
 }
 
 /**

@@ -32,6 +32,15 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle> &socket)
         HandleData(event.data, event.length);
       });
 
+  _socket->on<uvw::write_event>([this](const uvw::write_event &event, uvw::tcp_handle &) {
+    if (_disconnected) {
+      _socket->close();
+      _socket.reset();
+    }
+
+    _isWriting = false;
+  });
+
   _socket->read();
 }
 
@@ -54,7 +63,7 @@ uvw::socket_address NetworkClient::GetRemoteAddress() { return _remoteAddress; }
 void NetworkClient::Shutdown() {
   _disconnected = true;
 
-  if (_socket) {
+  if (_socket && !_isWriting) {
     _socket->close();
     _socket.reset();
   }
@@ -122,6 +131,8 @@ void NetworkClient::ProcessBuffer() {
  * @param dg
  */
 void NetworkClient::SendDatagram(const std::shared_ptr<Datagram> &dg) {
+  _isWriting = true;
+
   size_t sendSize = sizeof(uint16_t) + dg->Size();
   auto sendBuffer = std::unique_ptr<char[]>(new char[sendSize]);
 

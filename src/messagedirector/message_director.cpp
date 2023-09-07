@@ -249,7 +249,7 @@ void MessageDirector::AddSubscriber(ChannelSubscriber *subscriber) {
  * @param subscriber
  */
 void MessageDirector::RemoveSubscriber(ChannelSubscriber *subscriber) {
-  _subscribers.erase(subscriber);
+  _leavingSubscribers.insert(subscriber);
 
   // Decrement subscribers metric.
   if (_subscribersGauge) {
@@ -365,6 +365,14 @@ void MessageDirector::StartConsuming() {
         for (const auto &subscriber : _subscribers) {
           subscriber->HandleUpdate(message.routingkey(), dg);
         }
+
+        // Delete any subscribers that were annihilated while handling the message.
+        for (const auto &it : _leavingSubscribers) {
+          _subscribers.erase(it);
+          delete it;
+        }
+
+        _leavingSubscribers.clear();
       })
       .onCancelled([](const std::string &consumerTag) {
         Logger::Error("[MD] Channel consuming cancelled unexpectedly.");

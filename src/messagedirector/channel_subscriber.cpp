@@ -21,7 +21,7 @@ ChannelSubscriber::ChannelSubscriber() {
   MessageDirector::Instance()->AddSubscriber(this);
 }
 
-ChannelSubscriber::~ChannelSubscriber() { ChannelSubscriber::Shutdown(); }
+ChannelSubscriber::~ChannelSubscriber() {}
 
 void ChannelSubscriber::Shutdown() {
   MessageDirector::Instance()->RemoveSubscriber(this);

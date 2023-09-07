@@ -14,7 +14,7 @@ public:
   friend class MessageDirector;
 
   ChannelSubscriber();
-  ~ChannelSubscriber();
+  virtual ~ChannelSubscriber();
 
   virtual void Shutdown();
 

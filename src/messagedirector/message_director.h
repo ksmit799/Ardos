@@ -43,6 +43,7 @@ private:
   static MessageDirector *_instance;
 
   std::unordered_set<ChannelSubscriber *> _subscribers;
+  std::unordered_set<ChannelSubscriber *> _leavingSubscribers;
 
   std::shared_ptr<uvw::tcp_handle> _connectHandle;
   std::shared_ptr<uvw::tcp_handle> _listenHandle;

@@ -33,6 +33,7 @@ private:
   uvw::socket_address _remoteAddress;
   std::vector<uint8_t> _data_buf;
   bool _disconnected = false;
+  bool _isWriting = false;
 };
 
 } // namespace Ardos
