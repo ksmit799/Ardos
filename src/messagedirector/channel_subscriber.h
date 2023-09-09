@@ -26,14 +26,14 @@ protected:
   virtual void HandleDatagram(const std::shared_ptr<Datagram> &dg) = 0;
 
 private:
-  void HandleUpdate(std::string_view channel,
+  void HandleUpdate(const std::string &channel,
                     const std::shared_ptr<Datagram> &dg);
 
   // A static map of globally registered channels.
   static std::unordered_map<std::string, unsigned int> _globalChannels;
 
   // List of channels that this ChannelSubscriber is listening to.
-  std::vector<std::string> _localChannels;
+  std::unordered_set<std::string> _localChannels;
 
   AMQP::Channel *_globalChannel;
   std::string _localQueue;

@@ -27,21 +27,23 @@ void ChannelSubscriber::Shutdown() {
   MessageDirector::Instance()->RemoveSubscriber(this);
 
   // Cleanup our local channel subscriptions.
-  while (!_localChannels.empty()) {
-    UnsubscribeChannel(std::stoull(_localChannels.front()));
+  std::unordered_set<std::string> channels(_localChannels);
+  for (const auto &channel : channels) {
+    UnsubscribeChannel(std::stoull(channel));
   }
+
+  _localChannels.clear();
 }
 
 void ChannelSubscriber::SubscribeChannel(const uint64_t &channel) {
   std::string channelStr = std::to_string(channel);
 
   // Don't add duplicate channels.
-  if (std::find(_localChannels.begin(), _localChannels.end(), channelStr) !=
-      _localChannels.end()) {
+  if (_localChannels.contains(channelStr)) {
     return;
   }
 
-  _localChannels.push_back(channelStr);
+  _localChannels.insert(channelStr);
 
   // Next, lets check if this channel is already being listened to elsewhere.
   // If it is, increment the subscriber count.
@@ -61,12 +63,11 @@ void ChannelSubscriber::UnsubscribeChannel(const uint64_t &channel) {
   std::string channelStr = std::to_string(channel);
 
   // Make sure we've subscribed to this channel.
-  if (std::find(_localChannels.begin(), _localChannels.end(), channelStr) ==
-      _localChannels.end()) {
+  if (!_localChannels.contains(channelStr)) {
     return;
   }
 
-  std::erase(_localChannels, channelStr);
+  _localChannels.erase(channelStr);
 
   // We can safely assume the channel exists in a global context.
   _globalChannels[channelStr]--;
@@ -95,11 +96,10 @@ void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram> &dg) {
   }
 }
 
-void ChannelSubscriber::HandleUpdate(std::string_view channel,
+void ChannelSubscriber::HandleUpdate(const std::string &channel,
                                      const std::shared_ptr<Datagram> &dg) {
   // First, check if this ChannelSubscriber cares about the message.
-  if (std::find(_localChannels.begin(), _localChannels.end(), channel) ==
-      _localChannels.end()) {
+  if (!_localChannels.contains(channel)) {
     return;
   }
 
