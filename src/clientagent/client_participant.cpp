@@ -9,7 +9,7 @@
 namespace Ardos {
 
 ClientParticipant::ClientParticipant(
-    ClientAgent *clientAgent, const std::shared_ptr<uvw::TCPHandle> &socket)
+    ClientAgent *clientAgent, const std::shared_ptr<uvw::tcp_handle> &socket)
     : NetworkClient(socket), ChannelSubscriber(), _clientAgent(clientAgent) {
   auto address = GetRemoteAddress();
   Logger::Verbose(std::format("[CA] Client connected from {}:{}", address.ip,
@@ -29,41 +29,38 @@ ClientParticipant::ClientParticipant(
 
   if (_clientAgent->GetHeartbeatInterval()) {
     // Set up the heartbeat timeout timer.
-    _heartbeatTimer = g_loop->resource<uvw::TimerHandle>();
-    _heartbeatTimer->on<uvw::TimerEvent>(
-        [this](const uvw::TimerEvent &, uvw::TimerHandle &) {
+    _heartbeatTimer = g_loop->resource<uvw::timer_handle>();
+    _heartbeatTimer->on<uvw::timer_event>(
+        [this](const uvw::timer_event &, uvw::timer_handle &) {
           HandleHeartbeatTimeout();
         });
   }
 
   if (_clientAgent->GetAuthTimeout()) {
     // Set up the auth timeout timer.
-    _authTimer = g_loop->resource<uvw::TimerHandle>();
-    _authTimer->on<uvw::TimerEvent>(
-        [this](const uvw::TimerEvent &, uvw::TimerHandle &) {
+    _authTimer = g_loop->resource<uvw::timer_handle>();
+    _authTimer->on<uvw::timer_event>(
+        [this](const uvw::timer_event &, uvw::timer_handle &) {
           HandleAuthTimeout();
         });
 
-    _authTimer->start(uvw::TimerHandle::Time{_clientAgent->GetAuthTimeout()},
-                      uvw::TimerHandle::Time{0});
+    _authTimer->start(uvw::timer_handle::time{_clientAgent->GetAuthTimeout()},
+                      uvw::timer_handle::time{0});
   }
 
   _clientAgent->ParticipantJoined();
+}
+
+ClientParticipant::~ClientParticipant() {
+  NetworkClient::Shutdown();
+
+  _clientAgent->ParticipantLeft();
 }
 
 /**
  * Manually disconnect and delete this client participant.
  */
 void ClientParticipant::Shutdown() {
-  ChannelSubscriber::Shutdown();
-  NetworkClient::Shutdown();
-
-  _clientAgent->ParticipantLeft();
-
-  delete this;
-}
-
-void ClientParticipant::Annihilate() {
   // Stop the heartbeat timer (if we have one.)
   if (_heartbeatTimer) {
     _heartbeatTimer->stop();
@@ -101,8 +98,6 @@ void ClientParticipant::Annihilate() {
   for (auto it = _pendingInterests.begin(); it != _pendingInterests.end();) {
     (it++)->second->Finish();
   }
-
-  Shutdown();
 }
 
 /**
@@ -113,12 +108,12 @@ void ClientParticipant::HandleDisconnect(uv_errno_t code) {
   if (!_cleanDisconnect) {
     auto address = GetRemoteAddress();
 
-    auto errorEvent = uvw::ErrorEvent{(int)code};
+    auto errorEvent = uvw::error_event{(int)code};
     Logger::Verbose(std::format("[CA] Lost connection from {}:{}: {}",
                                 address.ip, address.port, errorEvent.what()));
   }
 
-  Annihilate();
+  Shutdown();
 }
 
 /**
@@ -635,9 +630,9 @@ void ClientParticipant::SendDisconnect(const uint16_t &reason,
   dg->AddString(message);
   SendDatagram(dg);
 
-  // This will call Annihilate from HandleDisconnect.
+  // This will call Shutdown from HandleDisconnect.
   _cleanDisconnect = true;
-  NetworkClient::Shutdown();
+  Shutdown();
 }
 
 /**
@@ -647,8 +642,8 @@ void ClientParticipant::HandleClientHeartbeat() {
   if (_heartbeatTimer) {
     _heartbeatTimer->stop();
     _heartbeatTimer->start(
-        uvw::TimerHandle::Time{_clientAgent->GetHeartbeatInterval()},
-        uvw::TimerHandle::Time{0});
+        uvw::timer_handle::time{_clientAgent->GetHeartbeatInterval()},
+        uvw::timer_handle::time{0});
   }
 }
 
@@ -989,15 +984,17 @@ void ClientParticipant::HandleClientAddInterest(DatagramIterator &dgi,
     return;
   }
 
+  Interest i;
+
 #ifdef ARDOS_USE_LEGACY_CLIENT
   uint16_t handleId = dgi.GetUint16();
   uint32_t context = dgi.GetUint32();
-#elif
+  BuildInterest(dgi, multiple, i, handleId);
+#else
   uint32_t context = dgi.GetUint32();
+  BuildInterest(dgi, multiple, i);
 #endif
 
-  Interest i;
-  BuildInterest(dgi, multiple, i);
   if (_clientAgent->GetInterestsPermission() == INTERESTS_VISIBLE &&
       !LookupObject(i.parent)) {
     SendDisconnect(CLIENT_DISCONNECT_FORBIDDEN_INTEREST,
@@ -1047,10 +1044,9 @@ void ClientParticipant::BuildInterest(DatagramIterator &dgi,
                                       const uint16_t &handleId) {
 #ifdef ARDOS_USE_LEGACY_CLIENT
   uint16_t interestId = handleId;
-#elif
+#else
   uint16_t interestId = dgi.GetUint16();
 #endif
-
   uint32_t parent = dgi.GetUint32();
 
   out.id = interestId;
@@ -1172,7 +1168,7 @@ void ClientParticipant::HandleInterestDone(const uint16_t &interestId,
 #ifdef ARDOS_USE_LEGACY_CLIENT
   dg->AddUint16(interestId);
   dg->AddUint32(context);
-#elif
+#else
   dg->AddUint32(context);
   dg->AddUint16(interestId);
 #endif
@@ -1320,7 +1316,7 @@ void ClientParticipant::HandleAddObject(
   dg->AddLocation(parentId, zoneId);
   dg->AddUint16(dcId);
   dg->AddUint32(doId);
-#elif
+#else
   dg->AddUint32(doId);
   dg->AddLocation(parentId, zoneId);
   dg->AddUint16(dcId);
