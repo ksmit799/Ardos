@@ -5,6 +5,7 @@
 #include "../database/database_server.h"
 #endif
 #include "../net/address_utils.h"
+#include "../stateserver/database_state_server.h"
 #include "../stateserver/state_server.h"
 #include "../util/config.h"
 #include "../util/globals.h"
@@ -173,6 +174,10 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
                               "built without ARDOS_WANT_DB_SERVER");
                 exit(1);
 #endif
+              }
+
+              if (Config::Instance()->GetBool("want-dbss")) {
+                new DatabaseStateServer();
               }
 
               // Start listening for incoming connections.
@@ -366,7 +371,8 @@ void MessageDirector::StartConsuming() {
           subscriber->HandleUpdate(message.routingkey(), dg);
         }
 
-        // Delete any subscribers that were annihilated while handling the message.
+        // Delete any subscribers that were annihilated while handling the
+        // message.
         for (const auto &it : _leavingSubscribers) {
           _subscribers.erase(it);
           delete it;

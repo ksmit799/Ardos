@@ -8,7 +8,6 @@
 #include <dcPacker.h>
 #include <mongocxx/exception/operation_exception.hpp>
 
-#include "../net/message_types.h"
 #include "../util/config.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
@@ -334,11 +333,93 @@ void DatabaseServer::HandleDelete(DatagramIterator &dgi,
 }
 
 void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
-                                  const uint64_t &sender) {}
+                                  const uint64_t &sender) {
+  uint32_t context = dgi.GetUint32();
+  uint32_t doId = dgi.GetUint32();
+
+  std::optional<bsoncxx::document::value> obj;
+  try {
+    obj = _db["objects"].find_one(
+        document{} << "_id" << static_cast<int64_t>(doId) << finalize);
+  } catch (const mongocxx::operation_exception &e) {
+    Logger::Error(std::format(
+        "[DB] Unexpected error while fetching object {}: {}", doId, e.what()));
+    HandleGetFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
+    return;
+  }
+
+  if (!obj) {
+    Logger::Warn(
+        std::format("[DB] Failed to fetch non-existent object: {}", doId));
+    HandleGetFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
+    return;
+  }
+
+  auto dclass_name = std::string(obj->view()["dclass"].get_string().value);
+
+  // Make sure we have a valid distributed class.
+  DCClass *dcClass = g_dc_file->get_class_by_name(dclass_name);
+  if (!dcClass) {
+    Logger::Error(std::format(
+        "[DB] Encountered unknown dclass while fetching object {}: {}", doId,
+        dclass_name));
+    HandleGetFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
+    return;
+  }
+
+  // Unpack fields.
+  auto fields = obj->view()["fields"].get_document().value;
+
+  FieldMap objectFields;
+  Datagram objectDg;
+  try {
+    for (const auto &it : fields) {
+      auto fieldName = std::string(it.key());
+
+      DCField *field = dcClass->get_field_by_name(fieldName);
+      if (!field) {
+        Logger::Warn(std::format("[DB] Encountered unexpected field while "
+                                 "fetching object {}: {} - {}",
+                                 doId, dclass_name, fieldName));
+        continue;
+      }
+
+      DatabaseUtils::BsonToField(field, field->get_name(), it.get_value(),
+                                 objectDg, objectFields);
+    }
+  } catch (const ConversionException &e) {
+    Logger::Error(
+        std::format("[DB] Failed to unpack field fetching object {}: {} - {}",
+                    doId, dclass_name, e.what()));
+    HandleGetFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
+    return;
+  }
+
+  auto dg = std::make_shared<Datagram>(sender, _channel,
+                                       DBSERVER_OBJECT_GET_ALL_RESP);
+  dg->AddUint32(context);
+  dg->AddBool(true);
+  dg->AddUint16(dcClass->get_number());
+  dg->AddUint16(objectFields.size()); // Field count.
+  for (const auto &it : objectFields) {
+    dg->AddInt16(it.first->get_number());
+    dg->AddData(it.second);
+  }
+  PublishDatagram(dg);
+}
 
 void DatabaseServer::HandleGetField(DatagramIterator &dgi,
                                     const uint64_t &sender,
                                     const bool &multiple) {}
+
+void DatabaseServer::HandleGetFailure(const MessageTypes &type,
+                                      const uint64_t &channel,
+                                      const uint32_t &context) {
+  auto dg = std::make_shared<Datagram>(channel, _channel, type);
+  dg->AddUint32(context);
+  dg->AddBool(false);
+  PublishDatagram(dg);
+}
 
 void DatabaseServer::HandleSetField(DatagramIterator &dgi,
                                     const uint64_t &sender,

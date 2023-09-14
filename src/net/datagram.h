@@ -50,8 +50,11 @@ public:
            const uint64_t &fromChannel, const uint16_t &msgType);
   ~Datagram();
 
+  void Clear();
+
   [[nodiscard]] uint16_t Size() const;
   const uint8_t *GetData();
+  std::vector<uint8_t> GetBytes();
 
   void AddBool(const bool &v);
   void AddInt8(const int8_t &v);
@@ -74,6 +77,7 @@ public:
 
   void AddData(const std::vector<uint8_t> &v);
   void AddData(const std::shared_ptr<Datagram> &v);
+  void AddData(const uint8_t* data, const uint32_t &length);
 
   void AddLocation(const uint32_t &parentId, const uint32_t &zoneId);
 

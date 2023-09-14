@@ -16,14 +16,30 @@ typedef std::map<const DCField *, std::vector<uint8_t>> FieldMap;
  */
 class ConversionException : public std::exception {
 public:
-  explicit ConversionException(const char *msg) : _message(msg) {}
+  explicit ConversionException(const char *msg) : _message(msg), _what(msg) {}
 
   [[nodiscard]] inline const char *what() const override {
-    return _message.c_str();
+    return _what.c_str();
+  }
+
+  inline void PushName(const std::string &name) {
+    _names.push_front(name);
+
+    _what = "";
+    for (const auto &it : _names) {
+      if (!_what.empty()) {
+        _what += ".";
+      }
+      _what += it;
+    }
+
+    _what += ": " + _message;
   }
 
 private:
   std::string _message;
+  std::string _what;
+  std::list<std::string> _names;
 };
 
 class DatabaseUtils {
@@ -53,6 +69,10 @@ public:
 
   static void FieldToBson(bsoncxx::builder::stream::single_context builder,
                           DCPacker &packer);
+
+  static void BsonToField(DCField *field, const std::string &fieldName,
+                          const bsoncxx::types::bson_value::view &value,
+                          Datagram &dg, FieldMap &out);
 
   /**
    * Converts a bson value to a number.

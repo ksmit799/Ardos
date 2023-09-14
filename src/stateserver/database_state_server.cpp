@@ -38,7 +38,8 @@ DatabaseStateServer::DatabaseStateServer() : ChannelSubscriber() {
  * TODO: Evaluate the performance of this. We cannot subscribe to a *range* of
  * channels exactly due to RabbitMQ wildcard limitations.
  */
-void DatabaseStateServer::SubscribeRange(const uint32_t &min, const uint32_t &max) {
+void DatabaseStateServer::SubscribeRange(const uint32_t &min,
+                                         const uint32_t &max) {
   // TODO: It might be more efficient to get a list of existing DoId's in the
   // database by sending a message to the DB server.
   for (auto i = min; i < max; i++) {
@@ -64,9 +65,8 @@ void DatabaseStateServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       break;
     default:
       // Hopefully we managed to unpack the sender...
-      Logger::Verbose(
-          std::format("[DBSS] Ignoring message: {} from sender: {}",
-                      msgType, sender));
+      Logger::Verbose(std::format("[DBSS] Ignoring message: {} from sender: {}",
+                                  msgType, sender));
     }
   } catch (const DatagramIteratorEOF &) {
     Logger::Error("[DBSS] Received a truncated datagram!");
@@ -87,7 +87,6 @@ void DatabaseStateServer::HandleActivate(DatagramIterator &dgi,
   }
 
   if (other) {
-
   }
 }
 

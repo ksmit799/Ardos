@@ -3,9 +3,7 @@
 
 namespace Ardos {
 
-class LoadingObject {
-
-};
+class LoadingObject {};
 
 } // namespace Ardos
 

@@ -33,9 +33,7 @@ std::string Config::GetString(const std::string &key,
   return !val.empty() ? val : defVal;
 }
 
-YAML::Node Config::GetNode(const std::string &key) {
-  return _config[key];
-}
+YAML::Node Config::GetNode(const std::string &key) { return _config[key]; }
 
 bool Config::GetBool(const std::string &key, const bool &defVal) {
   if (auto param = _config[key]) {
