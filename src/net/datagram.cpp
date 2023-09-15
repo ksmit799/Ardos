@@ -197,6 +197,13 @@ void Datagram::AddBlob(const std::vector<uint8_t> &v) {
   _bufOffset += v.size();
 }
 
+void Datagram::AddBlob(const uint8_t *data, const size_t &length) {
+  AddUint16(length);
+  EnsureLength(length);
+  memcpy(_buf + _bufOffset, data, length);
+  _bufOffset += length;
+}
+
 /**
  * Adds bytes directly to the end of this datagram.
  * @param v

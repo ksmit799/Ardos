@@ -74,10 +74,11 @@ public:
 
   void AddString(const std::string &v);
   void AddBlob(const std::vector<uint8_t> &v);
+  void AddBlob(const uint8_t *data, const size_t &length);
 
   void AddData(const std::vector<uint8_t> &v);
   void AddData(const std::shared_ptr<Datagram> &v);
-  void AddData(const uint8_t* data, const uint32_t &length);
+  void AddData(const uint8_t *data, const uint32_t &length);
 
   void AddLocation(const uint32_t &parentId, const uint32_t &zoneId);
 

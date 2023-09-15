@@ -260,16 +260,11 @@ void DatabaseUtils::BsonToField(DCField *field, const std::string &fieldName,
       }
 
       Datagram arrDg;
-      size_t length = 0;
       for (const auto &it : value.get_array().value) {
-        length++;
         arrDg.AddUint32(BsonToNumber<uint32_t>(it.get_value()));
       }
 
-      Logger::Info(std::format("Length: {} - {}", length, arrDg.Size()));
-
-      dg.AddUint8(length);
-      dg.AddData(arrDg.GetBytes());
+      dg.AddBlob(arrDg.GetData(), arrDg.Size());
       break;
     }
     case ST_int8array:
