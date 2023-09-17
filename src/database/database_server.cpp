@@ -385,7 +385,12 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
       }
 
       DatabaseUtils::BsonToField(field, field->get_name(), it.get_value(),
-                                 objectDg, objectFields);
+                                 objectDg);
+
+      // Push the field data into our field map
+      // and clear the datagram ready for writing.
+      objectFields[field] = objectDg.GetBytes();
+      objectDg.Clear();
     }
   } catch (const ConversionException &e) {
     Logger::Error(

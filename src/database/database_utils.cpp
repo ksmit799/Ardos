@@ -177,7 +177,7 @@ void DatabaseUtils::FieldToBson(
 
 void DatabaseUtils::BsonToField(DCField *field, const std::string &fieldName,
                                 const bsoncxx::types::bson_value::view &value,
-                                Datagram &dg, FieldMap &out) {
+                                Datagram &dg) {
   auto fieldParameter = field->as_parameter();
   auto fieldSimple = fieldParameter->as_simple_parameter();
   auto fieldArray = fieldParameter->as_array_parameter();
@@ -227,33 +227,45 @@ void DatabaseUtils::BsonToField(DCField *field, const std::string &fieldName,
       }
       dg.AddData(value.get_binary().bytes, value.get_binary().size);
       break;
-    case ST_int16array:
+    case ST_int16array: {
       if (value.type() != bsoncxx::type::k_array) {
         throw ConversionException("Expected array");
       }
-      dg.AddUint16(value.get_array().value.length());
+
+      Datagram arrDg;
       for (const auto &it : value.get_array().value) {
-        dg.AddInt16(BsonToNumber<int16_t>(it.get_value()));
+        arrDg.AddInt16(BsonToNumber<int16_t>(it.get_value()));
       }
+
+      dg.AddBlob(arrDg.GetData(), arrDg.Size());
       break;
-    case ST_int32array:
+    }
+    case ST_int32array: {
       if (value.type() != bsoncxx::type::k_array) {
         throw ConversionException("Expected array");
       }
-      dg.AddUint16(value.get_array().value.length());
+
+      Datagram arrDg;
       for (const auto &it : value.get_array().value) {
-        dg.AddInt32(BsonToNumber<int32_t>(it.get_value()));
+        arrDg.AddInt32(BsonToNumber<int32_t>(it.get_value()));
       }
+
+      dg.AddBlob(arrDg.GetData(), arrDg.Size());
       break;
-    case ST_uint16array:
+    }
+    case ST_uint16array: {
       if (value.type() != bsoncxx::type::k_array) {
         throw ConversionException("Expected array");
       }
-      dg.AddUint16(value.get_array().value.length());
+
+      Datagram arrDg;
       for (const auto &it : value.get_array().value) {
-        dg.AddUint16(BsonToNumber<uint16_t>(it.get_value()));
+        arrDg.AddUint16(BsonToNumber<uint16_t>(it.get_value()));
       }
+
+      dg.AddBlob(arrDg.GetData(), arrDg.Size());
       break;
+    }
     case ST_uint32array: {
       if (value.type() != bsoncxx::type::k_array) {
         throw ConversionException("Expected array");
@@ -267,24 +279,32 @@ void DatabaseUtils::BsonToField(DCField *field, const std::string &fieldName,
       dg.AddBlob(arrDg.GetData(), arrDg.Size());
       break;
     }
-    case ST_int8array:
+    case ST_int8array: {
       if (value.type() != bsoncxx::type::k_array) {
         throw ConversionException("Expected array");
       }
-      dg.AddUint16(value.get_array().value.length());
+
+      Datagram arrDg;
       for (const auto &it : value.get_array().value) {
-        dg.AddInt8(BsonToNumber<int8_t>(it.get_value()));
+        arrDg.AddInt8(BsonToNumber<int8_t>(it.get_value()));
       }
+
+      dg.AddBlob(arrDg.GetData(), arrDg.Size());
       break;
-    case ST_uint8array:
+    }
+    case ST_uint8array: {
       if (value.type() != bsoncxx::type::k_array) {
         throw ConversionException("Expected array");
       }
-      dg.AddUint16(value.get_array().value.length());
+
+      Datagram arrDg;
       for (const auto &it : value.get_array().value) {
-        dg.AddUint8(BsonToNumber<uint8_t>(it.get_value()));
+        arrDg.AddUint8(BsonToNumber<uint8_t>(it.get_value()));
       }
+
+      dg.AddBlob(arrDg.GetData(), arrDg.Size());
       break;
+    }
     case ST_uint32uint8array:
       if (value.type() != bsoncxx::type::k_array) {
         throw ConversionException("Expected array");
@@ -306,11 +326,6 @@ void DatabaseUtils::BsonToField(DCField *field, const std::string &fieldName,
       dg.AddUint8(value.get_string().value[0]);
       break;
     }
-
-    // Push the field data into our field map
-    // and clear the datagram ready for writing.
-    out[field] = dg.GetBytes();
-    dg.Clear();
   } catch (ConversionException &e) {
     e.PushName(fieldName);
     throw;

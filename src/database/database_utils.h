@@ -72,7 +72,7 @@ public:
 
   static void BsonToField(DCField *field, const std::string &fieldName,
                           const bsoncxx::types::bson_value::view &value,
-                          Datagram &dg, FieldMap &out);
+                          Datagram &dg);
 
   /**
    * Converts a bson value to a number.
