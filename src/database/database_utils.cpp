@@ -1,8 +1,6 @@
 #include "database_utils.h"
 
 #include <dcField.h>
-#include <dcParameter.h>
-#include <dcSimpleParameter.h>
 
 #include "../util/globals.h"
 #include "../util/logger.h"
@@ -175,16 +173,12 @@ void DatabaseUtils::FieldToBson(
   }
 }
 
-void DatabaseUtils::BsonToField(DCField *field, const std::string &fieldName,
+void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
+                                const std::string &fieldName,
                                 const bsoncxx::types::bson_value::view &value,
                                 Datagram &dg) {
-  auto fieldParameter = field->as_parameter();
-  auto fieldSimple = fieldParameter->as_simple_parameter();
-  auto fieldArray = fieldParameter->as_array_parameter();
-
   try {
-    auto packType = fieldSimple->get_type();
-    switch (packType) {
+    switch (fieldType) {
     case ST_invalid:
       throw ConversionException("Got invalid field type");
     case ST_int8:

@@ -70,7 +70,8 @@ public:
   static void FieldToBson(bsoncxx::builder::stream::single_context builder,
                           DCPacker &packer);
 
-  static void BsonToField(DCField *field, const std::string &fieldName,
+  static void BsonToField(const DCSubatomicType &fieldType,
+                          const std::string &fieldName,
                           const bsoncxx::types::bson_value::view &value,
                           Datagram &dg);
 

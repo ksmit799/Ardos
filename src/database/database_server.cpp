@@ -4,8 +4,12 @@
 
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/json.hpp>
+#include <dcArrayParameter.h>
 #include <dcClass.h>
+#include <dcClassParameter.h>
 #include <dcPacker.h>
+#include <dcParameter.h>
+#include <dcSimpleParameter.h>
 #include <mongocxx/exception/operation_exception.hpp>
 
 #include "../util/config.h"
@@ -220,7 +224,7 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
     if (!dcClass->get_field_by_index(field.first->get_number())) {
       // We don't immediately break out here in case we have multiple
       // non-belonging fields.
-      Logger::Warn(std::format(
+      Logger::Error(std::format(
           "[DB] Attempted to create object: {} with non-belonging field: {}",
           dcClass->get_name(), field.first->get_name()));
       errors = true;
@@ -244,7 +248,7 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
   // We can re-use the same DCPacker for each field.
   DCPacker packer;
 
-  // Start unpacking fields into a bson stream.
+  // Start unpacking fields into a bson document.
   // This is essentially the same thing as handling a client/server update.
   auto builder = document{};
   try {
@@ -349,20 +353,20 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
   }
 
   if (!obj) {
-    Logger::Warn(
+    Logger::Error(
         std::format("[DB] Failed to fetch non-existent object: {}", doId));
     HandleGetFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
     return;
   }
 
-  auto dclass_name = std::string(obj->view()["dclass"].get_string().value);
+  auto dclassName = std::string(obj->view()["dclass"].get_string().value);
 
   // Make sure we have a valid distributed class.
-  DCClass *dcClass = g_dc_file->get_class_by_name(dclass_name);
+  DCClass *dcClass = g_dc_file->get_class_by_name(dclassName);
   if (!dcClass) {
     Logger::Error(std::format(
         "[DB] Encountered unknown dclass while fetching object {}: {}", doId,
-        dclass_name));
+        dclassName));
     HandleGetFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
     return;
   }
@@ -380,12 +384,55 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
       if (!field) {
         Logger::Warn(std::format("[DB] Encountered unexpected field while "
                                  "fetching object {}: {} - {}",
-                                 doId, dclass_name, fieldName));
+                                 doId, dclassName, fieldName));
         continue;
       }
 
-      DatabaseUtils::BsonToField(field, field->get_name(), it.get_value(),
-                                 objectDg);
+      auto fieldParameter = field->as_parameter();
+
+      // Do we have a simple field (atomic) field type?
+      auto fieldSimple = fieldParameter->as_simple_parameter();
+      if (fieldSimple != nullptr) {
+        DatabaseUtils::BsonToField(fieldSimple->get_type(), field->get_name(),
+                                   it.get_value(), objectDg);
+      }
+
+      // Do we have a class field type?
+      auto fieldClass = fieldParameter->as_class_parameter();
+      if (fieldClass != nullptr) {
+        // TODO: Class field unpacking.
+        Logger::Error(std::format("[DB] TODO: Class field unpacking - {}",
+                                  field->get_name()));
+      }
+
+      // Do we have an array field type?
+      auto fieldArray = fieldParameter->as_array_parameter();
+      if (fieldArray != nullptr) {
+        // Do we have an array of a simple (atomic) type?
+        auto elemParamSimple =
+            fieldArray->get_element_type()->as_simple_parameter();
+        if (elemParamSimple) {
+          auto fieldType = elemParamSimple->get_type();
+
+          Datagram arrDg;
+          for (const auto &arrVal : it.get_array().value) {
+            DatabaseUtils::BsonToField(fieldType, field->get_name(),
+                                       arrVal.get_value(), arrDg);
+          }
+
+          objectDg.AddBlob(arrDg.GetData(), arrDg.Size());
+        }
+
+        // Do we have an array of a molecular type?
+        auto elemParamClass =
+            fieldArray->get_element_type()->as_class_parameter();
+        if (elemParamClass) {
+          // TODO: Class array field unpacking.
+          Logger::Error(
+              std::format("[DB] TODO: Class array field unpacking - {}",
+                          field->get_name()));
+        }
+      }
 
       // Push the field data into our field map
       // and clear the datagram ready for writing.
@@ -395,7 +442,7 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
   } catch (const ConversionException &e) {
     Logger::Error(
         std::format("[DB] Failed to unpack field fetching object {}: {} - {}",
-                    doId, dclass_name, e.what()));
+                    doId, dclassName, e.what()));
     HandleGetFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
     return;
   }
@@ -407,7 +454,7 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
   dg->AddUint16(dcClass->get_number());
   dg->AddUint16(objectFields.size()); // Field count.
   for (const auto &it : objectFields) {
-    dg->AddInt16(it.first->get_number());
+    dg->AddUint16(it.first->get_number());
     dg->AddData(it.second);
   }
   PublishDatagram(dg);
@@ -428,7 +475,110 @@ void DatabaseServer::HandleGetFailure(const MessageTypes &type,
 
 void DatabaseServer::HandleSetField(DatagramIterator &dgi,
                                     const uint64_t &sender,
-                                    const bool &multiple) {}
+                                    const bool &multiple) {
+  auto doId = dgi.GetUint32();
+  auto fieldCount = multiple ? dgi.GetUint16() : 1;
+
+  std::optional<bsoncxx::document::value> obj;
+  try {
+    obj = _db["objects"].find_one(
+        document{} << "_id" << static_cast<int64_t>(doId) << finalize);
+  } catch (const mongocxx::operation_exception &e) {
+    Logger::Error(std::format(
+        "[DB] Unexpected error while setting field(s) on object {}: {}", doId,
+        e.what()));
+    return;
+  }
+
+  if (!obj) {
+    Logger::Error(std::format(
+        "[DB] Failed to set field(s) on non-existent object: {}", doId));
+    return;
+  }
+
+  auto dclassName = std::string(obj->view()["dclass"].get_string().value);
+
+  // Make sure we have a valid distributed class.
+  DCClass *dcClass = g_dc_file->get_class_by_name(dclassName);
+  if (!dcClass) {
+    Logger::Error(std::format(
+        "[DB] Received set fields for unknown distributed class {}: {}", doId,
+        dclassName));
+    return;
+  }
+
+  // Unpack the fields we've received in the 'set' message.
+  FieldMap objectFields;
+  if (!DatabaseUtils::UnpackFields(dgi, fieldCount, objectFields)) {
+    Logger::Error(
+        std::format("[DB] Failed to unpack set field(s) for object: {}", doId));
+    return;
+  }
+
+  // Make sure that all present fields actually belong to the distributed class.
+  bool errors = false;
+  for (const auto &field : objectFields) {
+    if (!dcClass->get_field_by_index(field.first->get_number())) {
+      // We don't immediately break out here in case we have multiple
+      // non-belonging fields.
+      Logger::Error(std::format("[DB] Attempted to set fields on object {}: {} "
+                                "with non-belonging field: {}",
+                                doId, dclassName, field.first->get_name()));
+      errors = true;
+    }
+  }
+
+  if (errors) {
+    return;
+  }
+
+  // We can re-use the same DCPacker for each field.
+  DCPacker packer;
+
+  // Start unpacking fields into a bson document.
+  auto builder = document{};
+  try {
+    for (const auto &field : objectFields) {
+      packer.set_unpack_data(field.second);
+      // Tell the packer we're starting to unpack the field.
+      packer.begin_unpack(field.first);
+
+      DatabaseUtils::FieldToBson(
+          builder << std::string_view("fields." + field.first->get_name()),
+          packer);
+
+      // We've finished unpacking the field.
+      packer.end_unpack();
+    }
+  } catch (const ConversionException &e) {
+    Logger::Error(std::format(
+        "[DB] Failed to unpack object fields for set field(s) {}: {}", doId,
+        e.what()));
+    return;
+  }
+
+  auto fieldBuilder = builder << finalize;
+  auto fieldUpdate = document{} << "$set" << fieldBuilder << finalize;
+
+  try {
+    auto updateOperation = _db["objects"].update_one(
+        document{} << "_id" << static_cast<int64_t>(doId) << finalize,
+        fieldUpdate.view());
+
+    if (!updateOperation) {
+      Logger::Error(std::format(
+          "[DB] Set field(s) update operation failed for object {}", doId));
+      return;
+    }
+
+    Logger::Verbose(std::format("[DB] Set field(s) for object {}: {}", doId,
+                                bsoncxx::to_json(fieldBuilder.view())));
+  } catch (const mongocxx::operation_exception &e) {
+    Logger::Error(std::format(
+        "[DB] Unexpected error while setting field(s) on object {}: {}", doId,
+        e.what()));
+  }
+}
 
 void DatabaseServer::InitMetrics() {
   // Make sure we want to collect metrics on this cluster.
