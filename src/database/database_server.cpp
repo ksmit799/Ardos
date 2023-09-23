@@ -4,12 +4,8 @@
 
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/json.hpp>
-#include <dcArrayParameter.h>
 #include <dcClass.h>
-#include <dcClassParameter.h>
 #include <dcPacker.h>
-#include <dcParameter.h>
-#include <dcSimpleParameter.h>
 #include <mongocxx/exception/operation_exception.hpp>
 
 #include "../util/config.h"
@@ -388,51 +384,8 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
         continue;
       }
 
-      auto fieldParameter = field->as_parameter();
-
-      // Do we have a simple field (atomic) field type?
-      auto fieldSimple = fieldParameter->as_simple_parameter();
-      if (fieldSimple != nullptr) {
-        DatabaseUtils::BsonToField(fieldSimple->get_type(), field->get_name(),
-                                   it.get_value(), objectDg);
-      }
-
-      // Do we have a class field type?
-      auto fieldClass = fieldParameter->as_class_parameter();
-      if (fieldClass != nullptr) {
-        // TODO: Class field unpacking.
-        Logger::Error(std::format("[DB] TODO: Class field unpacking - {}",
-                                  field->get_name()));
-      }
-
-      // Do we have an array field type?
-      auto fieldArray = fieldParameter->as_array_parameter();
-      if (fieldArray != nullptr) {
-        // Do we have an array of a simple (atomic) type?
-        auto elemParamSimple =
-            fieldArray->get_element_type()->as_simple_parameter();
-        if (elemParamSimple) {
-          auto fieldType = elemParamSimple->get_type();
-
-          Datagram arrDg;
-          for (const auto &arrVal : it.get_array().value) {
-            DatabaseUtils::BsonToField(fieldType, field->get_name(),
-                                       arrVal.get_value(), arrDg);
-          }
-
-          objectDg.AddBlob(arrDg.GetData(), arrDg.Size());
-        }
-
-        // Do we have an array of a molecular type?
-        auto elemParamClass =
-            fieldArray->get_element_type()->as_class_parameter();
-        if (elemParamClass) {
-          // TODO: Class array field unpacking.
-          Logger::Error(
-              std::format("[DB] TODO: Class array field unpacking - {}",
-                          field->get_name()));
-        }
-      }
+      // Pack the field into our object datagram.
+      DatabaseUtils::PackField(field, it.get_value(), objectDg);
 
       // Push the field data into our field map
       // and clear the datagram ready for writing.

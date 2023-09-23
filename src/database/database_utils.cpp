@@ -1,6 +1,9 @@
 #include "database_utils.h"
 
+#include <dcArrayParameter.h>
+#include <dcClassParameter.h>
 #include <dcField.h>
+#include <dcSimpleParameter.h>
 
 #include "../util/globals.h"
 #include "../util/logger.h"
@@ -100,8 +103,6 @@ void DatabaseUtils::FieldToBson(
   // Note that this function can be recursively called with certain pack types.
   DCPackType packType = packer.get_pack_type();
   switch (packType) {
-  case PT_invalid:
-    throw ConversionException("Got invalid field type");
   case PT_double:
     builder << bsoncxx::types::b_double{packer.unpack_double()};
     break;
@@ -163,8 +164,22 @@ void DatabaseUtils::FieldToBson(
     packer.pop();
     break;
   }
-  default:
+  case PT_class: {
+    auto documentBuilder = builder << bsoncxx::builder::stream::open_document;
+
+    packer.push();
+    while (packer.more_nested_fields() && !packer.had_pack_error()) {
+      FieldToBson(documentBuilder << packer.get_current_field()->get_name(),
+                  packer);
+    }
+    packer.pop();
+
+    documentBuilder << bsoncxx::builder::stream::close_document;
     break;
+  }
+  case PT_invalid:
+  default:
+    throw ConversionException("Got invalid field type");
   }
 
   // Throw a conversion exception if we had a packing error.
@@ -323,6 +338,67 @@ void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
   } catch (ConversionException &e) {
     e.PushName(fieldName);
     throw;
+  }
+}
+
+void DatabaseUtils::PackField(const DCField *field,
+                              const bsoncxx::types::bson_value::view &value,
+                              Datagram &dg) {
+  auto fieldParameter = field->as_parameter();
+
+  // Do we have a simple field (atomic) field type?
+  auto fieldSimple = fieldParameter->as_simple_parameter();
+  if (fieldSimple != nullptr) {
+    DatabaseUtils::BsonToField(fieldSimple->get_type(), field->get_name(),
+                               value, dg);
+  }
+
+  // Do we have a class field type?
+  auto fieldClass = fieldParameter->as_class_parameter();
+  if (fieldClass != nullptr) {
+    DatabaseUtils::BsonToClass(fieldClass, value, dg);
+  }
+
+  // Do we have an array field type?
+  auto fieldArray = fieldParameter->as_array_parameter();
+  if (fieldArray != nullptr) {
+    // Do we have an array of a simple (atomic) type?
+    auto elemParamSimple =
+        fieldArray->get_element_type()->as_simple_parameter();
+    if (elemParamSimple) {
+      auto fieldType = elemParamSimple->get_type();
+
+      Datagram arrDg;
+      for (const auto &arrVal : value.get_array().value) {
+        DatabaseUtils::BsonToField(fieldType, field->get_name(),
+                                   arrVal.get_value(), arrDg);
+      }
+
+      dg.AddBlob(arrDg.GetData(), arrDg.Size());
+    }
+
+    // Do we have an array of a molecular type?
+    auto elemParamClass = fieldArray->get_element_type()->as_class_parameter();
+    if (elemParamClass) {
+      Datagram arrDg;
+
+      for (const auto &arrVal : value.get_array().value) {
+        DatabaseUtils::BsonToClass(elemParamClass, arrVal.get_value(), arrDg);
+      }
+
+      dg.AddBlob(arrDg.GetData(), arrDg.Size());
+    }
+  }
+}
+
+void DatabaseUtils::BsonToClass(const DCClassParameter *dclass,
+                                const bsoncxx::types::bson_value::view &value,
+                                Datagram &dg) {
+  auto numFields = dclass->get_num_nested_fields();
+  for (int i = 0; i < numFields; i++) {
+    auto field = dclass->get_nested_field(i)->as_field();
+    PackField(field, value.get_document().value[field->get_name()].get_value(),
+              dg);
   }
 }
 

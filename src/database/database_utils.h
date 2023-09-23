@@ -3,6 +3,7 @@
 
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/types/bson_value/view.hpp>
+#include <dcClassParameter.h>
 #include <dcPacker.h>
 
 #include "../net/datagram_iterator.h"
@@ -72,6 +73,14 @@ public:
 
   static void BsonToField(const DCSubatomicType &fieldType,
                           const std::string &fieldName,
+                          const bsoncxx::types::bson_value::view &value,
+                          Datagram &dg);
+
+  static void PackField(const DCField *field,
+                        const bsoncxx::types::bson_value::view &value,
+                        Datagram &dg);
+
+  static void BsonToClass(const DCClassParameter *dclass,
                           const bsoncxx::types::bson_value::view &value,
                           Datagram &dg);
 
