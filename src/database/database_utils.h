@@ -20,7 +20,7 @@ class ConversionException : public std::exception {
 public:
   explicit ConversionException(const char *msg) : _message(msg), _what(msg) {}
 
-  [[nodiscard]] inline const char *what() const override {
+  [[nodiscard]] inline const char *what() const noexcept override {
     return _what.c_str();
   }
 
