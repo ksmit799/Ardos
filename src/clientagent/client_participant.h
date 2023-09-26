@@ -40,12 +40,12 @@ class ClientParticipant : public NetworkClient, public ChannelSubscriber {
 public:
   ClientParticipant(ClientAgent *clientAgent,
                     const std::shared_ptr<uvw::tcp_handle> &socket);
+  ~ClientParticipant();
 
   friend class InterestOperation;
 
 private:
   void Shutdown() override;
-  void Annihilate();
 
   void HandleDisconnect(uv_errno_t code) override;
 

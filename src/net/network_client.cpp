@@ -18,9 +18,10 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle> &socket)
         HandleClose((uv_errno_t)event.code());
       });
 
-  _socket->on<uvw::end_event>([this](const uvw::end_event &, uvw::tcp_handle &) {
-    HandleClose(UV_EOF);
-  });
+  _socket->on<uvw::end_event>(
+      [this](const uvw::end_event &, uvw::tcp_handle &) {
+        HandleClose(UV_EOF);
+      });
 
   _socket->on<uvw::close_event>(
       [this](const uvw::close_event &, uvw::tcp_handle &) {
@@ -32,12 +33,20 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle> &socket)
         HandleData(event.data, event.length);
       });
 
+  _socket->on<uvw::write_event>(
+      [this](const uvw::write_event &event, uvw::tcp_handle &) {
+        if (_disconnected && _socket != nullptr) {
+          _socket->close();
+          _socket.reset();
+        }
+
+        _isWriting = false;
+      });
+
   _socket->read();
 }
 
-NetworkClient::~NetworkClient() {
-  Shutdown();
-}
+NetworkClient::~NetworkClient() { Shutdown(); }
 
 /**
  * Returns whether or not this client is in a disconnected state.
@@ -52,9 +61,13 @@ bool NetworkClient::Disconnected() const { return _disconnected; }
 uvw::socket_address NetworkClient::GetRemoteAddress() { return _remoteAddress; }
 
 void NetworkClient::Shutdown() {
+  if (_socket == nullptr) {
+    return;
+  }
+
   _disconnected = true;
 
-  if (_socket) {
+  if (!_isWriting) {
     _socket->close();
     _socket.reset();
   }
@@ -122,17 +135,22 @@ void NetworkClient::ProcessBuffer() {
  * @param dg
  */
 void NetworkClient::SendDatagram(const std::shared_ptr<Datagram> &dg) {
+  if (_socket == nullptr) {
+    return;
+  }
+
   size_t sendSize = sizeof(uint16_t) + dg->Size();
   auto sendBuffer = std::unique_ptr<char[]>(new char[sendSize]);
 
   uint16_t dgSize = dg->Size();
 
-  auto sendPtr = sendBuffer.get();
+  auto sendPtr = &sendBuffer.get()[0];
   // Datagram size tag.
   memcpy(sendPtr, (char *)&dgSize, sizeof(uint16_t));
   // Datagram data.
   memcpy(sendPtr + sizeof(uint16_t), dg->GetData(), dg->Size());
 
+  _isWriting = true;
   _socket->write(std::move(sendBuffer), sendSize);
 }
 

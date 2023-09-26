@@ -266,6 +266,51 @@ void DatagramIterator::SeekPayload() {
 }
 
 /**
+ * Skips reading past a packed field.
+ * @param field
+ */
+void DatagramIterator::SkipField(DCPackerInterface *field) {
+  // If the field has a fixed size in bytes (int, uint, float, etc.)
+  // we can use that as our offset.
+  if (field->has_fixed_byte_size()) {
+    auto length = field->get_fixed_byte_size();
+    EnsureLength(length);
+    _offset += length;
+    return;
+  }
+
+  // Otherwise, if the field has a variable size (string, blob, etc.)
+  // read the length tag and skip.
+  size_t length = field->get_num_length_bytes();
+  if (length) {
+    switch (length) {
+    case 2: {
+      length = GetUint16();
+      break;
+    }
+    case 4: {
+      length = GetUint32();
+      break;
+    }
+    default:
+      Logger::Error(std::format(
+          "[DGI] Unhandled field unpack for variable length: {}", length));
+    }
+
+    // Skip the field data.
+    EnsureLength(length);
+    _offset += length;
+    return;
+  }
+
+  // Otherwise, if the field is non-atomic, skip each nested field.
+  int numNested = field->get_num_nested_fields();
+  for (int i = 0; i < numNested; ++i) {
+    SkipField(field->get_nested_field(i));
+  }
+}
+
+/**
  * Returns the remaining read size in bytes.
  * @return
  */

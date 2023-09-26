@@ -51,19 +51,16 @@ ClientParticipant::ClientParticipant(
   _clientAgent->ParticipantJoined();
 }
 
+ClientParticipant::~ClientParticipant() {
+  NetworkClient::Shutdown();
+
+  _clientAgent->ParticipantLeft();
+}
+
 /**
  * Manually disconnect and delete this client participant.
  */
 void ClientParticipant::Shutdown() {
-  ChannelSubscriber::Shutdown();
-  NetworkClient::Shutdown();
-
-  _clientAgent->ParticipantLeft();
-
-  delete this;
-}
-
-void ClientParticipant::Annihilate() {
   // Stop the heartbeat timer (if we have one.)
   if (_heartbeatTimer) {
     _heartbeatTimer->stop();
@@ -101,8 +98,6 @@ void ClientParticipant::Annihilate() {
   for (auto it = _pendingInterests.begin(); it != _pendingInterests.end();) {
     (it++)->second->Finish();
   }
-
-  Shutdown();
 }
 
 /**
@@ -118,7 +113,7 @@ void ClientParticipant::HandleDisconnect(uv_errno_t code) {
                                 address.ip, address.port, errorEvent.what()));
   }
 
-  Annihilate();
+  Shutdown();
 }
 
 /**
@@ -635,9 +630,9 @@ void ClientParticipant::SendDisconnect(const uint16_t &reason,
   dg->AddString(message);
   SendDatagram(dg);
 
-  // This will call Annihilate from HandleDisconnect.
+  // This will call Shutdown from HandleDisconnect.
   _cleanDisconnect = true;
-  NetworkClient::Shutdown();
+  Shutdown();
 }
 
 /**
@@ -989,15 +984,17 @@ void ClientParticipant::HandleClientAddInterest(DatagramIterator &dgi,
     return;
   }
 
+  Interest i;
+
 #ifdef ARDOS_USE_LEGACY_CLIENT
   uint16_t handleId = dgi.GetUint16();
   uint32_t context = dgi.GetUint32();
+  BuildInterest(dgi, multiple, i, handleId);
 #else
   uint32_t context = dgi.GetUint32();
+  BuildInterest(dgi, multiple, i);
 #endif
 
-  Interest i;
-  BuildInterest(dgi, multiple, i);
   if (_clientAgent->GetInterestsPermission() == INTERESTS_VISIBLE &&
       !LookupObject(i.parent)) {
     SendDisconnect(CLIENT_DISCONNECT_FORBIDDEN_INTEREST,
@@ -1050,7 +1047,6 @@ void ClientParticipant::BuildInterest(DatagramIterator &dgi,
 #else
   uint16_t interestId = dgi.GetUint16();
 #endif
-
   uint32_t parent = dgi.GetUint32();
 
   out.id = interestId;

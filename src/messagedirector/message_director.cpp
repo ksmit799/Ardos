@@ -2,9 +2,10 @@
 
 #include "../clientagent/client_agent.h"
 #ifdef ARDOS_WANT_DB_SERVER
-#include "../database/database.h"
+#include "../database/database_server.h"
 #endif
 #include "../net/address_utils.h"
+#include "../stateserver/database_state_server.h"
 #include "../stateserver/state_server.h"
 #include "../util/config.h"
 #include "../util/globals.h"
@@ -167,12 +168,16 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
 
               if (Config::Instance()->GetBool("want-database")) {
 #ifdef ARDOS_WANT_DB_SERVER
-                new Database();
+                new DatabaseServer();
 #else
                 Logger::Error("want-database was set to true but Ardos was "
                               "built without ARDOS_WANT_DB_SERVER");
                 exit(1);
 #endif
+              }
+
+              if (Config::Instance()->GetBool("want-dbss")) {
+                new DatabaseStateServer();
               }
 
               // Start listening for incoming connections.
@@ -249,7 +254,7 @@ void MessageDirector::AddSubscriber(ChannelSubscriber *subscriber) {
  * @param subscriber
  */
 void MessageDirector::RemoveSubscriber(ChannelSubscriber *subscriber) {
-  _subscribers.erase(subscriber);
+  _leavingSubscribers.insert(subscriber);
 
   // Decrement subscribers metric.
   if (_subscribersGauge) {
@@ -365,6 +370,15 @@ void MessageDirector::StartConsuming() {
         for (const auto &subscriber : _subscribers) {
           subscriber->HandleUpdate(message.routingkey(), dg);
         }
+
+        // Delete any subscribers that were annihilated while handling the
+        // message.
+        for (const auto &it : _leavingSubscribers) {
+          _subscribers.erase(it);
+          delete it;
+        }
+
+        _leavingSubscribers.clear();
       })
       .onCancelled([](const std::string &consumerTag) {
         Logger::Error("[MD] Channel consuming cancelled unexpectedly.");

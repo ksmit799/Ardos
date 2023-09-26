@@ -9,6 +9,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 # Output binaries to bin/
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 
 # Include libuv.
 add_subdirectory(libs/libuv)
@@ -24,11 +25,13 @@ include_directories(libs/yaml-cpp/include)
 set(ARDOS_WANT_DB_SERVER ON CACHE BOOL "If on, Ardos will be built with the Database Server component.")
 if (ARDOS_WANT_DB_SERVER)
     # Include MongoDB driver.
-    find_package(libmongocxx REQUIRED)
-    find_package(libbsoncxx REQUIRED)
+    find_package(mongocxx CONFIG REQUIRED)
+    find_package(bsoncxx CONFIG REQUIRED)
 
-    include_directories(${LIBMONGOCXX_INCLUE_DIR})
-    include_directories(${LIBBSONCXX_INCLUDE_DIR})
+    include_directories(${LIBMONGOCXX_INCLUDE_DIRS})
+    include_directories(${LIBBSONCXX_INCLUDE_DIRS})
+
+    add_definitions(-DARDOS_WANT_DB_SERVER)
 endif ()
 
 # Include AMQP-CPP (RabbitMQ).
@@ -60,4 +63,8 @@ add_executable(ardos ${ARDOS_SOURCES} ${ARDOS_HEADERS})
 add_subdirectory(libs/dclass)
 include_directories(libs/dclass)
 
-target_link_libraries(ardos PRIVATE uv yaml-cpp ${LIBMONGOCXX_LIBRARIES} ${LIBBSONCXX_LIBRARIES} amqpcpp prometheus-cpp::pull)
+target_link_libraries(ardos PRIVATE uv yaml-cpp amqpcpp prometheus-cpp::pull)
+
+if (ARDOS_WANT_DB_SERVER)
+    target_link_libraries(ardos PRIVATE mongo::mongocxx_shared mongo::bsoncxx_shared)
+endif ()

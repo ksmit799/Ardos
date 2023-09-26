@@ -36,6 +36,17 @@ Datagram::Datagram(const std::unordered_set<uint64_t> &toChannels,
 Datagram::~Datagram() { delete[] _buf; }
 
 /**
+ * Clears this datagram of data ready for rewriting.
+ * Good for re-using datagrams rather than re-alloc.
+ */
+void Datagram::Clear() {
+  // Wipe out the buffer without deleting it.
+  // This should prevent redundant re-sizing.
+  std::fill(_buf, _buf + _bufOffset, 0);
+  _bufOffset = 0;
+}
+
+/**
  * Returns the number of bytes added to this datagram.
  * @return
  */
@@ -46,6 +57,15 @@ uint16_t Datagram::Size() const { return _bufOffset; }
  * @return
  */
 const uint8_t *Datagram::GetData() { return _buf; }
+
+/**
+ * Returns the bytes packed into this datagram.
+ * @return
+ */
+std::vector<uint8_t> Datagram::GetBytes() {
+  std::vector<uint8_t> data(GetData(), GetData() + Size());
+  return data;
+}
 
 /**
  * Adds a boolean to this datagram.
@@ -177,8 +197,15 @@ void Datagram::AddBlob(const std::vector<uint8_t> &v) {
   _bufOffset += v.size();
 }
 
+void Datagram::AddBlob(const uint8_t *data, const size_t &length) {
+  AddUint16(length);
+  EnsureLength(length);
+  memcpy(_buf + _bufOffset, data, length);
+  _bufOffset += length;
+}
+
 /**
- * Adds raw binary data directly to the end of this datagram.
+ * Adds bytes directly to the end of this datagram.
  * @param v
  */
 void Datagram::AddData(const std::vector<uint8_t> &v) {
@@ -199,6 +226,17 @@ void Datagram::AddData(const std::shared_ptr<Datagram> &v) {
     memcpy(_buf + _bufOffset, v->GetData(), v->Size());
     _bufOffset += v->Size();
   }
+}
+
+/**
+ * Adds raw binary data directly to the end of this datagram.
+ * @param data
+ * @param length
+ */
+void Datagram::AddData(const uint8_t *data, const uint32_t &length) {
+  EnsureLength(length);
+  memcpy(_buf + _bufOffset, data, length);
+  _bufOffset += length;
 }
 
 /**
