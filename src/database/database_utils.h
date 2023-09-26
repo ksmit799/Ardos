@@ -1,6 +1,9 @@
 #ifndef ARDOS_DATABASE_UTILS_H
 #define ARDOS_DATABASE_UTILS_H
 
+#include <cmath> /* modf */
+#include <list>
+
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/types/bson_value/view.hpp>
 #include <dcClass.h>
