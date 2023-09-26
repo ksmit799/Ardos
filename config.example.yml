@@ -17,6 +17,9 @@ want-client-agent: true
 # Do we want to handle database operations on this instance?
 want-database: true
 
+# Do we want database-backed distributed objects to live on this instance?
+want-db-state-server: true
+
 # Do we want metrics collection on this instance?
 want-metrics: true
 
@@ -85,5 +88,16 @@ database-server:
 
   # The range of DoId's this database server can allocate.
   generate:
+    min: 100000000
+    max: 399999999
+
+# Database State Server configuration.
+db-state-server:
+  # The channel of the database server we should use for querying.
+  database: 4003
+
+  # The range of DoId's we should be listening for.
+  # Notice how this matches our database server generate range.
+  ranges:
     min: 100000000
     max: 399999999

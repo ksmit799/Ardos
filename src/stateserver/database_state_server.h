@@ -13,13 +13,10 @@ public:
   DatabaseStateServer();
 
 private:
-  void SubscribeRange(const uint32_t &min, const uint32_t &max);
-
   void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;
 
   void HandleActivate(DatagramIterator &dgi, const bool &other);
 
-  uint64_t _channel;
   uint64_t _dbChannel;
 
   std::unordered_map<uint32_t, std::unique_ptr<DistributedObject>> _distObjs;

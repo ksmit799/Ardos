@@ -176,7 +176,7 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
 #endif
               }
 
-              if (Config::Instance()->GetBool("want-dbss")) {
+              if (Config::Instance()->GetBool("want-db-state-server")) {
                 new DatabaseStateServer();
               }
 

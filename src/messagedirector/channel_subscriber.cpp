@@ -21,8 +21,6 @@ ChannelSubscriber::ChannelSubscriber() {
   MessageDirector::Instance()->AddSubscriber(this);
 }
 
-ChannelSubscriber::~ChannelSubscriber() {}
-
 void ChannelSubscriber::Shutdown() {
   MessageDirector::Instance()->RemoveSubscriber(this);
 
@@ -80,10 +78,12 @@ void ChannelSubscriber::UnsubscribeChannel(const uint64_t &channel) {
   }
 }
 
-/**
- * Routes a datagram through the message director to the target channels.
- * @param dg
- */
+void ChannelSubscriber::SubscribeRange(const uint32_t &min,
+                                       const uint32_t &max) {}
+
+void ChannelSubscriber::UnsubscribeRange(const uint32_t &min,
+                                         const uint32_t &max) {}
+
 void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram> &dg) {
   DatagramIterator dgi(dg);
 

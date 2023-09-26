@@ -12,39 +12,23 @@ DatabaseStateServer::DatabaseStateServer() : ChannelSubscriber() {
 
   // Database State Server configuration.
   auto config = Config::Instance()->GetNode("db-state-server");
-  if (!config["channel"]) {
-    Logger::Error("[DBSS] Missing or invalid channel!");
+  if (!config["database"]) {
+    Logger::Error("[DBSS] Missing or invalid database channel!");
     exit(1);
   }
 
-  // Start listening to our channel.
-  _channel = config["channel"].as<uint64_t>();
-  SubscribeChannel(_channel);
+  // Start listening to our broadcast channel.
   SubscribeChannel(BCHAN_STATESERVERS);
 
   // Database channel.
   _dbChannel = config["database"].as<uint64_t>();
 
-  auto rangeParam = config["range"];
+  auto rangeParam = config["ranges"];
   auto min = rangeParam["min"].as<uint32_t>();
   auto max = rangeParam["max"].as<uint32_t>();
 
   // Start listening to DoId's in our listening range.
   SubscribeRange(min, max);
-}
-
-/**
- * Subscribe to the DoId's of all database objects within our range.
- * TODO: Evaluate the performance of this. We cannot subscribe to a *range* of
- * channels exactly due to RabbitMQ wildcard limitations.
- */
-void DatabaseStateServer::SubscribeRange(const uint32_t &min,
-                                         const uint32_t &max) {
-  // TODO: It might be more efficient to get a list of existing DoId's in the
-  // database by sending a message to the DB server.
-  for (auto i = min; i < max; i++) {
-    SubscribeChannel(i);
-  }
 }
 
 void DatabaseStateServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
