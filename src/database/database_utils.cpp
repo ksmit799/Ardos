@@ -1,6 +1,7 @@
 #include "database_utils.h"
 
 #include <dcArrayParameter.h>
+#include <dcAtomicField.h>
 #include <dcClassParameter.h>
 #include <dcField.h>
 #include <dcSimpleParameter.h>
@@ -344,9 +345,22 @@ void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
 void DatabaseUtils::PackField(const DCField *field,
                               const bsoncxx::types::bson_value::view &value,
                               Datagram &dg) {
+  auto atomicField = field->as_atomic_field();
+  if (atomicField != nullptr) {
+    // We have an atomic field.
+    // E.g. setName(string);
+    // Unpack each sub-element that composes the field.
+    auto numFields = atomicField->get_num_elements();
+    for (int i = 0; i < numFields; i++) {
+      PackField(atomicField->get_element(i), value, dg);
+    }
+    return;
+  }
+
   auto fieldParameter = field->as_parameter();
 
   // Do we have a simple field (atomic) field type?
+  // E.g. string, int32, uint32array, etc.
   auto fieldSimple = fieldParameter->as_simple_parameter();
   if (fieldSimple != nullptr) {
     DatabaseUtils::BsonToField(fieldSimple->get_type(), field->get_name(),
@@ -354,12 +368,14 @@ void DatabaseUtils::PackField(const DCField *field,
   }
 
   // Do we have a class field type?
+  // E.g. MyClass, AccountInfo, etc.
   auto fieldClass = fieldParameter->as_class_parameter();
   if (fieldClass != nullptr) {
     DatabaseUtils::BsonToClass(fieldClass, value, dg);
   }
 
   // Do we have an array field type?
+  // E.g. int32[], uint8[], MyClass[], etc.
   auto fieldArray = fieldParameter->as_array_parameter();
   if (fieldArray != nullptr) {
     // Do we have an array of a simple (atomic) type?
@@ -377,7 +393,7 @@ void DatabaseUtils::PackField(const DCField *field,
       dg.AddBlob(arrDg.GetData(), arrDg.Size());
     }
 
-    // Do we have an array of a molecular type?
+    // Do we have an array of a class type?
     auto elemParamClass = fieldArray->get_element_type()->as_class_parameter();
     if (elemParamClass) {
       Datagram arrDg;
@@ -400,6 +416,23 @@ void DatabaseUtils::BsonToClass(const DCClassParameter *dclass,
     PackField(field, value.get_document().value[field->get_name()].get_value(),
               dg);
   }
+}
+
+bool DatabaseUtils::VerifyFields(const DCClass *dclass,
+                                 const FieldMap &fields) {
+  bool errors = false;
+  for (const auto &field : fields) {
+    if (!dclass->get_field_by_index(field.first->get_number())) {
+      // We don't immediately break out here in case we have multiple
+      // non-belonging fields.
+      Logger::Error(std::format("[DB] Failed to verify field on class: {} "
+                                "with non-belonging field: {}",
+                                dclass->get_name(), field.first->get_name()));
+      errors = true;
+    }
+  }
+
+  return !errors;
 }
 
 } // namespace Ardos

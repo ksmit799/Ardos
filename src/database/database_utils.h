@@ -3,6 +3,7 @@
 
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/types/bson_value/view.hpp>
+#include <dcClass.h>
 #include <dcClassParameter.h>
 #include <dcPacker.h>
 
@@ -83,6 +84,14 @@ public:
   static void BsonToClass(const DCClassParameter *dclass,
                           const bsoncxx::types::bson_value::view &value,
                           Datagram &dg);
+
+  /**
+   * Verifies the supplied fields belong to the corresponding distributed class.
+   * @param dclass
+   * @param fields
+   * @return
+   */
+  static bool VerifyFields(const DCClass *dclass, const FieldMap &fields);
 
   /**
    * Converts a bson value to a number.

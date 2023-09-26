@@ -112,10 +112,15 @@ void DatabaseServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       break;
     case DBSERVER_OBJECT_DELETE_FIELD:
     case DBSERVER_OBJECT_DELETE_FIELDS:
+      Logger::Error("[DB] OBJECT_DELETE_FIELD(S) NOT YET IMPLEMENTED!");
       break;
     case DBSERVER_OBJECT_SET_FIELD_IF_EMPTY:
+      Logger::Error("[DB] OBJECT_SET_FIELD_IF_EMPTY NOT YET IMPLEMENTED!");
+      break;
     case DBSERVER_OBJECT_SET_FIELD_IF_EQUALS:
     case DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS:
+      HandleSetFieldEquals(dgi, sender,
+                           msgType == DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS);
       break;
     default:
       // Hopefully we managed to unpack the sender...
@@ -215,19 +220,10 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
   }
 
   // Make sure that all present fields actually belong to the distributed class.
-  bool errors = false;
-  for (const auto &field : objectFields) {
-    if (!dcClass->get_field_by_index(field.first->get_number())) {
-      // We don't immediately break out here in case we have multiple
-      // non-belonging fields.
-      Logger::Error(std::format(
-          "[DB] Attempted to create object: {} with non-belonging field: {}",
-          dcClass->get_name(), field.first->get_name()));
-      errors = true;
-    }
-  }
-
-  if (errors) {
+  if (!DatabaseUtils::VerifyFields(dcClass, objectFields)) {
+    Logger::Error(std::format(
+        "[DB] Failed to create object: {} with non-belonging fields",
+        dcClass->get_name()));
     HandleCreateDone(sender, context, INVALID_DO_ID);
     return;
   }
@@ -344,14 +340,14 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
   } catch (const mongocxx::operation_exception &e) {
     Logger::Error(std::format(
         "[DB] Unexpected error while fetching object {}: {}", doId, e.what()));
-    HandleGetFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
+    HandleContextFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
     return;
   }
 
   if (!obj) {
     Logger::Error(
         std::format("[DB] Failed to fetch non-existent object: {}", doId));
-    HandleGetFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
+    HandleContextFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
     return;
   }
 
@@ -363,7 +359,7 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
     Logger::Error(std::format(
         "[DB] Encountered unknown dclass while fetching object {}: {}", doId,
         dclassName));
-    HandleGetFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
+    HandleContextFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
     return;
   }
 
@@ -396,7 +392,7 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
     Logger::Error(
         std::format("[DB] Failed to unpack field fetching object {}: {} - {}",
                     doId, dclassName, e.what()));
-    HandleGetFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
+    HandleContextFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
     return;
   }
 
@@ -415,14 +411,87 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
 
 void DatabaseServer::HandleGetField(DatagramIterator &dgi,
                                     const uint64_t &sender,
-                                    const bool &multiple) {}
+                                    const bool &multiple) {
+  auto ctx = dgi.GetUint32();
+  auto doId = dgi.GetUint32();
+  auto fieldCount = multiple ? dgi.GetUint16() : 1;
 
-void DatabaseServer::HandleGetFailure(const MessageTypes &type,
-                                      const uint64_t &channel,
-                                      const uint32_t &context) {
-  auto dg = std::make_shared<Datagram>(channel, _channel, type);
-  dg->AddUint32(context);
-  dg->AddBool(false);
+  auto responseType = multiple ? DBSERVER_OBJECT_GET_FIELDS_RESP
+                               : DBSERVER_OBJECT_GET_FIELD_RESP;
+
+  std::optional<bsoncxx::document::value> obj;
+  try {
+    obj = _db["objects"].find_one(
+        document{} << "_id" << static_cast<int64_t>(doId) << finalize);
+  } catch (const mongocxx::operation_exception &e) {
+    Logger::Error(std::format(
+        "[DB] Unexpected error while setting field(s) on object {}: {}", doId,
+        e.what()));
+    return;
+  }
+
+  if (!obj) {
+    Logger::Error(std::format(
+        "[DB] Failed to set field(s) on non-existent object: {}", doId));
+    return;
+  }
+
+  auto dclassName = std::string(obj->view()["dclass"].get_string().value);
+
+  // Make sure we have a valid distributed class.
+  DCClass *dcClass = g_dc_file->get_class_by_name(dclassName);
+  if (!dcClass) {
+    Logger::Error(std::format(
+        "[DB] Received set field(s) for unknown distributed class {}: {}", doId,
+        dclassName));
+    return;
+  }
+
+  // Unpack fields.
+  auto fields = obj->view()["fields"].get_document().value;
+
+  FieldMap objectFields;
+  Datagram objectDg;
+  try {
+    for (size_t i = 0; i < fieldCount; i++) {
+      // Fetch the field by number.
+      auto fieldNum = dgi.GetUint16();
+      DCField *field = dcClass->get_field_by_index(fieldNum);
+      if (!field) {
+        Logger::Error(std::format("[DB] Encountered unexpected field while "
+                                  "fetching object {}: {} - {}",
+                                  doId, dclassName, fieldNum));
+        HandleContextFailure(responseType, sender, ctx);
+        return;
+      }
+
+      // Pack the field into our object datagram.
+      DatabaseUtils::PackField(field, fields[field->get_name()].get_value(),
+                               objectDg);
+
+      // Push the field data into our field map
+      // and clear the datagram ready for writing.
+      objectFields[field] = objectDg.GetBytes();
+      objectDg.Clear();
+    }
+  } catch (const ConversionException &e) {
+    Logger::Error(
+        std::format("[DB] Failed to unpack field fetching object {}: {} - {}",
+                    doId, dclassName, e.what()));
+    HandleContextFailure(responseType, sender, ctx);
+    return;
+  }
+
+  auto dg = std::make_shared<Datagram>(sender, _channel, responseType);
+  dg->AddUint32(ctx);
+  dg->AddBool(true);
+  if (multiple) {
+    dg->AddUint16(objectFields.size());
+  }
+  for (const auto &it : objectFields) {
+    dg->AddUint16(it.first->get_number());
+    dg->AddData(it.second);
+  }
   PublishDatagram(dg);
 }
 
@@ -455,7 +524,7 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
   DCClass *dcClass = g_dc_file->get_class_by_name(dclassName);
   if (!dcClass) {
     Logger::Error(std::format(
-        "[DB] Received set fields for unknown distributed class {}: {}", doId,
+        "[DB] Received set field(s) for unknown distributed class {}: {}", doId,
         dclassName));
     return;
   }
@@ -469,19 +538,9 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
   }
 
   // Make sure that all present fields actually belong to the distributed class.
-  bool errors = false;
-  for (const auto &field : objectFields) {
-    if (!dcClass->get_field_by_index(field.first->get_number())) {
-      // We don't immediately break out here in case we have multiple
-      // non-belonging fields.
-      Logger::Error(std::format("[DB] Attempted to set fields on object {}: {} "
-                                "with non-belonging field: {}",
-                                doId, dclassName, field.first->get_name()));
-      errors = true;
-    }
-  }
-
-  if (errors) {
+  if (!DatabaseUtils::VerifyFields(dcClass, objectFields)) {
+    Logger::Error(std::format("[DB] Failed to verify fields on object {}: {} ",
+                              doId, dclassName));
     return;
   }
 
@@ -531,6 +590,190 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
         "[DB] Unexpected error while setting field(s) on object {}: {}", doId,
         e.what()));
   }
+}
+
+void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
+                                          const uint64_t &sender,
+                                          const bool &multiple) {
+  auto ctx = dgi.GetUint32();
+  auto doId = dgi.GetUint32();
+  auto fieldCount = multiple ? dgi.GetUint16() : 1;
+
+  auto responseType = multiple ? DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS_RESP
+                               : DBSERVER_OBJECT_SET_FIELD_IF_EQUALS_RESP;
+
+  std::optional<bsoncxx::document::value> obj;
+  try {
+    obj = _db["objects"].find_one(
+        document{} << "_id" << static_cast<int64_t>(doId) << finalize);
+  } catch (const mongocxx::operation_exception &e) {
+    Logger::Error(std::format(
+        "[DB] Unexpected error while setting field(s) equals on object {}: {}",
+        doId, e.what()));
+    HandleContextFailure(responseType, sender, ctx);
+    return;
+  }
+
+  if (!obj) {
+    Logger::Error(std::format(
+        "[DB] Failed to set field(s) equals on non-existent object: {}", doId));
+    HandleContextFailure(responseType, sender, ctx);
+    return;
+  }
+
+  auto dclassName = std::string(obj->view()["dclass"].get_string().value);
+
+  // Make sure we have a valid distributed class.
+  DCClass *dcClass = g_dc_file->get_class_by_name(dclassName);
+  if (!dcClass) {
+    Logger::Error(std::format("[DB] Received set field(s) equals for unknown "
+                              "distributed class {}: {}",
+                              doId, dclassName));
+    HandleContextFailure(responseType, sender, ctx);
+    return;
+  }
+
+  // Unpack the fields we've received in the 'set' message.
+  FieldMap objectFields;
+  FieldMap expectedFields;
+  if (!DatabaseUtils::UnpackFields(dgi, fieldCount, objectFields,
+                                   expectedFields)) {
+    Logger::Error(std::format(
+        "[DB] Failed to unpack set field(s) equals for object: {}", doId));
+    HandleContextFailure(responseType, sender, ctx);
+    return;
+  }
+
+  // Make sure that all present fields actually belong to the distributed class.
+  if (!DatabaseUtils::VerifyFields(dcClass, objectFields)) {
+    Logger::Error(std::format(
+        "[DB] Failed to verify set field(s) equals for object {}: {} ", doId,
+        dclassName));
+    HandleContextFailure(responseType, sender, ctx);
+    return;
+  }
+  if (!DatabaseUtils::VerifyFields(dcClass, expectedFields)) {
+    Logger::Error(std::format(
+        "[DB] Failed to verify expected field(s) equals for object {}: {} ",
+        doId, dclassName));
+    HandleContextFailure(responseType, sender, ctx);
+    return;
+  }
+
+  auto fields = obj->view()["fields"].get_document().value;
+
+  // First, make sure our expected fields match.
+  FieldMap failedFields;
+  Datagram objectDg;
+  for (const auto &it : expectedFields) {
+    auto fieldValue = fields[it.first->get_name()];
+    if (!fieldValue) {
+      // Hmm, the field doesn't exist at all.
+      // Just insert an empty vector as its data.
+      failedFields[it.first] = std::vector<uint8_t>();
+      Logger::Verbose(std::format("[DB] Missing expected field {} in set "
+                                  "field(s) equals for object {}: {}",
+                                  it.first->get_name(), doId, dclassName));
+      continue;
+    }
+
+    // Pack the field from the database.
+    // This gets it into the same format as the expected field.
+    DatabaseUtils::PackField(it.first, fieldValue.get_value(), objectDg);
+
+    if (it.second != objectDg.GetBytes()) {
+      // The field exists but the actual/expected data is mismatched.
+      failedFields[it.first] = objectDg.GetBytes();
+      Logger::Verbose(std::format("[DB] Mismatched expected field {} in set "
+                                  "field(s) equals for object {}: {}",
+                                  it.first->get_name(), doId, dclassName));
+      continue;
+    }
+
+    // Clear the object dg ready for iterating again.
+    objectDg.Clear();
+  }
+
+  // One or more fields failed to validate, notify the sender.
+  if (!failedFields.empty()) {
+    auto dg = std::make_shared<Datagram>(sender, _channel, responseType);
+    dg->AddUint32(ctx);
+    dg->AddBool(false);
+    if (multiple) {
+      dg->AddUint16(failedFields.size());
+    }
+    for (const auto &it : failedFields) {
+      dg->AddUint16(it.first->get_number());
+      dg->AddData(it.second);
+    }
+    PublishDatagram(dg);
+    return;
+  }
+
+  // We can re-use the same DCPacker for each field.
+  DCPacker packer;
+
+  // Start unpacking fields into a bson document.
+  auto builder = document{};
+  try {
+    for (const auto &field : objectFields) {
+      packer.set_unpack_data(field.second);
+      // Tell the packer we're starting to unpack the field.
+      packer.begin_unpack(field.first);
+
+      DatabaseUtils::FieldToBson(
+          builder << std::string_view("fields." + field.first->get_name()),
+          packer);
+
+      // We've finished unpacking the field.
+      packer.end_unpack();
+    }
+  } catch (const ConversionException &e) {
+    Logger::Error(std::format(
+        "[DB] Failed to unpack object fields for set field(s) equals {}: {}",
+        doId, e.what()));
+    HandleContextFailure(responseType, sender, ctx);
+    return;
+  }
+
+  auto fieldBuilder = builder << finalize;
+  auto fieldUpdate = document{} << "$set" << fieldBuilder << finalize;
+
+  try {
+    auto updateOperation = _db["objects"].update_one(
+        document{} << "_id" << static_cast<int64_t>(doId) << finalize,
+        fieldUpdate.view());
+
+    if (!updateOperation) {
+      Logger::Error(std::format(
+          "[DB] Set field(s) equals operation failed for object {}", doId));
+      HandleContextFailure(responseType, sender, ctx);
+      return;
+    }
+
+    Logger::Verbose(std::format("[DB] Set field(s) equals for object {}: {}",
+                                doId, bsoncxx::to_json(fieldBuilder.view())));
+  } catch (const mongocxx::operation_exception &e) {
+    Logger::Error(std::format(
+        "[DB] Unexpected error while setting field(s) equals on object {}: {}",
+        doId, e.what()));
+    HandleContextFailure(responseType, sender, ctx);
+  }
+
+  // Success! Notify the sender.
+  auto dg = std::make_shared<Datagram>(sender, _channel, responseType);
+  dg->AddUint32(ctx);
+  dg->AddBool(true);
+  PublishDatagram(dg);
+}
+
+void DatabaseServer::HandleContextFailure(const MessageTypes &type,
+                                          const uint64_t &channel,
+                                          const uint32_t &context) {
+  auto dg = std::make_shared<Datagram>(channel, _channel, type);
+  dg->AddUint32(context);
+  dg->AddBool(false);
+  PublishDatagram(dg);
 }
 
 void DatabaseServer::InitMetrics() {

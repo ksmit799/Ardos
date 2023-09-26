@@ -29,11 +29,14 @@ private:
   void HandleGetAll(DatagramIterator &dgi, const uint64_t &sender);
   void HandleGetField(DatagramIterator &dgi, const uint64_t &sender,
                       const bool &multiple);
-  void HandleGetFailure(const MessageTypes &type, const uint64_t &channel,
-                        const uint32_t &context);
 
   void HandleSetField(DatagramIterator &dgi, const uint64_t &sender,
                       const bool &multiple);
+  void HandleSetFieldEquals(DatagramIterator &dgi, const uint64_t &sender,
+                            const bool &multiple);
+
+  void HandleContextFailure(const MessageTypes &type, const uint64_t &channel,
+                            const uint32_t &context);
 
   void InitMetrics();
 
