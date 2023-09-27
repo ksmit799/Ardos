@@ -40,8 +40,11 @@ private:
   void HandleUpdate(const std::string &channel,
                     const std::shared_ptr<Datagram> &dg);
 
+  bool WithinLocalRange(const std::string &routingKey);
+
   // A static map of globally registered channels.
   static std::unordered_map<std::string, unsigned int> _globalChannels;
+  static std::map<ChannelRange, unsigned int> _globalRanges;
 
   // List of channels that this ChannelSubscriber is listening to.
   std::unordered_set<std::string> _localChannels;

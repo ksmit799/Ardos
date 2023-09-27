@@ -16,6 +16,17 @@ private:
   void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;
 
   void HandleActivate(DatagramIterator &dgi, const bool &other);
+  void HandleDeleteDisk(DatagramIterator &dgi, const uint64_t &sender);
+  void HandleSetField(DatagramIterator &dgi, const bool &multiple);
+
+  void HandleGetField(DatagramIterator &dgi, const uint64_t &sender,
+                      const bool &multiple);
+  void HandleGetFieldResp(DatagramIterator &dgi, const bool &multiple);
+
+  void HandleGetAll(DatagramIterator &dgi, const uint64_t &sender);
+  void HandleGetAllResp(DatagramIterator &dgi);
+
+  void HandleGetActivated(DatagramIterator &dgi, const uint64_t &sender);
 
   uint64_t _dbChannel;
 

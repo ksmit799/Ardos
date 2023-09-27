@@ -12,6 +12,8 @@ namespace Ardos {
 std::unordered_map<std::string, unsigned int>
     ChannelSubscriber::_globalChannels =
         std::unordered_map<std::string, unsigned int>();
+std::map<ChannelRange, unsigned int> ChannelSubscriber::_globalRanges =
+    std::map<ChannelRange, unsigned int>();
 
 ChannelSubscriber::ChannelSubscriber() {
   // Fetch the global channel and our local queue.
@@ -30,7 +32,13 @@ void ChannelSubscriber::Shutdown() {
     UnsubscribeChannel(std::stoull(channel));
   }
 
-  _localChannels.clear();
+  // Cleanup our local range subscriptions.
+  while (!_localRanges.empty()) {
+    auto range = _localRanges.back();
+    _localRanges.pop_back();
+
+    UnsubscribeRange(range.first, range.second);
+  }
 }
 
 void ChannelSubscriber::SubscribeChannel(const uint64_t &channel) {
@@ -79,10 +87,47 @@ void ChannelSubscriber::UnsubscribeChannel(const uint64_t &channel) {
 }
 
 void ChannelSubscriber::SubscribeRange(const uint32_t &min,
-                                       const uint32_t &max) {}
+                                       const uint32_t &max) {
+  // Make sure we're not adding a duplicate range.
+  auto range = std::make_pair(min, max);
+  if (std::find(_localRanges.begin(), _localRanges.end(), range) !=
+      _localRanges.end()) {
+    return;
+  }
+
+  _localRanges.push_back(range);
+
+  // Next, lets check if this channel range is already being listened to
+  // elsewhere. If it is, increment the subscriber count.
+  if (_globalRanges.contains(range)) {
+    _globalRanges[range]++;
+    return;
+  }
+
+  // Register it as a newly opened global channel range.
+  _globalRanges[range] = 1;
+}
 
 void ChannelSubscriber::UnsubscribeRange(const uint32_t &min,
-                                         const uint32_t &max) {}
+                                         const uint32_t &max) {
+  auto range = std::make_pair(min, max);
+
+  auto position = std::find(_localRanges.begin(), _localRanges.end(), range);
+  if (position == _localRanges.end()) {
+    return;
+  }
+
+  _localRanges.erase(position);
+
+  // We can safely assume the channel range exists in a global context.
+  _globalRanges[range]--;
+
+  // If we have 0 current listeners for this channel range, let RabbitMQ know we
+  // no longer care about it.
+  if (!_globalRanges[range]) {
+    _globalRanges.erase(range);
+  }
+}
 
 void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram> &dg) {
   DatagramIterator dgi(dg);
@@ -99,12 +144,19 @@ void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram> &dg) {
 void ChannelSubscriber::HandleUpdate(const std::string &channel,
                                      const std::shared_ptr<Datagram> &dg) {
   // First, check if this ChannelSubscriber cares about the message.
-  if (!_localChannels.contains(channel)) {
+  if (!_localChannels.contains(channel) && !WithinLocalRange(channel)) {
     return;
   }
 
   // We do care about the message, handle it!
   HandleDatagram(dg);
+}
+
+bool ChannelSubscriber::WithinLocalRange(const std::string &routingKey) {
+  auto channel = std::stoull(routingKey);
+  return std::any_of(
+      _localRanges.begin(), _localRanges.end(),
+      [channel](auto i) { return i.first >= channel && i.second <= channel; });
 }
 
 } // namespace Ardos

@@ -47,6 +47,30 @@ void DatabaseStateServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     case DBSS_OBJECT_ACTIVATE_WITH_DEFAULTS_OTHER:
       HandleActivate(dgi, true);
       break;
+    case DBSS_OBJECT_DELETE_DISK:
+      HandleDeleteDisk(dgi, sender);
+      break;
+    case STATESERVER_OBJECT_SET_FIELD:
+    case STATESERVER_OBJECT_SET_FIELDS:
+      HandleSetField(dgi, msgType == STATESERVER_OBJECT_SET_FIELDS);
+      break;
+    case STATESERVER_OBJECT_GET_FIELD:
+    case STATESERVER_OBJECT_GET_FIELDS:
+      HandleGetField(dgi, sender, msgType == STATESERVER_OBJECT_GET_FIELDS);
+      break;
+    case DBSERVER_OBJECT_GET_FIELD_RESP:
+    case DBSERVER_OBJECT_GET_FIELDS_RESP:
+      HandleGetFieldResp(dgi, msgType == DBSERVER_OBJECT_GET_FIELDS_RESP);
+      break;
+    case STATESERVER_OBJECT_GET_ALL:
+      HandleGetAll(dgi, sender);
+      break;
+    case DBSERVER_OBJECT_GET_ALL_RESP:
+      HandleGetAllResp(dgi);
+      break;
+    case DBSS_OBJECT_GET_ACTIVATED:
+      HandleGetActivated(dgi, sender);
+      break;
     default:
       // Hopefully we managed to unpack the sender...
       Logger::Verbose(std::format("[DBSS] Ignoring message: {} from sender: {}",
@@ -73,5 +97,26 @@ void DatabaseStateServer::HandleActivate(DatagramIterator &dgi,
   if (other) {
   }
 }
+
+void DatabaseStateServer::HandleDeleteDisk(DatagramIterator &dgi,
+                                           const uint64_t &sender) {}
+
+void DatabaseStateServer::HandleSetField(DatagramIterator &dgi,
+                                         const bool &multiple) {}
+
+void DatabaseStateServer::HandleGetField(DatagramIterator &dgi,
+                                         const uint64_t &sender,
+                                         const bool &multiple) {}
+
+void DatabaseStateServer::HandleGetFieldResp(DatagramIterator &dgi,
+                                             const bool &multiple) {}
+
+void DatabaseStateServer::HandleGetAll(DatagramIterator &dgi,
+                                       const uint64_t &sender) {}
+
+void DatabaseStateServer::HandleGetAllResp(DatagramIterator &dgi) {}
+
+void DatabaseStateServer::HandleGetActivated(DatagramIterator &dgi,
+                                             const uint64_t &sender) {}
 
 } // namespace Ardos
