@@ -27,9 +27,11 @@ void ChannelSubscriber::Shutdown() {
   MessageDirector::Instance()->RemoveSubscriber(this);
 
   // Cleanup our local channel subscriptions.
-  std::unordered_set<std::string> channels(_localChannels);
-  for (const auto &channel : channels) {
-    UnsubscribeChannel(std::stoull(channel));
+  while (!_localChannels.empty()) {
+    auto channel = std::stoull(_localChannels.back());
+    _localChannels.pop_back();
+
+    UnsubscribeChannel(channel);
   }
 
   // Cleanup our local range subscriptions.
@@ -45,11 +47,12 @@ void ChannelSubscriber::SubscribeChannel(const uint64_t &channel) {
   std::string channelStr = std::to_string(channel);
 
   // Don't add duplicate channels.
-  if (_localChannels.contains(channelStr)) {
+  if (std::find(_localChannels.begin(), _localChannels.end(), channelStr) !=
+      _localChannels.end()) {
     return;
   }
 
-  _localChannels.insert(channelStr);
+  _localChannels.push_back(channelStr);
 
   // Next, lets check if this channel is already being listened to elsewhere.
   // If it is, increment the subscriber count.
@@ -69,11 +72,13 @@ void ChannelSubscriber::UnsubscribeChannel(const uint64_t &channel) {
   std::string channelStr = std::to_string(channel);
 
   // Make sure we've subscribed to this channel.
-  if (!_localChannels.contains(channelStr)) {
+  auto position =
+      std::find(_localChannels.begin(), _localChannels.end(), channelStr);
+  if (position == _localChannels.end()) {
     return;
   }
 
-  _localChannels.erase(channelStr);
+  _localChannels.erase(position);
 
   // We can safely assume the channel exists in a global context.
   _globalChannels[channelStr]--;
@@ -86,8 +91,8 @@ void ChannelSubscriber::UnsubscribeChannel(const uint64_t &channel) {
   }
 }
 
-void ChannelSubscriber::SubscribeRange(const uint32_t &min,
-                                       const uint32_t &max) {
+void ChannelSubscriber::SubscribeRange(const uint64_t &min,
+                                       const uint64_t &max) {
   // Make sure we're not adding a duplicate range.
   auto range = std::make_pair(min, max);
   if (std::find(_localRanges.begin(), _localRanges.end(), range) !=
@@ -108,8 +113,8 @@ void ChannelSubscriber::SubscribeRange(const uint32_t &min,
   _globalRanges[range] = 1;
 }
 
-void ChannelSubscriber::UnsubscribeRange(const uint32_t &min,
-                                         const uint32_t &max) {
+void ChannelSubscriber::UnsubscribeRange(const uint64_t &min,
+                                         const uint64_t &max) {
   auto range = std::make_pair(min, max);
 
   auto position = std::find(_localRanges.begin(), _localRanges.end(), range);
@@ -144,7 +149,9 @@ void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram> &dg) {
 void ChannelSubscriber::HandleUpdate(const std::string &channel,
                                      const std::shared_ptr<Datagram> &dg) {
   // First, check if this ChannelSubscriber cares about the message.
-  if (!_localChannels.contains(channel) && !WithinLocalRange(channel)) {
+  if (std::find(_localChannels.begin(), _localChannels.end(), channel) ==
+          _localChannels.end() &&
+      !WithinLocalRange(channel)) {
     return;
   }
 
@@ -156,7 +163,7 @@ bool ChannelSubscriber::WithinLocalRange(const std::string &routingKey) {
   auto channel = std::stoull(routingKey);
   return std::any_of(
       _localRanges.begin(), _localRanges.end(),
-      [channel](auto i) { return i.first >= channel && i.second <= channel; });
+      [channel](auto i) { return channel >= i.first && channel <= i.second; });
 }
 
 } // namespace Ardos

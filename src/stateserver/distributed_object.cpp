@@ -137,6 +137,8 @@ void DistributedObject::Annihilate(const uint64_t &sender,
   DeleteChildren(sender);
 
   _stateServer->RemoveDistributedObject(_doId);
+  ChannelSubscriber::Shutdown();
+
   Logger::Verbose(std::format("[SS] Distributed Object: '{}' deleted.", _doId));
 }
 

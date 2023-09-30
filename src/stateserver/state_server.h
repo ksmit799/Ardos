@@ -29,7 +29,7 @@ private:
   void InitMetrics();
 
   uint64_t _channel;
-  std::unordered_map<uint32_t, std::unique_ptr<DistributedObject>> _distObjs;
+  std::unordered_map<uint32_t, DistributedObject *> _distObjs;
 
   prometheus::Gauge *_objectsGauge = nullptr;
   prometheus::Histogram *_objectsSizeHistogram = nullptr;

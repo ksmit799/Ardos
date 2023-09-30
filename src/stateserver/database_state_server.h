@@ -43,8 +43,8 @@ private:
 
   uint64_t _dbChannel;
 
-  std::unordered_map<uint32_t, std::unique_ptr<DistributedObject>> _distObjs;
-  std::unordered_map<uint32_t, std::unique_ptr<LoadingObject>> _loadObjs;
+  std::unordered_map<uint32_t, DistributedObject *> _distObjs;
+  std::unordered_map<uint32_t, LoadingObject *> _loadObjs;
 
   // DoId -> Request context
   std::unordered_map<uint32_t, std::unordered_set<uint32_t>> _inactiveLoads;

@@ -10,7 +10,7 @@
 
 namespace Ardos {
 
-typedef std::pair<unsigned int, unsigned int> ChannelRange;
+typedef std::pair<uint64_t, uint64_t> ChannelRange;
 
 class ChannelSubscriber {
 public:
@@ -24,8 +24,8 @@ public:
   void SubscribeChannel(const uint64_t &channel);
   void UnsubscribeChannel(const uint64_t &channel);
 
-  void SubscribeRange(const uint32_t &min, const uint32_t &max);
-  void UnsubscribeRange(const uint32_t &min, const uint32_t &max);
+  void SubscribeRange(const uint64_t &min, const uint64_t &max);
+  void UnsubscribeRange(const uint64_t &min, const uint64_t &max);
 
   /**
    * Routes a datagram through the message director to the target channels.
@@ -47,7 +47,7 @@ private:
   static std::map<ChannelRange, unsigned int> _globalRanges;
 
   // List of channels that this ChannelSubscriber is listening to.
-  std::unordered_set<std::string> _localChannels;
+  std::vector<std::string> _localChannels;
   std::vector<ChannelRange> _localRanges;
 
   AMQP::Channel *_globalChannel;

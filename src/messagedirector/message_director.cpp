@@ -393,8 +393,8 @@ bool MessageDirector::WithinGlobalRange(const std::string &routingKey) {
   auto channel = std::stoull(routingKey);
   return std::any_of(ChannelSubscriber::_globalRanges.begin(),
                      ChannelSubscriber::_globalRanges.end(), [channel](auto i) {
-                       return i.first.first >= channel &&
-                              i.first.second <= channel;
+                       return channel >= i.first.first &&
+                              channel <= i.first.second;
                      });
 }
 

@@ -25,15 +25,15 @@ DatabaseStateServer::DatabaseStateServer() : ChannelSubscriber() {
   _dbChannel = config["database"].as<uint64_t>();
 
   auto rangeParam = config["ranges"];
-  auto min = rangeParam["min"].as<uint32_t>();
-  auto max = rangeParam["max"].as<uint32_t>();
+  auto min = rangeParam["min"].as<uint64_t>();
+  auto max = rangeParam["max"].as<uint64_t>();
 
   // Start listening to DoId's in our listening range.
   SubscribeRange(min, max);
 }
 
 void DatabaseStateServer::ReceiveObject(DistributedObject *distObj) {
-  _distObjs[distObj->GetDoId()] = std::unique_ptr<DistributedObject>(distObj);
+  _distObjs[distObj->GetDoId()] = distObj;
 }
 
 void DatabaseStateServer::RemoveDistributedObject(const uint32_t &doId) {
@@ -110,12 +110,11 @@ void DatabaseStateServer::HandleActivate(DatagramIterator &dgi,
   // We're loading without any additional fields set.
   if (!other) {
     if (!_inactiveLoads.contains(doId)) {
-      _loadObjs[doId] =
-          std::make_unique<LoadingObject>(this, doId, parentId, zoneId);
+      _loadObjs[doId] = new LoadingObject(this, doId, parentId, zoneId);
       _loadObjs[doId]->Start();
     } else {
-      _loadObjs[doId] = std::make_unique<LoadingObject>(
-          this, doId, parentId, zoneId, _inactiveLoads[doId]);
+      _loadObjs[doId] =
+          new LoadingObject(this, doId, parentId, zoneId, _inactiveLoads[doId]);
     }
     return;
   }
@@ -133,12 +132,12 @@ void DatabaseStateServer::HandleActivate(DatagramIterator &dgi,
   }
 
   if (!_inactiveLoads.contains(doId)) {
-    _loadObjs[doId] = std::make_unique<LoadingObject>(this, doId, parentId,
-                                                      zoneId, dcClass, dgi);
+    _loadObjs[doId] =
+        new LoadingObject(this, doId, parentId, zoneId, dcClass, dgi);
     _loadObjs[doId]->Start();
   } else {
-    _loadObjs[doId] = std::make_unique<LoadingObject>(
-        this, doId, parentId, zoneId, dcClass, dgi, _inactiveLoads[doId]);
+    _loadObjs[doId] = new LoadingObject(this, doId, parentId, zoneId, dcClass,
+                                        dgi, _inactiveLoads[doId]);
   }
 }
 
@@ -153,7 +152,7 @@ void DatabaseStateServer::HandleDeleteDisk(DatagramIterator &dgi,
 
   // If the object is loaded in memory, broadcast a delete message.
   if (_distObjs.contains(doId)) {
-    auto distObj = _distObjs[doId].get();
+    auto distObj = _distObjs[doId];
     std::unordered_set<uint64_t> targets;
 
     // Add location to broadcast.

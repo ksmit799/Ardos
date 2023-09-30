@@ -2,7 +2,6 @@
 
 #include <format>
 
-#include "../util/globals.h"
 #include "../util/logger.h"
 
 namespace Ardos {
@@ -11,9 +10,9 @@ LoadingObject::LoadingObject(DatabaseStateServer *stateServer,
                              const uint32_t &doId, const uint32_t &parentId,
                              const uint32_t &zoneId,
                              const std::unordered_set<uint32_t> &contexts)
-    : _stateServer(stateServer), _doId(doId), _parentId(parentId),
-      _zoneId(zoneId), _context(stateServer->_nextContext++),
-      _validContexts(contexts) {
+    : ChannelSubscriber(), _stateServer(stateServer), _doId(doId),
+      _parentId(parentId), _zoneId(zoneId),
+      _context(stateServer->_nextContext++), _validContexts(contexts) {
   SubscribeChannel(doId);
 }
 
@@ -22,9 +21,10 @@ LoadingObject::LoadingObject(DatabaseStateServer *stateServer,
                              const uint32_t &zoneId, DCClass *dclass,
                              DatagramIterator &dgi,
                              const std::unordered_set<uint32_t> &contexts)
-    : _stateServer(stateServer), _doId(doId), _parentId(parentId),
-      _zoneId(zoneId), _context(stateServer->_nextContext++),
-      _validContexts(contexts), _dclass(dclass) {
+    : ChannelSubscriber(), _stateServer(stateServer), _doId(doId),
+      _parentId(parentId), _zoneId(zoneId),
+      _context(stateServer->_nextContext++), _validContexts(contexts),
+      _dclass(dclass) {
   SubscribeChannel(doId);
 
   // Unpack the RAM fields we received in the generate message.
@@ -127,7 +127,7 @@ void LoadingObject::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       // Add default values and update values.
       auto numFields = dcClass->get_num_inherited_fields();
       for (size_t i = 0; i < numFields; ++i) {
-        auto field = dcClass->get_field_by_index(i);
+        auto field = dcClass->get_inherited_field(i);
         if (!field->as_molecular_field()) {
           if (field->is_required()) {
             if (_fieldUpdates.contains(field)) {
