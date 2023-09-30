@@ -10,7 +10,7 @@
 
 namespace Ardos {
 
-DistributedObject::DistributedObject(StateServer *stateServer,
+DistributedObject::DistributedObject(StateServerImplementation *stateServer,
                                      const uint32_t &doId,
                                      const uint32_t &parentId,
                                      const uint32_t &zoneId, DCClass *dclass,
@@ -61,6 +61,25 @@ DistributedObject::DistributedObject(StateServer *stateServer,
   WakeChildren();
 }
 
+DistributedObject::DistributedObject(StateServerImplementation *stateServer,
+                                     const uint64_t &sender,
+                                     const uint32_t &doId,
+                                     const uint32_t &parentId,
+                                     const uint32_t &zoneId, DCClass *dclass,
+                                     FieldMap &reqFields, FieldMap &ramFields)
+    : ChannelSubscriber(), _stateServer(stateServer), _doId(doId),
+      _parentId(INVALID_DO_ID), _zoneId(INVALID_DO_ID), _dclass(dclass),
+      _requiredFields(reqFields), _ramFields(ramFields) {
+  SubscribeChannel(_doId);
+
+  Logger::Verbose(
+      std::format("[SS] Distributed Object: '{}' generated with DoId: {}",
+                  _dclass->get_name(), _doId));
+
+  HandleLocationChange(parentId, zoneId, sender);
+  WakeChildren();
+}
+
 size_t DistributedObject::Size() const {
   size_t objectSize{0};
 
@@ -77,6 +96,14 @@ size_t DistributedObject::Size() const {
 uint64_t DistributedObject::GetAI() const { return _aiChannel; }
 
 bool DistributedObject::IsAIExplicitlySet() const { return _aiExplicitlySet; }
+
+uint32_t DistributedObject::GetDoId() const { return _doId; }
+
+uint64_t DistributedObject::GetLocation() const {
+  return LocationAsChannel(_parentId, _zoneId);
+}
+
+uint64_t DistributedObject::GetOwner() const { return _ownerChannel; }
 
 void DistributedObject::Annihilate(const uint64_t &sender,
                                    const bool &notifyParent) {

@@ -11,10 +11,9 @@
 #include <dcPacker.h>
 
 #include "../net/datagram_iterator.h"
+#include "../util/globals.h"
 
 namespace Ardos {
-
-typedef std::map<const DCField *, std::vector<uint8_t>> FieldMap;
 
 /**
  * Exception thrown by many database utility functions.

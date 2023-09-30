@@ -4,20 +4,33 @@
 #include <dcClass.h>
 
 #include "../net/message_types.h"
+#include "../util/globals.h"
 #include "state_server.h"
 
 namespace Ardos {
 
 class DistributedObject : public ChannelSubscriber {
 public:
-  DistributedObject(StateServer *stateServer, const uint32_t &doId,
+  friend class LoadingObject;
+
+  DistributedObject(StateServerImplementation *stateServer,
+                    const uint32_t &doId, const uint32_t &parentId,
+                    const uint32_t &zoneId, DCClass *dclass,
+                    DatagramIterator &dgi, const bool &other);
+  DistributedObject(StateServerImplementation *stateServer,
+                    const uint64_t &sender, const uint32_t &doId,
                     const uint32_t &parentId, const uint32_t &zoneId,
-                    DCClass *dclass, DatagramIterator &dgi, const bool &other);
+                    DCClass *dclass, FieldMap &reqFields, FieldMap &ramFields);
 
   [[nodiscard]] size_t Size() const;
 
   [[nodiscard]] uint64_t GetAI() const;
   [[nodiscard]] bool IsAIExplicitlySet() const;
+
+  [[nodiscard]] uint32_t GetDoId() const;
+
+  [[nodiscard]] uint64_t GetLocation() const;
+  [[nodiscard]] uint64_t GetOwner() const;
 
 private:
   void Annihilate(const uint64_t &sender, const bool &notifyParent = true);
@@ -50,14 +63,14 @@ private:
                     const bool &succeedIfUnset = false,
                     const bool &isSubfield = false);
 
-  StateServer *_stateServer;
+  StateServerImplementation *_stateServer;
   uint32_t _doId;
   uint32_t _parentId;
   uint32_t _zoneId;
   DCClass *_dclass;
 
-  std::unordered_map<const DCField *, std::vector<uint8_t>> _requiredFields;
-  std::map<const DCField *, std::vector<uint8_t>> _ramFields;
+  FieldMap _requiredFields;
+  FieldMap _ramFields;
 
   std::unordered_map<uint32_t, std::unordered_set<uint32_t>> _zoneObjects;
 

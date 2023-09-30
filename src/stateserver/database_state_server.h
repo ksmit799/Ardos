@@ -3,17 +3,30 @@
 
 #include "../messagedirector/channel_subscriber.h"
 #include "../net/datagram_iterator.h"
+#include "../util/globals.h"
 #include "distributed_object.h"
-#include "loading_object.h"
 
 namespace Ardos {
 
-class DatabaseStateServer : public ChannelSubscriber {
+bool UnpackDBFields(DatagramIterator &dgi, DCClass *dclass, FieldMap &required,
+                    FieldMap &ram);
+
+class LoadingObject;
+
+class DatabaseStateServer : public StateServerImplementation,
+                            public ChannelSubscriber {
 public:
+  friend class LoadingObject;
+
   DatabaseStateServer();
+
+  void RemoveDistributedObject(const uint32_t &doId) override;
 
 private:
   void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;
+
+  void ReceiveObject(DistributedObject *distObj);
+  void DiscardLoader(const uint32_t &doId);
 
   void HandleActivate(DatagramIterator &dgi, const bool &other);
   void HandleDeleteDisk(DatagramIterator &dgi, const uint64_t &sender);
@@ -32,6 +45,13 @@ private:
 
   std::unordered_map<uint32_t, std::unique_ptr<DistributedObject>> _distObjs;
   std::unordered_map<uint32_t, std::unique_ptr<LoadingObject>> _loadObjs;
+
+  // DoId -> Request context
+  std::unordered_map<uint32_t, std::unordered_set<uint32_t>> _inactiveLoads;
+
+  std::unordered_map<uint32_t, std::shared_ptr<Datagram>> _contextDatagrams;
+
+  uint32_t _nextContext = 0;
 };
 
 } // namespace Ardos
