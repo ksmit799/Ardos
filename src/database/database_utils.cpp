@@ -100,6 +100,22 @@ bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
 
 void DatabaseUtils::FieldToBson(
     bsoncxx::builder::stream::single_context builder, DCPacker &packer) {
+  // Check if we have an atomic field.
+  // If we do, recursively unpack into an array.
+  auto atomicField = packer.get_current_field()->as_field()->as_atomic_field();
+  if (atomicField != nullptr) {
+    auto arrayBuilder = builder << bsoncxx::builder::stream::open_array;
+
+    packer.push();
+    while (packer.more_nested_fields()) {
+      FieldToBson(arrayBuilder, packer);
+    }
+    packer.pop();
+
+    arrayBuilder << bsoncxx::builder::stream::close_array;
+    return;
+  }
+
   // Unpack the field into a bson format.
   // Note that this function can be recursively called with certain pack types.
   DCPackType packType = packer.get_pack_type();
@@ -192,37 +208,37 @@ void DatabaseUtils::FieldToBson(
 void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
                                 const std::string &fieldName,
                                 const bsoncxx::types::bson_value::view &value,
-                                Datagram &dg) {
+                                const int &divisor, Datagram &dg) {
   try {
     switch (fieldType) {
     case ST_invalid:
       throw ConversionException("Got invalid field type");
     case ST_int8:
-      dg.AddInt8(BsonToNumber<int8_t>(value));
+      dg.AddInt8(BsonToNumber<int8_t>(value, divisor));
       break;
     case ST_int16:
-      dg.AddInt16(BsonToNumber<int16_t>(value));
+      dg.AddInt16(BsonToNumber<int16_t>(value, divisor));
       break;
     case ST_int32:
-      dg.AddInt32(BsonToNumber<int32_t>(value));
+      dg.AddInt32(BsonToNumber<int32_t>(value, divisor));
       break;
     case ST_int64:
-      dg.AddInt64(BsonToNumber<int64_t>(value));
+      dg.AddInt64(BsonToNumber<int64_t>(value, divisor));
       break;
     case ST_uint8:
-      dg.AddUint8(BsonToNumber<uint8_t>(value));
+      dg.AddUint8(BsonToNumber<uint8_t>(value, divisor));
       break;
     case ST_uint16:
-      dg.AddUint16(BsonToNumber<uint16_t>(value));
+      dg.AddUint16(BsonToNumber<uint16_t>(value, divisor));
       break;
     case ST_uint32:
-      dg.AddUint32(BsonToNumber<uint32_t>(value));
+      dg.AddUint32(BsonToNumber<uint32_t>(value, divisor));
       break;
     case ST_uint64:
-      dg.AddUint64(BsonToNumber<uint64_t>(value));
+      dg.AddUint64(BsonToNumber<uint64_t>(value, divisor));
       break;
     case ST_float64:
-      dg.AddFloat64(BsonToNumber<double>(value));
+      dg.AddFloat64(BsonToNumber<double>(value, divisor));
       break;
     case ST_string:
       if (value.type() != bsoncxx::type::k_string) {
@@ -244,7 +260,7 @@ void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
 
       Datagram arrDg;
       for (const auto &it : value.get_array().value) {
-        arrDg.AddInt16(BsonToNumber<int16_t>(it.get_value()));
+        arrDg.AddInt16(BsonToNumber<int16_t>(it.get_value(), divisor));
       }
 
       dg.AddBlob(arrDg.GetData(), arrDg.Size());
@@ -257,7 +273,7 @@ void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
 
       Datagram arrDg;
       for (const auto &it : value.get_array().value) {
-        arrDg.AddInt32(BsonToNumber<int32_t>(it.get_value()));
+        arrDg.AddInt32(BsonToNumber<int32_t>(it.get_value(), divisor));
       }
 
       dg.AddBlob(arrDg.GetData(), arrDg.Size());
@@ -270,7 +286,7 @@ void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
 
       Datagram arrDg;
       for (const auto &it : value.get_array().value) {
-        arrDg.AddUint16(BsonToNumber<uint16_t>(it.get_value()));
+        arrDg.AddUint16(BsonToNumber<uint16_t>(it.get_value(), divisor));
       }
 
       dg.AddBlob(arrDg.GetData(), arrDg.Size());
@@ -283,7 +299,7 @@ void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
 
       Datagram arrDg;
       for (const auto &it : value.get_array().value) {
-        arrDg.AddUint32(BsonToNumber<uint32_t>(it.get_value()));
+        arrDg.AddUint32(BsonToNumber<uint32_t>(it.get_value(), divisor));
       }
 
       dg.AddBlob(arrDg.GetData(), arrDg.Size());
@@ -296,7 +312,7 @@ void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
 
       Datagram arrDg;
       for (const auto &it : value.get_array().value) {
-        arrDg.AddInt8(BsonToNumber<int8_t>(it.get_value()));
+        arrDg.AddInt8(BsonToNumber<int8_t>(it.get_value(), divisor));
       }
 
       dg.AddBlob(arrDg.GetData(), arrDg.Size());
@@ -309,7 +325,7 @@ void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
 
       Datagram arrDg;
       for (const auto &it : value.get_array().value) {
-        arrDg.AddUint8(BsonToNumber<uint8_t>(it.get_value()));
+        arrDg.AddUint8(BsonToNumber<uint8_t>(it.get_value(), divisor));
       }
 
       dg.AddBlob(arrDg.GetData(), arrDg.Size());
@@ -321,10 +337,10 @@ void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
       }
       dg.AddUint16(value.get_array().value.length());
       for (size_t i = 0; i < value.get_array().value.length();) {
-        dg.AddUint32(
-            BsonToNumber<uint32_t>(value.get_array().value[i].get_value()));
-        dg.AddUint8(
-            BsonToNumber<uint8_t>(value.get_array().value[i + 1].get_value()));
+        dg.AddUint32(BsonToNumber<uint32_t>(
+            value.get_array().value[i].get_value(), divisor));
+        dg.AddUint8(BsonToNumber<uint8_t>(
+            value.get_array().value[i + 1].get_value(), divisor));
         i += 2;
       }
       break;
@@ -352,7 +368,8 @@ void DatabaseUtils::PackField(const DCField *field,
     // Unpack each sub-element that composes the field.
     auto numFields = atomicField->get_num_elements();
     for (int i = 0; i < numFields; i++) {
-      PackField(atomicField->get_element(i), value, dg);
+      PackField(atomicField->get_element(i),
+                value.get_array().value[i].get_value(), dg);
     }
     return;
   }
@@ -364,7 +381,7 @@ void DatabaseUtils::PackField(const DCField *field,
   auto fieldSimple = fieldParameter->as_simple_parameter();
   if (fieldSimple != nullptr) {
     DatabaseUtils::BsonToField(fieldSimple->get_type(), field->get_name(),
-                               value, dg);
+                               value, fieldSimple->get_divisor(), dg);
   }
 
   // Do we have a class field type?
@@ -387,7 +404,8 @@ void DatabaseUtils::PackField(const DCField *field,
       Datagram arrDg;
       for (const auto &arrVal : value.get_array().value) {
         DatabaseUtils::BsonToField(fieldType, field->get_name(),
-                                   arrVal.get_value(), arrDg);
+                                   arrVal.get_value(),
+                                   elemParamSimple->get_divisor(), arrDg);
       }
 
       dg.AddBlob(arrDg.GetData(), arrDg.Size());

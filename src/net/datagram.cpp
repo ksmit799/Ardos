@@ -40,9 +40,8 @@ Datagram::~Datagram() { delete[] _buf; }
  * Good for re-using datagrams rather than re-alloc.
  */
 void Datagram::Clear() {
-  // Wipe out the buffer without deleting it.
+  // Wipe out the buffer offset without deleting it.
   // This should prevent redundant re-sizing.
-  std::fill(_buf, _buf + _bufOffset, 0);
   _bufOffset = 0;
 }
 
