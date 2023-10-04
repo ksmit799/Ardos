@@ -90,8 +90,8 @@ void StateServer::HandleGenerate(DatagramIterator &dgi, const bool &other) {
   }
 
   // Create the distributed object.
-  _distObjs[doId] = std::make_unique<DistributedObject>(
-      this, doId, parentId, zoneId, dcClass, dgi, other);
+  _distObjs[doId] =
+      new DistributedObject(this, doId, parentId, zoneId, dcClass, dgi, other);
 
   if (_objectsGauge) {
     _objectsGauge->Increment();

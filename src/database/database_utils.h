@@ -1,6 +1,9 @@
 #ifndef ARDOS_DATABASE_UTILS_H
 #define ARDOS_DATABASE_UTILS_H
 
+#include <cmath> /* modf */
+#include <list>
+
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/types/bson_value/view.hpp>
 #include <dcClass.h>
@@ -8,10 +11,9 @@
 #include <dcPacker.h>
 
 #include "../net/datagram_iterator.h"
+#include "../util/globals.h"
 
 namespace Ardos {
-
-typedef std::map<const DCField *, std::vector<uint8_t>> FieldMap;
 
 /**
  * Exception thrown by many database utility functions.
@@ -75,7 +77,7 @@ public:
   static void BsonToField(const DCSubatomicType &fieldType,
                           const std::string &fieldName,
                           const bsoncxx::types::bson_value::view &value,
-                          Datagram &dg);
+                          const int &divisor, Datagram &dg);
 
   static void PackField(const DCField *field,
                         const bsoncxx::types::bson_value::view &value,
@@ -101,7 +103,8 @@ public:
    * @return
    */
   template <typename T>
-  static T BsonToNumber(const bsoncxx::types::bson_value::view &value) {
+  static T BsonToNumber(const bsoncxx::types::bson_value::view &value,
+                        const int &divisor = 1) {
     // TODO: Can we prevent a double alloc here?
     int64_t i;
     double d;
@@ -111,10 +114,13 @@ public:
     // We've got three fundamental number types
     if (value.type() == bsoncxx::type::k_int32) {
       i = value.get_int32().value;
+      i = i * divisor;
     } else if (value.type() == bsoncxx::type::k_int64) {
       i = value.get_int64().value;
+      i = i * divisor;
     } else if (value.type() == bsoncxx::type::k_double) {
       d = value.get_double().value;
+      d = d * divisor;
       isDouble = true;
     } else {
       throw ConversionException("Non-numeric BSON type encountered");

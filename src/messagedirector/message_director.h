@@ -38,7 +38,10 @@ private:
   MessageDirector();
 
   void InitMetrics();
+
   void StartConsuming();
+
+  static bool WithinGlobalRange(const std::string &channel);
 
   static MessageDirector *_instance;
 

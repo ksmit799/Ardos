@@ -176,7 +176,7 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
 #endif
               }
 
-              if (Config::Instance()->GetBool("want-dbss")) {
+              if (Config::Instance()->GetBool("want-db-state-server")) {
                 new DatabaseStateServer();
               }
 
@@ -345,7 +345,8 @@ void MessageDirector::StartConsuming() {
         // First, check if we have at least one channel subscriber listening to
         // the channel in this cluster.
         if (!ChannelSubscriber::_globalChannels.contains(
-                message.routingkey())) {
+                message.routingkey()) &&
+            !WithinGlobalRange(message.routingkey())) {
           return;
         }
 
@@ -386,6 +387,15 @@ void MessageDirector::StartConsuming() {
       .onError([](const char *message) {
         Logger::Error(std::format("[MD] Received error: {}", message));
       });
+}
+
+bool MessageDirector::WithinGlobalRange(const std::string &routingKey) {
+  auto channel = std::stoull(routingKey);
+  return std::any_of(ChannelSubscriber::_globalRanges.begin(),
+                     ChannelSubscriber::_globalRanges.end(), [channel](auto i) {
+                       return channel >= i.first.first &&
+                              channel <= i.first.second;
+                     });
 }
 
 } // namespace Ardos
