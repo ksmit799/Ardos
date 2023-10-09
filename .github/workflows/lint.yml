@@ -13,7 +13,17 @@ jobs:
       - name: Install clang-tidy
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ gcc libssl-dev prometheus-cpp-dev clang-tidy
+          sudo apt-get install -y cmake g++ gcc curl libssl-dev clang-tidy
+
+      - name: Install Prometheus
+        run: |
+          curl -OL https://github.com/jupp0r/prometheus-cpp/releases/download/v1.1.0/prometheus-cpp-with-submodules.tar.gz
+          tar -xzf prometheus-cpp-with-submodules.tar.gz
+          mkdir prometheus-cpp-with-submodules/_build
+          cd prometheus-cpp-with-submodules/_build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_CXX_STANDARD=20 -DBUILD_SHARED_LIBS=ON -DENABLE_PUSH=OFF -DENABLE_COMPRESSION=OFF
+          cmake --build . --target install
+          cd ../../
 
       - name: Prepare compile_commands.json
         run: |
