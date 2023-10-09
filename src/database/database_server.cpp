@@ -112,9 +112,11 @@ void DatabaseServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       break;
     case DBSERVER_OBJECT_DELETE_FIELD:
     case DBSERVER_OBJECT_DELETE_FIELDS:
+      // TODO: Implement this.
       Logger::Error("[DB] OBJECT_DELETE_FIELD(S) NOT YET IMPLEMENTED!");
       break;
     case DBSERVER_OBJECT_SET_FIELD_IF_EMPTY:
+      // TODO: Implement this.
       Logger::Error("[DB] OBJECT_SET_FIELD_IF_EMPTY NOT YET IMPLEMENTED!");
       break;
     case DBSERVER_OBJECT_SET_FIELD_IF_EQUALS:
@@ -149,6 +151,10 @@ uint32_t DatabaseServer::AllocateDoId() {
 
     // We've been allocated a DoId!
     if (doIdObj) {
+      if (_freeChannelsGauge) {
+        _freeChannelsGauge->Decrement();
+      }
+
       return DatabaseUtils::BsonToNumber<uint32_t>(
           doIdObj->view()["doId"]["next"].get_value());
     }
@@ -164,6 +170,10 @@ uint32_t DatabaseServer::AllocateDoId() {
                    << close_document << finalize);
 
     if (freeObj) {
+      if (_freeChannelsGauge) {
+        _freeChannelsGauge->Decrement();
+      }
+
       return DatabaseUtils::BsonToNumber<uint32_t>(
           freeObj->view()["doId"]["free"].get_array().value[0].get_value());
     }
@@ -190,6 +200,10 @@ void DatabaseServer::FreeDoId(const uint32_t &doId) {
                    << "GLOBALS" << finalize,
         document{} << "$push" << open_document << "doId.free"
                    << static_cast<int64_t>(doId) << close_document << finalize);
+
+    if (_freeChannelsGauge) {
+      _freeChannelsGauge->Increment();
+    }
   } catch (const mongocxx::operation_exception &e) {
     Logger::Error(
         std::format("[DB] Failed to free DoId: {}: {}", doId, e.what()));
@@ -783,6 +797,52 @@ void DatabaseServer::InitMetrics() {
   }
 
   auto registry = Metrics::Instance()->GetRegistry();
+
+  auto &freeChannelsBuilder = prometheus::BuildGauge()
+                                  .Name("db_free_channels_size")
+                                  .Help("Number of free channels")
+                                  .Register(*registry);
+
+  auto &opsCompletedBuilder =
+      prometheus::BuildCounter()
+          .Name("db_ops_completed")
+          .Help("Number of successful database operations")
+          .Register(*registry);
+
+  auto &opsFailedBuilder = prometheus::BuildCounter()
+                               .Name("db_ops_failed")
+                               .Help("Number of failed database operations")
+                               .Register(*registry);
+
+  auto &opsTimeBuilder =
+      prometheus::BuildHistogram()
+          .Name("db_ops_time")
+          .Help("Time taken for a successful database operation to complete")
+          .Register(*registry);
+
+  _freeChannelsGauge = &freeChannelsBuilder.Add({});
+
+  // Map operation types to a human-readable string.
+  // These will be displayed in Prometheus/Grafana.
+  const std::vector<std::pair<OperationType, std::string>> OPERATIONS = {
+      {OperationType::CREATE_OBJECT, "create_object"},
+      {OperationType::DELETE_OBJECT, "delete_object"},
+      {OperationType::GET_OBJECT, "get_object"},
+      {OperationType::GET_OBJECT_FIELDS, "get_fields"},
+      {OperationType::SET_OBJECT_FIELDS, "set_fields"},
+      {OperationType::UPDATE_OBJECT_FIELDS, "update_fields"}};
+
+  // Populate operation maps.
+  for (const auto &opType : OPERATIONS) {
+    _opsCompleted[opType.first] =
+        &opsCompletedBuilder.Add({{"op_type", opType.second}});
+    _opsFailed[opType.first] =
+        &opsFailedBuilder.Add({{"op_type", opType.second}});
+    _opsCompletionTime[opType.first] = &opsTimeBuilder.Add(
+        {{"op_type", opType.second}},
+        prometheus::Histogram::BucketBoundaries{0, 500, 1000, 1500, 2000, 2500,
+                                                3000, 3500, 4000, 4500, 5000});
+  }
 }
 
 } // namespace Ardos

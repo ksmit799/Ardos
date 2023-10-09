@@ -3,6 +3,8 @@
 
 #include <mongocxx/client.hpp>
 #include <mongocxx/instance.hpp>
+#include <prometheus/counter.h>
+#include <prometheus/histogram.h>
 
 #include "../messagedirector/channel_subscriber.h"
 #include "../net/datagram_iterator.h"
@@ -49,6 +51,21 @@ private:
   mongocxx::uri _uri;
   mongocxx::client _conn;
   mongocxx::database _db;
+
+  prometheus::Gauge *_freeChannelsGauge = nullptr;
+
+  enum OperationType {
+    CREATE_OBJECT,
+    DELETE_OBJECT,
+    GET_OBJECT,
+    GET_OBJECT_FIELDS,
+    SET_OBJECT_FIELDS,
+    UPDATE_OBJECT_FIELDS,
+  };
+
+  std::unordered_map<OperationType, prometheus::Counter *> _opsCompleted;
+  std::unordered_map<OperationType, prometheus::Counter *> _opsFailed;
+  std::unordered_map<OperationType, prometheus::Histogram *> _opsCompletionTime;
 };
 
 } // namespace Ardos
