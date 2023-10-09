@@ -16,6 +16,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake g++ gcc curl libssl-dev clang-tidy
 
+      - name: Install MongoDB C driver
+        run: |
+          curl -OL https://github.com/mongodb/mongo-c-driver/releases/download/1.24.3/mongo-c-driver-1.24.3.tar.gz
+          tar -xzf mongo-c-driver-1.24.3.tar.gz
+          mkdir mongo-c-driver-1.24.3/cmake-build
+          cd mongo-c-driver-1.24.3/cmake-build
+          sudo cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DENABLE_TESTS=OFF
+          sudo cmake --build . --target install
+          cd ../../
+
+      - name: Install MongoDB C++ driver
+        run: |
+          curl -OL https://github.com/mongodb/mongo-cxx-driver/releases/download/r3.8.0/mongo-cxx-driver-r3.8.0.tar.gz
+          tar -xzf mongo-cxx-driver-r3.8.0.tar.gz
+          cd mongo-cxx-driver-r3.8.0/build
+          sudo cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_CXX_STANDARD=20 -DENABLE_TESTS=OFF
+          sudo cmake --build . --target install
+          cd ../../
+
       - name: Install Prometheus
         run: |
           curl -OL https://github.com/jupp0r/prometheus-cpp/releases/download/v1.1.0/prometheus-cpp-with-submodules.tar.gz
@@ -28,7 +47,7 @@ jobs:
 
       - name: Prepare compile_commands.json
         run: |
-          cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DARDOS_WANT_DB_SERVER=OFF
+          cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DARDOS_WANT_DB_SERVER=ON
 
       - name: Create results directory
         run: |
@@ -41,7 +60,7 @@ jobs:
       - name: Post review
         uses: platisd/clang-tidy-pr-comments@master
         with:
-          github_token: ${{ github.token }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           clang_tidy_fixes: clang-tidy-result/fixes.yml
           request_changes: true
           suggestions_per_comment: 10
