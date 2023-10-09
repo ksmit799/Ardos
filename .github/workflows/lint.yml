@@ -21,8 +21,8 @@ jobs:
           tar -xzf prometheus-cpp-with-submodules.tar.gz
           mkdir prometheus-cpp-with-submodules/_build
           cd prometheus-cpp-with-submodules/_build
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_CXX_STANDARD=20 -DBUILD_SHARED_LIBS=ON -DENABLE_PUSH=OFF -DENABLE_COMPRESSION=OFF
-          cmake --build . --target install
+          sudo cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_CXX_STANDARD=20 -DBUILD_SHARED_LIBS=ON -DENABLE_PUSH=OFF -DENABLE_COMPRESSION=OFF
+          sudo cmake --build . --target install
           cd ../../
 
       - name: Prepare compile_commands.json
