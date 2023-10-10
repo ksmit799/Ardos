@@ -97,7 +97,7 @@ void DatabaseServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       HandleCreate(dgi, sender);
       break;
     case DBSERVER_OBJECT_DELETE:
-      HandleDelete(dgi, sender);
+      HandleDelete(dgi);
       break;
     case DBSERVER_OBJECT_GET_ALL:
       HandleGetAll(dgi, sender);
@@ -108,7 +108,7 @@ void DatabaseServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       break;
     case DBSERVER_OBJECT_SET_FIELD:
     case DBSERVER_OBJECT_SET_FIELDS:
-      HandleSetField(dgi, sender, msgType == DBSERVER_OBJECT_SET_FIELDS);
+      HandleSetField(dgi, msgType == DBSERVER_OBJECT_SET_FIELDS);
       break;
     case DBSERVER_OBJECT_DELETE_FIELD:
     case DBSERVER_OBJECT_DELETE_FIELDS:
@@ -317,8 +317,7 @@ void DatabaseServer::HandleCreateDone(const uint64_t &channel,
   PublishDatagram(dg);
 }
 
-void DatabaseServer::HandleDelete(DatagramIterator &dgi,
-                                  const uint64_t &sender) {
+void DatabaseServer::HandleDelete(DatagramIterator &dgi) {
   uint32_t doId = dgi.GetUint32();
 
   try {
@@ -510,7 +509,6 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
 }
 
 void DatabaseServer::HandleSetField(DatagramIterator &dgi,
-                                    const uint64_t &sender,
                                     const bool &multiple) {
   auto doId = dgi.GetUint32();
   auto fieldCount = multiple ? dgi.GetUint16() : 1;
@@ -842,6 +840,46 @@ void DatabaseServer::InitMetrics() {
         {{"op_type", opType.second}},
         prometheus::Histogram::BucketBoundaries{0, 500, 1000, 1500, 2000, 2500,
                                                 3000, 3500, 4000, 4500, 5000});
+  }
+
+  // Calculate the number of free channels we have left to allocate.
+  InitFreeChannelsMetric();
+}
+
+void DatabaseServer::InitFreeChannelsMetric() {
+  try {
+    // Get the next DoId we have ready to allocate.
+    auto doIdObj = _db["globals"].find_one(
+        document{} << "_id"
+                   << "GLOBALS"
+                   << "doId.next" << open_document << "$gte"
+                   << static_cast<int64_t>(_minDoId) << close_document
+                   << "doId.next" << open_document << "$lte"
+                   << static_cast<int64_t>(_maxDoId) << close_document
+                   << finalize);
+
+    if (!doIdObj) {
+      _freeChannelsGauge->Set(0);
+      return;
+    }
+
+    auto currDoId = DatabaseUtils::BsonToNumber<uint32_t>(
+        doIdObj->view()["doId"]["next"].get_value());
+
+    auto freeDoIdArr = doIdObj->view()["doId"]["free"].get_array().value;
+    auto freeDoIds = std::distance(freeDoIdArr.begin(), freeDoIdArr.end());
+
+    _freeChannelsGauge->Set((double)(_maxDoId - currDoId + freeDoIds));
+  } catch (const ConversionException &e) {
+    Logger::Error(std::format("[DB] Conversion error occurred while "
+                              "calculating free channel metrics: {}",
+                              e.what()));
+    _freeChannelsGauge->Set(0);
+  } catch (const mongocxx::operation_exception &e) {
+    Logger::Error(std::format("[DB] MongoDB error occurred while calculating "
+                              "free channel metrics: {}",
+                              e.what()));
+    _freeChannelsGauge->Set(0);
   }
 }
 

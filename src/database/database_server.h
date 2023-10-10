@@ -26,14 +26,13 @@ private:
   void HandleCreateDone(const uint64_t &channel, const uint32_t &context,
                         const uint32_t &doId);
 
-  void HandleDelete(DatagramIterator &dgi, const uint64_t &sender);
+  void HandleDelete(DatagramIterator &dgi);
 
   void HandleGetAll(DatagramIterator &dgi, const uint64_t &sender);
   void HandleGetField(DatagramIterator &dgi, const uint64_t &sender,
                       const bool &multiple);
 
-  void HandleSetField(DatagramIterator &dgi, const uint64_t &sender,
-                      const bool &multiple);
+  void HandleSetField(DatagramIterator &dgi, const bool &multiple);
   void HandleSetFieldEquals(DatagramIterator &dgi, const uint64_t &sender,
                             const bool &multiple);
 
@@ -41,6 +40,7 @@ private:
                             const uint32_t &context);
 
   void InitMetrics();
+  void InitFreeChannelsMetric();
 
   uint32_t _minDoId;
   uint32_t _maxDoId;
