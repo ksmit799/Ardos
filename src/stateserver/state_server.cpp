@@ -133,13 +133,14 @@ void StateServer::InitMetrics() {
 
   auto &objectsBuilder = prometheus::BuildGauge()
                              .Name("ss_objects_size")
-                             .Help("Number of distributed objects")
+                             .Help("Number of loaded distributed objects")
                              .Register(*registry);
 
-  auto &objectsSizeBuilder = prometheus::BuildHistogram()
-                                 .Name("ss_objects_bytes_size")
-                                 .Help("Bytes size of distributed objects")
-                                 .Register(*registry);
+  auto &objectsSizeBuilder =
+      prometheus::BuildHistogram()
+          .Name("ss_objects_bytes_size")
+          .Help("Byte-size of loaded distributed objects")
+          .Register(*registry);
 
   _objectsGauge = &objectsBuilder.Add({});
   _objectsSizeHistogram = &objectsSizeBuilder.Add(

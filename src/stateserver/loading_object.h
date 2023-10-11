@@ -52,6 +52,8 @@ private:
   FieldMap _ramFields;
 
   std::vector<std::shared_ptr<Datagram>> _datagramQueue;
+
+  uvw::timer_handle::time _startTime;
 };
 
 } // namespace Ardos
