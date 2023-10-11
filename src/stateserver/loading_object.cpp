@@ -12,8 +12,13 @@ LoadingObject::LoadingObject(DatabaseStateServer *stateServer,
                              const std::unordered_set<uint32_t> &contexts)
     : ChannelSubscriber(), _stateServer(stateServer), _doId(doId),
       _parentId(parentId), _zoneId(zoneId),
-      _context(stateServer->_nextContext++), _validContexts(contexts) {
+      _context(stateServer->_nextContext++), _validContexts(contexts),
+      _startTime(g_loop->now()) {
   SubscribeChannel(doId);
+
+  if (_stateServer->_loadingGauge) {
+    _stateServer->_loadingGauge->Increment();
+  }
 }
 
 LoadingObject::LoadingObject(DatabaseStateServer *stateServer,
@@ -24,7 +29,7 @@ LoadingObject::LoadingObject(DatabaseStateServer *stateServer,
     : ChannelSubscriber(), _stateServer(stateServer), _doId(doId),
       _parentId(parentId), _zoneId(zoneId),
       _context(stateServer->_nextContext++), _validContexts(contexts),
-      _dclass(dclass) {
+      _dclass(dclass), _startTime(g_loop->now()) {
   SubscribeChannel(doId);
 
   // Unpack the RAM fields we received in the generate message.
@@ -48,10 +53,14 @@ LoadingObject::LoadingObject(DatabaseStateServer *stateServer,
           _doId, field->get_name()));
     }
   }
+
+  if (_stateServer->_loadingGauge) {
+    _stateServer->_loadingGauge->Increment();
+  }
 }
 
 void LoadingObject::Start() {
-  if (!_validContexts.size()) {
+  if (_validContexts.empty()) {
     // Fetch our stored fields from the database.
     auto dg = std::make_shared<Datagram>(_stateServer->_dbChannel, _doId,
                                          DBSERVER_OBJECT_GET_ALL);
@@ -173,6 +182,7 @@ void LoadingObject::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
 }
 
 void LoadingObject::Finalize() {
+  _stateServer->ReportActivateTime(_startTime);
   _stateServer->DiscardLoader(_doId);
   ForwardDatagrams();
   ChannelSubscriber::Shutdown();

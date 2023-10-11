@@ -3,6 +3,9 @@
 
 #include <mongocxx/client.hpp>
 #include <mongocxx/instance.hpp>
+#include <prometheus/counter.h>
+#include <prometheus/histogram.h>
+#include <uvw/timer.h>
 
 #include "../messagedirector/channel_subscriber.h"
 #include "../net/datagram_iterator.h"
@@ -24,14 +27,13 @@ private:
   void HandleCreateDone(const uint64_t &channel, const uint32_t &context,
                         const uint32_t &doId);
 
-  void HandleDelete(DatagramIterator &dgi, const uint64_t &sender);
+  void HandleDelete(DatagramIterator &dgi);
 
   void HandleGetAll(DatagramIterator &dgi, const uint64_t &sender);
   void HandleGetField(DatagramIterator &dgi, const uint64_t &sender,
                       const bool &multiple);
 
-  void HandleSetField(DatagramIterator &dgi, const uint64_t &sender,
-                      const bool &multiple);
+  void HandleSetField(DatagramIterator &dgi, const bool &multiple);
   void HandleSetFieldEquals(DatagramIterator &dgi, const uint64_t &sender,
                             const bool &multiple);
 
@@ -39,6 +41,20 @@ private:
                             const uint32_t &context);
 
   void InitMetrics();
+  void InitFreeChannelsMetric();
+
+  enum OperationType {
+    CREATE_OBJECT,
+    DELETE_OBJECT,
+    GET_OBJECT,
+    GET_OBJECT_FIELDS,
+    SET_OBJECT_FIELDS,
+    UPDATE_OBJECT_FIELDS,
+  };
+
+  void ReportCompleted(const OperationType &type,
+                       const uvw::timer_handle::time &startTime);
+  void ReportFailed(const OperationType &type);
 
   uint32_t _minDoId;
   uint32_t _maxDoId;
@@ -49,6 +65,12 @@ private:
   mongocxx::uri _uri;
   mongocxx::client _conn;
   mongocxx::database _db;
+
+  prometheus::Gauge *_freeChannelsGauge = nullptr;
+
+  std::unordered_map<OperationType, prometheus::Counter *> _opsCompleted;
+  std::unordered_map<OperationType, prometheus::Counter *> _opsFailed;
+  std::unordered_map<OperationType, prometheus::Histogram *> _opsCompletionTime;
 };
 
 } // namespace Ardos

@@ -331,12 +331,16 @@ void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
       dg.AddBlob(arrDg.GetData(), arrDg.Size());
       break;
     }
-    case ST_uint32uint8array:
+    case ST_uint32uint8array: {
       if (value.type() != bsoncxx::type::k_array) {
         throw ConversionException("Expected array");
       }
-      dg.AddUint16(value.get_array().value.length());
-      for (size_t i = 0; i < value.get_array().value.length();) {
+
+      auto arr = value.get_array().value;
+      auto arrLength = std::distance(arr.begin(), arr.end());
+
+      dg.AddUint16(arrLength);
+      for (size_t i = 0; i < arrLength;) {
         dg.AddUint32(BsonToNumber<uint32_t>(
             value.get_array().value[i].get_value(), divisor));
         dg.AddUint8(BsonToNumber<uint8_t>(
@@ -344,6 +348,7 @@ void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
         i += 2;
       }
       break;
+    }
     case ST_char:
       if (value.type() != bsoncxx::type::k_string &&
           value.get_string().value.length() != 1) {

@@ -4,6 +4,7 @@
 
 #include "../util/config.h"
 #include "../util/logger.h"
+#include "../util/metrics.h"
 #include "loading_object.h"
 
 namespace Ardos {
@@ -30,18 +31,37 @@ DatabaseStateServer::DatabaseStateServer() : ChannelSubscriber() {
 
   // Start listening to DoId's in our listening range.
   SubscribeRange(min, max);
+
+  // Initialize metrics.
+  InitMetrics();
 }
 
 void DatabaseStateServer::ReceiveObject(DistributedObject *distObj) {
   _distObjs[distObj->GetDoId()] = distObj;
+
+  if (_objectsGauge) {
+    _objectsGauge->Increment();
+  }
+
+  if (_objectsSize) {
+    _objectsSize->Observe((double)distObj->Size());
+  }
 }
 
 void DatabaseStateServer::RemoveDistributedObject(const uint32_t &doId) {
   _distObjs.erase(doId);
+
+  if (_objectsGauge) {
+    _objectsGauge->Decrement();
+  }
 }
 
 void DatabaseStateServer::DiscardLoader(const uint32_t &doId) {
   _loadObjs.erase(doId);
+
+  if (_loadingGauge) {
+    _loadingGauge->Decrement();
+  }
 }
 
 void DatabaseStateServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
@@ -347,6 +367,54 @@ void DatabaseStateServer::HandleGetActivated(DatagramIterator &dgi,
   dg->AddUint32(doId);
   dg->AddBool(_distObjs.contains(doId));
   PublishDatagram(dg);
+}
+
+void DatabaseStateServer::InitMetrics() {
+  // Make sure we want to collect metrics on this cluster.
+  if (!Metrics::Instance()->WantMetrics()) {
+    return;
+  }
+
+  auto registry = Metrics::Instance()->GetRegistry();
+
+  auto &objectsBuilder = prometheus::BuildGauge()
+                             .Name("dbss_objects_size")
+                             .Help("Number of loaded distributed objects")
+                             .Register(*registry);
+
+  auto &loadingBuilder = prometheus::BuildGauge()
+                             .Name("dbss_loading_size")
+                             .Help("Number of objects currently loading")
+                             .Register(*registry);
+
+  auto &activateTimeBuilder =
+      prometheus::BuildHistogram()
+          .Name("dbss_activate_time")
+          .Help("Time taken for an object to load/activate")
+          .Register(*registry);
+
+  auto &objectsSizeBuilder =
+      prometheus::BuildHistogram()
+          .Name("dbss_objects_bytes_size")
+          .Help("Byte-size of loaded distributed objects")
+          .Register(*registry);
+
+  _objectsGauge = &objectsBuilder.Add({});
+  _loadingGauge = &loadingBuilder.Add({});
+
+  _activateTime = &activateTimeBuilder.Add(
+      {}, prometheus::Histogram::BucketBoundaries{
+              0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000});
+  _objectsSize = &objectsSizeBuilder.Add(
+      {}, prometheus::Histogram::BucketBoundaries{0, 4, 16, 64, 256, 1024, 4096,
+                                                  16384, 65536});
+}
+
+void DatabaseStateServer::ReportActivateTime(
+    const uvw::timer_handle::time &startTime) {
+  if (_activateTime) {
+    _activateTime->Observe((double)(g_loop->now() - startTime).count());
+  }
 }
 
 bool UnpackDBFields(DatagramIterator &dgi, DCClass *dclass, FieldMap &required,

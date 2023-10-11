@@ -1,6 +1,8 @@
 #ifndef ARDOS_DATABASE_STATE_SERVER_H
 #define ARDOS_DATABASE_STATE_SERVER_H
 
+#include <uvw/timer.h>
+
 #include "../messagedirector/channel_subscriber.h"
 #include "../net/datagram_iterator.h"
 #include "../util/globals.h"
@@ -41,6 +43,10 @@ private:
 
   void HandleGetActivated(DatagramIterator &dgi, const uint64_t &sender);
 
+  void InitMetrics();
+
+  void ReportActivateTime(const uvw::timer_handle::time &startTime);
+
   uint64_t _dbChannel;
 
   std::unordered_map<uint32_t, DistributedObject *> _distObjs;
@@ -52,6 +58,12 @@ private:
   std::unordered_map<uint32_t, std::shared_ptr<Datagram>> _contextDatagrams;
 
   uint32_t _nextContext = 0;
+
+  prometheus::Gauge *_objectsGauge = nullptr;
+  prometheus::Gauge *_loadingGauge = nullptr;
+
+  prometheus::Histogram *_objectsSize = nullptr;
+  prometheus::Histogram *_activateTime = nullptr;
 };
 
 } // namespace Ardos
