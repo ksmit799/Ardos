@@ -212,6 +212,8 @@ void DatabaseServer::FreeDoId(const uint32_t &doId) {
 
 void DatabaseServer::HandleCreate(DatagramIterator &dgi,
                                   const uint64_t &sender) {
+  auto startTime = g_loop->now();
+
   uint32_t context = dgi.GetUint32();
 
   uint16_t dcId = dgi.GetUint16();
@@ -222,7 +224,9 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
   if (!dcClass) {
     Logger::Error(std::format(
         "[DB] Received create for unknown distributed class: {}", dcId));
+
     HandleCreateDone(sender, context, INVALID_DO_ID);
+    ReportFailed(CREATE_OBJECT);
     return;
   }
 
@@ -230,6 +234,7 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
   FieldMap objectFields;
   if (!DatabaseUtils::UnpackFields(dgi, fieldCount, objectFields)) {
     HandleCreateDone(sender, context, INVALID_DO_ID);
+    ReportFailed(CREATE_OBJECT);
     return;
   }
 
@@ -238,7 +243,9 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
     Logger::Error(std::format(
         "[DB] Failed to create object: {} with non-belonging fields",
         dcClass->get_name()));
+
     HandleCreateDone(sender, context, INVALID_DO_ID);
+    ReportFailed(CREATE_OBJECT);
     return;
   }
 
@@ -273,6 +280,7 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
         "[DB] Failed to unpack object fields for create: {}", e.what()));
 
     HandleCreateDone(sender, context, INVALID_DO_ID);
+    ReportFailed(CREATE_OBJECT);
     return;
   }
   auto fields = builder << finalize;
@@ -281,6 +289,7 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
   uint32_t doId = AllocateDoId();
   if (doId == INVALID_DO_ID) {
     HandleCreateDone(sender, context, INVALID_DO_ID);
+    ReportFailed(CREATE_OBJECT);
     return;
   }
 
@@ -300,11 +309,13 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
     FreeDoId(doId);
 
     HandleCreateDone(sender, context, INVALID_DO_ID);
+    ReportFailed(CREATE_OBJECT);
     return;
   }
 
   // The object has been created successfully.
   HandleCreateDone(sender, context, doId);
+  ReportCompleted(CREATE_OBJECT, startTime);
 }
 
 void DatabaseServer::HandleCreateDone(const uint64_t &channel,
@@ -318,6 +329,8 @@ void DatabaseServer::HandleCreateDone(const uint64_t &channel,
 }
 
 void DatabaseServer::HandleDelete(DatagramIterator &dgi) {
+  auto startTime = g_loop->now();
+
   uint32_t doId = dgi.GetUint32();
 
   try {
@@ -328,6 +341,8 @@ void DatabaseServer::HandleDelete(DatagramIterator &dgi) {
     if (!result || result->deleted_count() != 1) {
       Logger::Error(
           std::format("[DB] Tried to delete non-existent object: {}", doId));
+
+      ReportFailed(DELETE_OBJECT);
       return;
     }
 
@@ -335,14 +350,20 @@ void DatabaseServer::HandleDelete(DatagramIterator &dgi) {
     FreeDoId(doId);
 
     Logger::Verbose(std::format("[DB] Deleted object: {}", doId));
+
+    ReportCompleted(DELETE_OBJECT, startTime);
   } catch (const mongocxx::operation_exception &e) {
     Logger::Error(std::format(
         "[DB] Unexpected error while deleting object {}: {}", doId, e.what()));
+
+    ReportFailed(DELETE_OBJECT);
   }
 }
 
 void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
                                   const uint64_t &sender) {
+  auto startTime = g_loop->now();
+
   uint32_t context = dgi.GetUint32();
   uint32_t doId = dgi.GetUint32();
 
@@ -353,14 +374,18 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
   } catch (const mongocxx::operation_exception &e) {
     Logger::Error(std::format(
         "[DB] Unexpected error while fetching object {}: {}", doId, e.what()));
+
     HandleContextFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
+    ReportFailed(GET_OBJECT);
     return;
   }
 
   if (!obj) {
     Logger::Error(
         std::format("[DB] Failed to fetch non-existent object: {}", doId));
+
     HandleContextFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
+    ReportFailed(GET_OBJECT);
     return;
   }
 
@@ -372,7 +397,9 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
     Logger::Error(std::format(
         "[DB] Encountered unknown dclass while fetching object {}: {}", doId,
         dclassName));
+
     HandleContextFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
+    ReportFailed(GET_OBJECT);
     return;
   }
 
@@ -405,7 +432,9 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
     Logger::Error(
         std::format("[DB] Failed to unpack field fetching object {}: {} - {}",
                     doId, dclassName, e.what()));
+
     HandleContextFailure(DBSERVER_OBJECT_GET_ALL_RESP, sender, context);
+    ReportFailed(GET_OBJECT);
     return;
   }
 
@@ -420,11 +449,15 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
     dg->AddData(it.second);
   }
   PublishDatagram(dg);
+
+  ReportCompleted(GET_OBJECT, startTime);
 }
 
 void DatabaseServer::HandleGetField(DatagramIterator &dgi,
                                     const uint64_t &sender,
                                     const bool &multiple) {
+  auto startTime = g_loop->now();
+
   auto ctx = dgi.GetUint32();
   auto doId = dgi.GetUint32();
   auto fieldCount = multiple ? dgi.GetUint16() : 1;
@@ -438,14 +471,20 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
         document{} << "_id" << static_cast<int64_t>(doId) << finalize);
   } catch (const mongocxx::operation_exception &e) {
     Logger::Error(std::format(
-        "[DB] Unexpected error while setting field(s) on object {}: {}", doId,
+        "[DB] Unexpected error while getting field(s) on object {}: {}", doId,
         e.what()));
+
+    HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(GET_OBJECT_FIELDS);
     return;
   }
 
   if (!obj) {
     Logger::Error(std::format(
-        "[DB] Failed to set field(s) on non-existent object: {}", doId));
+        "[DB] Failed to get field(s) on non-existent object: {}", doId));
+
+    HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(GET_OBJECT_FIELDS);
     return;
   }
 
@@ -455,8 +494,11 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
   DCClass *dcClass = g_dc_file->get_class_by_name(dclassName);
   if (!dcClass) {
     Logger::Error(std::format(
-        "[DB] Received set field(s) for unknown distributed class {}: {}", doId,
+        "[DB] Received get field(s) for unknown distributed class {}: {}", doId,
         dclassName));
+
+    HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(GET_OBJECT_FIELDS);
     return;
   }
 
@@ -474,7 +516,9 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
         Logger::Error(std::format("[DB] Encountered unexpected field while "
                                   "fetching object {}: {} - {}",
                                   doId, dclassName, fieldNum));
+
         HandleContextFailure(responseType, sender, ctx);
+        ReportFailed(GET_OBJECT_FIELDS);
         return;
       }
 
@@ -491,7 +535,9 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
     Logger::Error(
         std::format("[DB] Failed to unpack field fetching object {}: {} - {}",
                     doId, dclassName, e.what()));
+
     HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(GET_OBJECT_FIELDS);
     return;
   }
 
@@ -506,10 +552,14 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
     dg->AddData(it.second);
   }
   PublishDatagram(dg);
+
+  ReportCompleted(GET_OBJECT_FIELDS, startTime);
 }
 
 void DatabaseServer::HandleSetField(DatagramIterator &dgi,
                                     const bool &multiple) {
+  auto startTime = g_loop->now();
+
   auto doId = dgi.GetUint32();
   auto fieldCount = multiple ? dgi.GetUint16() : 1;
 
@@ -521,12 +571,16 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
     Logger::Error(std::format(
         "[DB] Unexpected error while setting field(s) on object {}: {}", doId,
         e.what()));
+
+    ReportFailed(SET_OBJECT_FIELDS);
     return;
   }
 
   if (!obj) {
     Logger::Error(std::format(
         "[DB] Failed to set field(s) on non-existent object: {}", doId));
+
+    ReportFailed(SET_OBJECT_FIELDS);
     return;
   }
 
@@ -538,6 +592,8 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
     Logger::Error(std::format(
         "[DB] Received set field(s) for unknown distributed class {}: {}", doId,
         dclassName));
+
+    ReportFailed(SET_OBJECT_FIELDS);
     return;
   }
 
@@ -546,6 +602,8 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
   if (!DatabaseUtils::UnpackFields(dgi, fieldCount, objectFields)) {
     Logger::Error(
         std::format("[DB] Failed to unpack set field(s) for object: {}", doId));
+
+    ReportFailed(SET_OBJECT_FIELDS);
     return;
   }
 
@@ -553,6 +611,8 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
   if (!DatabaseUtils::VerifyFields(dcClass, objectFields)) {
     Logger::Error(std::format("[DB] Failed to verify fields on object {}: {} ",
                               doId, dclassName));
+
+    ReportFailed(SET_OBJECT_FIELDS);
     return;
   }
 
@@ -578,6 +638,8 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
     Logger::Error(std::format(
         "[DB] Failed to unpack object fields for set field(s) {}: {}", doId,
         e.what()));
+
+    ReportFailed(SET_OBJECT_FIELDS);
     return;
   }
 
@@ -592,21 +654,29 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
     if (!updateOperation) {
       Logger::Error(std::format(
           "[DB] Set field(s) update operation failed for object {}", doId));
+
+      ReportFailed(SET_OBJECT_FIELDS);
       return;
     }
 
     Logger::Verbose(std::format("[DB] Set field(s) for object {}: {}", doId,
                                 bsoncxx::to_json(fieldBuilder.view())));
+
+    ReportCompleted(SET_OBJECT_FIELDS, startTime);
   } catch (const mongocxx::operation_exception &e) {
     Logger::Error(std::format(
         "[DB] Unexpected error while setting field(s) on object {}: {}", doId,
         e.what()));
+
+    ReportFailed(SET_OBJECT_FIELDS);
   }
 }
 
 void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
                                           const uint64_t &sender,
                                           const bool &multiple) {
+  auto startTime = g_loop->now();
+
   auto ctx = dgi.GetUint32();
   auto doId = dgi.GetUint32();
   auto fieldCount = multiple ? dgi.GetUint16() : 1;
@@ -622,14 +692,18 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
     Logger::Error(std::format(
         "[DB] Unexpected error while setting field(s) equals on object {}: {}",
         doId, e.what()));
+
     HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(UPDATE_OBJECT_FIELDS);
     return;
   }
 
   if (!obj) {
     Logger::Error(std::format(
         "[DB] Failed to set field(s) equals on non-existent object: {}", doId));
+
     HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(UPDATE_OBJECT_FIELDS);
     return;
   }
 
@@ -641,7 +715,9 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
     Logger::Error(std::format("[DB] Received set field(s) equals for unknown "
                               "distributed class {}: {}",
                               doId, dclassName));
+
     HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(UPDATE_OBJECT_FIELDS);
     return;
   }
 
@@ -652,7 +728,9 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
                                    expectedFields)) {
     Logger::Error(std::format(
         "[DB] Failed to unpack set field(s) equals for object: {}", doId));
+
     HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(UPDATE_OBJECT_FIELDS);
     return;
   }
 
@@ -661,14 +739,18 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
     Logger::Error(std::format(
         "[DB] Failed to verify set field(s) equals for object {}: {} ", doId,
         dclassName));
+
     HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(UPDATE_OBJECT_FIELDS);
     return;
   }
   if (!DatabaseUtils::VerifyFields(dcClass, expectedFields)) {
     Logger::Error(std::format(
         "[DB] Failed to verify expected field(s) equals for object {}: {} ",
         doId, dclassName));
+
     HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(UPDATE_OBJECT_FIELDS);
     return;
   }
 
@@ -719,6 +801,8 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
       dg->AddData(it.second);
     }
     PublishDatagram(dg);
+
+    ReportFailed(UPDATE_OBJECT_FIELDS);
     return;
   }
 
@@ -744,7 +828,9 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
     Logger::Error(std::format(
         "[DB] Failed to unpack object fields for set field(s) equals {}: {}",
         doId, e.what()));
+
     HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(UPDATE_OBJECT_FIELDS);
     return;
   }
 
@@ -759,24 +845,30 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
     if (!updateOperation) {
       Logger::Error(std::format(
           "[DB] Set field(s) equals operation failed for object {}", doId));
+
       HandleContextFailure(responseType, sender, ctx);
+      ReportFailed(UPDATE_OBJECT_FIELDS);
       return;
     }
 
     Logger::Verbose(std::format("[DB] Set field(s) equals for object {}: {}",
                                 doId, bsoncxx::to_json(fieldBuilder.view())));
+
+    // Success! Notify the sender.
+    auto dg = std::make_shared<Datagram>(sender, _channel, responseType);
+    dg->AddUint32(ctx);
+    dg->AddBool(true);
+    PublishDatagram(dg);
+
+    ReportCompleted(UPDATE_OBJECT_FIELDS, startTime);
   } catch (const mongocxx::operation_exception &e) {
     Logger::Error(std::format(
         "[DB] Unexpected error while setting field(s) equals on object {}: {}",
         doId, e.what()));
-    HandleContextFailure(responseType, sender, ctx);
-  }
 
-  // Success! Notify the sender.
-  auto dg = std::make_shared<Datagram>(sender, _channel, responseType);
-  dg->AddUint32(ctx);
-  dg->AddBool(true);
-  PublishDatagram(dg);
+    HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(UPDATE_OBJECT_FIELDS);
+  }
 }
 
 void DatabaseServer::HandleContextFailure(const MessageTypes &type,
@@ -880,6 +972,26 @@ void DatabaseServer::InitFreeChannelsMetric() {
                               "free channel metrics: {}",
                               e.what()));
     _freeChannelsGauge->Set(0);
+  }
+}
+
+void DatabaseServer::ReportCompleted(const DatabaseServer::OperationType &type,
+                                     const uvw::timer_handle::time &startTime) {
+  auto counter = _opsCompleted[type];
+  if (counter) {
+    counter->Increment();
+  }
+
+  auto time = _opsCompletionTime[type];
+  if (time) {
+    time->Observe((double)(g_loop->now() - startTime).count());
+  }
+}
+
+void DatabaseServer::ReportFailed(const DatabaseServer::OperationType &type) {
+  auto counter = _opsFailed[type];
+  if (counter) {
+    counter->Increment();
   }
 }
 

@@ -5,6 +5,7 @@
 #include <mongocxx/instance.hpp>
 #include <prometheus/counter.h>
 #include <prometheus/histogram.h>
+#include <uvw/timer.h>
 
 #include "../messagedirector/channel_subscriber.h"
 #include "../net/datagram_iterator.h"
@@ -42,6 +43,19 @@ private:
   void InitMetrics();
   void InitFreeChannelsMetric();
 
+  enum OperationType {
+    CREATE_OBJECT,
+    DELETE_OBJECT,
+    GET_OBJECT,
+    GET_OBJECT_FIELDS,
+    SET_OBJECT_FIELDS,
+    UPDATE_OBJECT_FIELDS,
+  };
+
+  void ReportCompleted(const OperationType &type,
+                       const uvw::timer_handle::time &startTime);
+  void ReportFailed(const OperationType &type);
+
   uint32_t _minDoId;
   uint32_t _maxDoId;
   uint64_t _channel;
@@ -53,15 +67,6 @@ private:
   mongocxx::database _db;
 
   prometheus::Gauge *_freeChannelsGauge = nullptr;
-
-  enum OperationType {
-    CREATE_OBJECT,
-    DELETE_OBJECT,
-    GET_OBJECT,
-    GET_OBJECT_FIELDS,
-    SET_OBJECT_FIELDS,
-    UPDATE_OBJECT_FIELDS,
-  };
 
   std::unordered_map<OperationType, prometheus::Counter *> _opsCompleted;
   std::unordered_map<OperationType, prometheus::Counter *> _opsFailed;
