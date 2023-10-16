@@ -969,10 +969,17 @@ void ClientParticipant::HandleClientObjectLocation(DatagramIterator &dgi) {
     return;
   }
 
+  auto parentId = dgi.GetUint32();
+  auto zoneId = dgi.GetUint32();
+
+  Logger::Verbose(std::format(
+      "[CA] Client: {} relocating owned object: {} to location: {}/{}",
+      _channel, doId, parentId, zoneId));
+
   // Update the object's location with the state server.
   auto dg = std::make_shared<Datagram>(doId, _channel,
                                        STATESERVER_OBJECT_SET_LOCATION);
-  dg->AddLocation(dgi.GetUint32(), dgi.GetUint32());
+  dg->AddLocation(parentId, zoneId);
   PublishDatagram(dg);
 }
 
@@ -1310,7 +1317,8 @@ void ClientParticipant::HandleAddObject(
   auto dg = std::make_shared<Datagram>();
   dg->AddUint16(other ? CLIENT_ENTER_OBJECT_REQUIRED_OTHER
                       : CLIENT_ENTER_OBJECT_REQUIRED);
-  Logger::Info(std::format("Send entry: {}", doId));
+  Logger::Verbose(std::format("[CA] Sending entry of object: {} to client: {}",
+                              doId, _channel));
 #ifdef ARDOS_USE_LEGACY_CLIENT
   // TODO: Check if this is the same for Toontown/Pirates.
   dg->AddLocation(parentId, zoneId);
