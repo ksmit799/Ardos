@@ -1372,6 +1372,8 @@ void ClientParticipant::HandleAddOwnership(
     const uint32_t &doId, const uint32_t &parentId, const uint32_t &zoneId,
     const uint16_t &dcId, DatagramIterator &dgi, const bool &other) {
   auto dg = std::make_shared<Datagram>();
+  Logger::Info(std::format(
+      "[CA] Sending owner entry of object: {} to client: {}", doId, _channel));
 #ifdef ARDOS_USE_LEGACY_CLIENT
   // Fairies only accepts OTHER_OWNER entries and has a slightly different data
   // order.
