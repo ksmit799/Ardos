@@ -54,6 +54,7 @@ private:
   AMQP::Channel *_globalChannel{};
   std::string _localQueue;
   std::string _consumeTag;
+  std::vector<char> _frameBuffer;
 
   std::string _host = "127.0.0.1";
   int _port = 7100;
