@@ -31,6 +31,9 @@ uberdogs:
     anonymous: true # Allows un-authenticated clients to communicate with this object.
 
   - id: 4666
+    class: ChatManager
+
+  - id: 4667
     class: FriendsManager
 
 # Metrics (Prometheus) configuration.
@@ -73,6 +76,13 @@ client-agent:
   # (DoId matches AuthManager defined above.)
   # NOTE: You must build Ardos with ARDOS_USE_LEGACY_CLIENT to use this option.
   ud-auth-shim: 4665
+
+  # Shim's chat messages from Disney specific clients to an UberDOG.
+  # The original OTP server intercepted TalkPath_* field updates and
+  # handled the filtering/broadcasting of those messages on the CA.
+  # (DoId matches ChatManager defined above.)
+  # NOTE: You must build Ardos with ARDOS_USE_LEGACY_CLIENT to use this option.
+  ud-chat-shim: 4666
 
   # The range of channels this CA can allocate.
   channels:
