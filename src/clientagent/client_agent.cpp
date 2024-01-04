@@ -104,8 +104,15 @@ ClientAgent::ClientAgent() {
   // UberDOG auth shim.
   // This allows clients authenticating over Disney specific login methods to
   // authenticate with the cluster.
-  if (auto shimParam = config["ud-auth-shim"]) {
-    _udAuthShim = shimParam.as<uint32_t>();
+  if (auto authShimParam = config["ud-auth-shim"]) {
+    _udAuthShim = authShimParam.as<uint32_t>();
+  }
+
+  // UberDOG chat shim.
+  // This allows clients sending chat messages with an unmodified Disney otp.dc
+  // to have filtering done on an UberDOG (as opposed to none at all.)
+  if (auto chatShimParam = config["ud-chat-shim"]) {
+    _udChatShim = chatShimParam.as<uint32_t>();
   }
 
   // Socket events.
@@ -173,6 +180,13 @@ void ClientAgent::FreeChannel(const uint64_t &channel) {
  * @return
  */
 uint32_t ClientAgent::GetAuthShim() const { return _udAuthShim; }
+
+/**
+ * Returns the DoId of the configured UD Chat Shim (or 0 if none
+ * is configured).
+ * @return
+ */
+uint32_t ClientAgent::GetChatShim() const { return _udChatShim; }
 
 /**
  * Returns the configured server version.

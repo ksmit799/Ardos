@@ -923,8 +923,50 @@ void ClientParticipant::HandleClientObjectUpdateField(DatagramIterator &dgi) {
     }
   }
 
+  // Unpack the field data.
   std::vector<uint8_t> data;
   dgi.UnpackField(field, data);
+
+#ifdef ARDOS_USE_LEGACY_CLIENT
+  // Do we have a configured legacy chat shim?
+  uint32_t chatShim = _clientAgent->GetChatShim();
+  if (chatShim) {
+    // We do, lets check if the field update relates to talking.
+    if (field->get_name() == "setTalk" ||
+        field->get_name() == "setTalkWhisper") {
+      // It does, we have a TalkPath field update that requires filtering.
+
+      // Get the configured shim UberDOG.
+      DCClass *chatClass = LookupObject(chatShim);
+      if (!chatClass) {
+        Logger::Error(std::format(
+            "[CA] Chat shim DoId: {} is not a configured UberDOG", chatShim));
+        // Just drop the message to be safe.
+        return;
+      }
+
+      // Get the field id for the specific talk message from the chat shim.
+      // This is a 1-1 mapping with the TalkPath_ field names.
+      DCField *chatField = chatClass->get_field_by_name(field->get_name());
+      if (!chatField) {
+        Logger::Error(std::format(
+            "[CA] Chat shim UberDOG: {} does not define chat field: {}",
+            chatShim, field->get_name()));
+        // Just drop the message to be safe.
+        return;
+      }
+
+      // Send it off to the configured chat shim UberDOG.
+      auto dg = std::make_shared<Datagram>(chatShim, _channel,
+                                           STATESERVER_OBJECT_SET_FIELD);
+      dg->AddUint32(chatShim);
+      dg->AddUint16(chatField->get_number());
+      dg->AddData(data);
+      PublishDatagram(dg);
+      return;
+    }
+  }
+#endif // ARDOS_USE_LEGACY_CLIENT
 
   // Forward the field update to the state server.
   auto dg =
