@@ -32,6 +32,7 @@ public:
   void FreeChannel(const uint64_t &channel);
 
   [[nodiscard]] uint32_t GetAuthShim() const;
+  [[nodiscard]] uint32_t GetChatShim() const;
   [[nodiscard]] std::string GetVersion() const;
   [[nodiscard]] uint32_t GetHash() const;
   [[nodiscard]] unsigned long GetHeartbeatInterval() const;
@@ -70,6 +71,7 @@ private:
   std::queue<uint64_t> _freedChannels;
 
   uint32_t _udAuthShim = 0;
+  uint32_t _udChatShim = 0;
 
   prometheus::Counter *_datagramsProcessedCounter = nullptr;
   prometheus::Histogram *_datagramsSizeHistogram = nullptr;
