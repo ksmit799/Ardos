@@ -9,7 +9,7 @@
 
 namespace Ardos {
 
-class DistributedObject : public ChannelSubscriber {
+class DistributedObject final : public ChannelSubscriber {
 public:
   friend class LoadingObject;
 

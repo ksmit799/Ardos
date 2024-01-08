@@ -8,13 +8,13 @@ std::string AddressUtils::resolve_host(const std::shared_ptr<uvw::loop> &loop,
                                        const std::string &host,
                                        unsigned int port) {
   // First, test if we have a valid IPv4 address.
-  sockaddr_in sockaddr;
+  sockaddr_in sockaddr{};
   if (uv_ip4_addr(host.c_str(), port, &sockaddr) == 0) {
     return host;
   }
 
   // Next, test if we have a valid IPv6 address.
-  sockaddr_in6 sockaddr6;
+  sockaddr_in6 sockaddr6{};
   if (uv_ip6_addr(host.c_str(), port, &sockaddr6) == 0) {
     return host;
   }

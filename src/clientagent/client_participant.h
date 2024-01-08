@@ -36,11 +36,11 @@ struct Interest {
   std::unordered_set<uint32_t> zones;
 };
 
-class ClientParticipant : public NetworkClient, public ChannelSubscriber {
+class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
 public:
   ClientParticipant(ClientAgent *clientAgent,
                     const std::shared_ptr<uvw::tcp_handle> &socket);
-  ~ClientParticipant();
+  ~ClientParticipant() override;
 
   friend class InterestOperation;
 

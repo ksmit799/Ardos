@@ -15,7 +15,7 @@ namespace Ardos {
 
 class DistributedObject;
 
-class StateServer : public StateServerImplementation, public ChannelSubscriber {
+class StateServer final : public StateServerImplementation, public ChannelSubscriber {
 public:
   StateServer();
 

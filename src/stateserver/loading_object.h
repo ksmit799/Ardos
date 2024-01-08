@@ -10,7 +10,7 @@
 
 namespace Ardos {
 
-class LoadingObject : public ChannelSubscriber {
+class LoadingObject final : public ChannelSubscriber {
 public:
   friend class DatabaseStateServer;
 

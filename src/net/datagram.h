@@ -12,16 +12,16 @@ namespace Ardos {
 
 // Max amount of data we can have is an uint16 (65k bytes)
 // -2 for the required prepended length tag.
-const size_t kMaxDgSize = 0xffff - 2;
+constexpr size_t kMaxDgSize = 0xffff - 2;
 // 128 bytes seems like a good minimum datagram size.
-const size_t kMinDgSize = 0x80;
+constexpr size_t kMinDgSize = 0x80;
 
 /**
  * A DatagramOverflow is an exception which occurs when an Add<value> method is
  * called which would increase the size of the datagram past kMaxDgSize
  * (preventing integer and buffer overflow).
  */
-class DatagramOverflow : public std::runtime_error {
+class DatagramOverflow final : public std::runtime_error {
 public:
   explicit DatagramOverflow(const std::string &what)
       : std::runtime_error(what) {}
@@ -43,7 +43,7 @@ public:
 class Datagram {
 public:
   Datagram();
-  Datagram(const uint8_t *data, size_t size);
+  Datagram(const uint8_t *data, const size_t &size);
   Datagram(const uint64_t &toChannel, const uint64_t &fromChannel,
            const uint16_t &msgType);
   Datagram(const std::unordered_set<uint64_t> &toChannels,
@@ -53,8 +53,8 @@ public:
   void Clear();
 
   [[nodiscard]] uint16_t Size() const;
-  const uint8_t *GetData();
-  std::vector<uint8_t> GetBytes();
+  [[nodiscard]] const uint8_t *GetData() const;
+  [[nodiscard]] std::vector<uint8_t> GetBytes() const;
 
   void AddBool(const bool &v);
   void AddInt8(const int8_t &v);

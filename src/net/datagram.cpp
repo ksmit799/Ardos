@@ -6,16 +6,16 @@
 namespace Ardos {
 
 Datagram::Datagram()
-    : _buf(new uint8_t[kMinDgSize]), _bufLength(kMinDgSize), _bufOffset(0) {}
+    : _buf(new uint8_t[kMinDgSize]), _bufOffset(0), _bufLength(kMinDgSize) {}
 
-Datagram::Datagram(const uint8_t *data, size_t size)
-    : _buf(new uint8_t[size]), _bufLength(size), _bufOffset(size) {
+Datagram::Datagram(const uint8_t *data, const size_t &size)
+    : _buf(new uint8_t[size]), _bufOffset(size), _bufLength(size) {
   memcpy(_buf, data, size);
 }
 
 Datagram::Datagram(const uint64_t &toChannel, const uint64_t &fromChannel,
                    const uint16_t &msgType)
-    : _buf(new uint8_t[kMinDgSize]), _bufLength(kMinDgSize), _bufOffset(0) {
+    : _buf(new uint8_t[kMinDgSize]), _bufOffset(0), _bufLength(kMinDgSize) {
   AddUint8(1);
   AddUint64(toChannel);
   AddUint64(fromChannel);
@@ -24,7 +24,7 @@ Datagram::Datagram(const uint64_t &toChannel, const uint64_t &fromChannel,
 
 Datagram::Datagram(const std::unordered_set<uint64_t> &toChannels,
                    const uint64_t &fromChannel, const uint16_t &msgType)
-    : _buf(new uint8_t[kMinDgSize]), _bufLength(kMinDgSize), _bufOffset(0) {
+    : _buf(new uint8_t[kMinDgSize]), _bufOffset(0), _bufLength(kMinDgSize) {
   AddUint8(toChannels.size());
   for (const auto &channel : toChannels) {
     AddUint64(channel);
@@ -55,13 +55,13 @@ uint16_t Datagram::Size() const { return _bufOffset; }
  * Returns the underlying data pointer for this datagram.
  * @return
  */
-const uint8_t *Datagram::GetData() { return _buf; }
+const uint8_t *Datagram::GetData() const { return _buf; }
 
 /**
  * Returns the bytes packed into this datagram.
  * @return
  */
-std::vector<uint8_t> Datagram::GetBytes() {
+std::vector<uint8_t> Datagram::GetBytes() const {
   std::vector<uint8_t> data(GetData(), GetData() + Size());
   return data;
 }
@@ -258,7 +258,7 @@ void Datagram::EnsureLength(const size_t &length) {
 
   // Do we need to resize the buffer?
   if (newOffset > _bufLength) {
-    size_t newLength = _bufLength + kMinDgSize + length;
+    const size_t newLength = _bufLength + kMinDgSize + length;
 
     // Copy our old buffer into a new one.
     auto *tempBuf = new uint8_t[newLength];

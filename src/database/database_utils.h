@@ -18,15 +18,15 @@ namespace Ardos {
 /**
  * Exception thrown by many database utility functions.
  */
-class ConversionException : public std::exception {
+class ConversionException final : public std::exception {
 public:
   explicit ConversionException(const char *msg) : _message(msg), _what(msg) {}
 
-  [[nodiscard]] inline const char *what() const noexcept override {
+  [[nodiscard]] const char *what() const noexcept override {
     return _what.c_str();
   }
 
-  inline void PushName(const std::string &name) {
+  void PushName(const std::string &name) {
     _names.push_front(name);
 
     _what = "";
@@ -100,6 +100,7 @@ public:
    * Specifically for handling unsigned integers.
    * @tparam T
    * @param value
+   * @param divisor
    * @return
    */
   template <typename T>

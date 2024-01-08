@@ -15,7 +15,7 @@ bool UnpackDBFields(DatagramIterator &dgi, DCClass *dclass, FieldMap &required,
 
 class LoadingObject;
 
-class DatabaseStateServer : public StateServerImplementation,
+class DatabaseStateServer final : public StateServerImplementation,
                             public ChannelSubscriber {
 public:
   friend class LoadingObject;

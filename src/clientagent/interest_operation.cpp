@@ -91,7 +91,7 @@ void InterestOperation::Finish(const bool &isTimeout) {
   delete this;
 }
 
-bool InterestOperation::IsReady() {
+bool InterestOperation::IsReady() const {
   return _hasTotal && _pendingGenerates.size() >= _total;
 }
 

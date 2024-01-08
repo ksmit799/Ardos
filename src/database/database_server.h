@@ -13,7 +13,7 @@
 
 namespace Ardos {
 
-class DatabaseServer : public ChannelSubscriber {
+class DatabaseServer final : public ChannelSubscriber {
 public:
   DatabaseServer();
 

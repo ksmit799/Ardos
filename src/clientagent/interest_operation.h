@@ -29,7 +29,7 @@ public:
 private:
   void HandleInterestTimeout();
 
-  bool IsReady();
+  bool IsReady() const;
   void SetExpected(const uint32_t &total);
   void QueueExpected(const std::shared_ptr<Datagram> &dg);
   void QueueDatagram(const std::shared_ptr<Datagram> &dg);

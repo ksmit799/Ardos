@@ -14,7 +14,7 @@ namespace Ardos {
  * A DatagramIteratorEOF is an exception that is thrown when attempting to read
  * past the end of a datagram.
  */
-class DatagramIteratorEOF : public std::runtime_error {
+class DatagramIteratorEOF final : public std::runtime_error {
 public:
   explicit DatagramIteratorEOF(const std::string &what)
       : std::runtime_error(what) {}
@@ -31,7 +31,7 @@ public:
 class DatagramIterator {
 public:
   explicit DatagramIterator(const std::shared_ptr<Datagram> &dg,
-                            size_t offset = 0);
+                            const size_t &offset = 0);
 
   bool GetBool();
   int8_t GetInt8();
@@ -55,20 +55,20 @@ public:
   std::shared_ptr<Datagram> GetDatagram();
   std::shared_ptr<Datagram> GetUnderlyingDatagram();
 
-  void UnpackField(DCPackerInterface *field, std::vector<uint8_t> &buffer);
+  void UnpackField(const DCPackerInterface *field, std::vector<uint8_t> &buffer);
 
   [[nodiscard]] uint16_t Tell() const;
   void Skip(const size_t &bytes);
   void Seek(const size_t &offset);
   void SeekPayload();
 
-  void SkipField(DCPackerInterface *field);
+  void SkipField(const DCPackerInterface *field);
 
-  size_t GetRemainingSize();
+  [[nodiscard]] size_t GetRemainingSize() const;
   std::vector<uint8_t> GetRemainingBytes();
 
 private:
-  void EnsureLength(const size_t &length);
+  void EnsureLength(const size_t &length) const;
 
   std::shared_ptr<Datagram> _dg;
   size_t _offset;
