@@ -522,9 +522,18 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
         return;
       }
 
-      // Pack the field into our object datagram.
-      DatabaseUtils::PackField(field, fields[field->get_name()].get_value(),
-                               objectDg);
+      // The field may not yet exist in the db for this object.
+      // E.g. It was only recently made 'required' in the dc schema.
+      // In that case, pack a default value instead.
+      auto dbField = fields[field->get_name()];
+      if (dbField) {
+        // Pack the field into our object datagram.
+        DatabaseUtils::PackField(field, dbField.get_value(),
+                                 objectDg);
+      } else {
+        // Pack a default value.
+        objectDg.AddData(field->get_default_value());
+      }
 
       // Push the field data into our field map
       // and clear the datagram ready for writing.
