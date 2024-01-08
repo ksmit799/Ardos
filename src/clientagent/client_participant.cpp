@@ -52,7 +52,8 @@ ClientParticipant::ClientParticipant(
 }
 
 ClientParticipant::~ClientParticipant() {
-  NetworkClient::Shutdown();
+  // Call shutdown just in-case (most likely redundant.)
+  Shutdown();
 
   _clientAgent->ParticipantLeft();
 }
@@ -61,6 +62,13 @@ ClientParticipant::~ClientParticipant() {
  * Manually disconnect and delete this client participant.
  */
 void ClientParticipant::Shutdown() {
+  if (_disconnected) {
+    return;
+  }
+
+  // Kill the network connection.
+  NetworkClient::Shutdown();
+
   // Stop the heartbeat timer (if we have one.)
   if (_heartbeatTimer) {
     _heartbeatTimer->stop();

@@ -17,7 +17,9 @@ MDParticipant::MDParticipant(const std::shared_ptr<uvw::tcp_handle> &socket)
 }
 
 MDParticipant::~MDParticipant() {
-  NetworkClient::Shutdown();
+  // Call shutdown just in-case (most likely redundant.)
+  Shutdown();
+
   MessageDirector::Instance()->ParticipantLeft();
 }
 
@@ -25,6 +27,14 @@ MDParticipant::~MDParticipant() {
  * Manually disconnect and delete this MD participant.
  */
 void MDParticipant::Shutdown() {
+  if (_disconnected) {
+    return;
+  }
+
+  // Kill the network connection.
+  NetworkClient::Shutdown();
+
+  // Unsubscribe from all channels so post removes aren't accidently routed to us.
   ChannelSubscriber::Shutdown();
 
   Logger::Verbose(std::format("[MD] Routing {} post-remove(s) for '{}'",

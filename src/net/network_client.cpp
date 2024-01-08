@@ -35,9 +35,10 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle> &socket)
 
   _socket->on<uvw::write_event>(
       [this](const uvw::write_event &event, uvw::tcp_handle &) {
-        if (_disconnected && _socket != nullptr) {
+        if (_disconnected && !_socketClosed) {
           _socket->close();
-          _socket.reset();
+
+          _socketClosed = true;
         }
 
         _isWriting = false;
@@ -61,15 +62,16 @@ bool NetworkClient::Disconnected() const { return _disconnected; }
 uvw::socket_address NetworkClient::GetRemoteAddress() { return _remoteAddress; }
 
 void NetworkClient::Shutdown() {
-  if (_socket == nullptr) {
+  if (_disconnected) {
     return;
   }
 
   _disconnected = true;
 
-  if (!_isWriting) {
+  if (!_isWriting && !_socketClosed) {
     _socket->close();
-    _socket.reset();
+
+    _socketClosed = true;
   }
 }
 
@@ -79,7 +81,7 @@ void NetworkClient::HandleClose(uv_errno_t code) {
     return;
   }
 
-  _disconnected = true;
+  _socketClosed = true;
 
   HandleDisconnect(code);
 }
@@ -139,14 +141,14 @@ void NetworkClient::SendDatagram(const std::shared_ptr<Datagram> &dg) {
     return;
   }
 
-  size_t sendSize = sizeof(uint16_t) + dg->Size();
+  const size_t sendSize = sizeof(uint16_t) + dg->Size();
   auto sendBuffer = std::unique_ptr<char[]>(new char[sendSize]);
 
-  uint16_t dgSize = dg->Size();
+  const uint16_t dgSize = dg->Size();
 
-  auto sendPtr = &sendBuffer.get()[0];
+  const auto sendPtr = &sendBuffer.get()[0];
   // Datagram size tag.
-  memcpy(sendPtr, (char *)&dgSize, sizeof(uint16_t));
+  memcpy(sendPtr, &dgSize, sizeof(uint16_t));
   // Datagram data.
   memcpy(sendPtr + sizeof(uint16_t), dg->GetData(), dg->Size());
 

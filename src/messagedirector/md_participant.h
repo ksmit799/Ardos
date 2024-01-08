@@ -11,10 +11,10 @@
 
 namespace Ardos {
 
-class MDParticipant : public NetworkClient, public ChannelSubscriber {
+class MDParticipant final : public NetworkClient, public ChannelSubscriber {
 public:
   explicit MDParticipant(const std::shared_ptr<uvw::tcp_handle> &socket);
-  ~MDParticipant();
+  ~MDParticipant() override;
 
 private:
   void Shutdown() override;

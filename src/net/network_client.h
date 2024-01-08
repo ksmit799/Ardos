@@ -25,6 +25,8 @@ protected:
   virtual void HandleClientDatagram(const std::shared_ptr<Datagram> &dg) = 0;
   void SendDatagram(const std::shared_ptr<Datagram> &dg);
 
+  bool _disconnected = false;
+
 private:
   void HandleClose(uv_errno_t code);
   void HandleData(const std::unique_ptr<char[]> &data, size_t size);
@@ -33,8 +35,9 @@ private:
   std::shared_ptr<uvw::tcp_handle> _socket;
   uvw::socket_address _remoteAddress;
   std::vector<uint8_t> _data_buf;
-  bool _disconnected = false;
+
   bool _isWriting = false;
+  bool _socketClosed = false;
 };
 
 } // namespace Ardos
