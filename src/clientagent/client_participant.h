@@ -154,6 +154,9 @@ private:
   std::unordered_map<uint16_t, Interest> _interests;
   // A map of interest contexts to their in-progress operations.
   std::unordered_map<uint32_t, InterestOperation *> _pendingInterests;
+
+  // A list of datagrams to be routed when this client disconnects.
+  std::vector<std::shared_ptr<Datagram>> _postRemoves;
 };
 
 } // namespace Ardos

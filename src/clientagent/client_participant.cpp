@@ -106,6 +106,14 @@ void ClientParticipant::Shutdown() {
   for (auto it = _pendingInterests.begin(); it != _pendingInterests.end();) {
     (it++)->second->Finish();
   }
+
+  Logger::Verbose(std::format("[CA] Routing {} post-remove(s) for '{}'",
+                              _postRemoves.size(), _channel));
+
+  // Route any post remove datagrams we might have stored.
+  for (const auto &dg : _postRemoves) {
+    PublishDatagram(dg);
+  }
 }
 
 /**
@@ -252,10 +260,10 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     UnsubscribeChannel(dgi.GetUint64());
     break;
   case CLIENTAGENT_ADD_POST_REMOVE:
-    // TODO.
+    _postRemoves.emplace_back(dgi.GetDatagram());
     break;
   case CLIENTAGENT_CLEAR_POST_REMOVES:
-    // TODO.
+    _postRemoves.clear();
     break;
   case CLIENTAGENT_DECLARE_OBJECT: {
     uint32_t doId = dgi.GetUint32();
