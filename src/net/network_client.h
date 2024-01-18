@@ -17,7 +17,8 @@ protected:
   ~NetworkClient();
 
   [[nodiscard]] bool Disconnected() const;
-  uvw::socket_address GetRemoteAddress();
+  [[nodiscard]] uvw::socket_address GetRemoteAddress() const;
+  [[nodiscard]] uvw::socket_address GetLocalAddress() const;
 
   void Shutdown();
 
@@ -34,6 +35,7 @@ private:
 
   std::shared_ptr<uvw::tcp_handle> _socket;
   uvw::socket_address _remoteAddress;
+  uvw::socket_address _localAddress;
   std::vector<uint8_t> _data_buf;
 
   bool _isWriting = false;

@@ -337,12 +337,14 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     _sessionObjects.erase(doId);
     break;
   }
-  case CLIENTAGENT_GET_TLVS_RESP: {
-    // TODO.
-    break;
-  }
   case CLIENTAGENT_GET_NETWORK_ADDRESS: {
-    // TODO.
+    auto resp = std::make_shared<Datagram>(sender, _channel, CLIENTAGENT_GET_NETWORK_ADDRESS_RESP);
+    resp->AddUint32(dgi.GetUint32());  // Context.
+    resp->AddString(GetRemoteAddress().ip);
+    resp->AddUint16(GetRemoteAddress().port);
+    resp->AddString(GetLocalAddress().ip);
+    resp->AddUint16(GetLocalAddress().port);
+    PublishDatagram(resp);
     break;
   }
   case STATESERVER_OBJECT_SET_FIELD: {

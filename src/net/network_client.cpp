@@ -11,6 +11,7 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle> &socket)
   _socket->keep_alive(true, uvw::tcp_handle::time{60});
 
   _remoteAddress = _socket->peer();
+  _localAddress = _socket->sock();
 
   // Setup event listeners.
   _socket->on<uvw::error_event>(
@@ -59,7 +60,17 @@ bool NetworkClient::Disconnected() const { return _disconnected; }
  * Returns this clients remote address.
  * @return
  */
-uvw::socket_address NetworkClient::GetRemoteAddress() { return _remoteAddress; }
+uvw::socket_address NetworkClient::GetRemoteAddress() const {
+  return _remoteAddress;
+}
+
+/**
+ * Returns this clients local address.
+ * @return
+ */
+uvw::socket_address NetworkClient::GetLocalAddress() const {
+  return _localAddress;
+}
 
 void NetworkClient::Shutdown() {
   if (_disconnected) {
