@@ -11,6 +11,7 @@
 #include "../util/globals.h"
 #include "../util/logger.h"
 #include "../util/metrics.h"
+#include "../web/web_panel.h"
 #include "md_participant.h"
 
 namespace Ardos {
@@ -196,6 +197,10 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
 
               if (Config::Instance()->GetBool("want-db-state-server")) {
                 new DatabaseStateServer();
+              }
+
+              if (Config::Instance()->GetBool("want-web-panel")) {
+                new WebPanel();
               }
 
               // Start listening for incoming connections.

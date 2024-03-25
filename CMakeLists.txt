@@ -18,6 +18,10 @@ include_directories(libs/libuv/include)
 # Include uvw (libuv C++ wrapper).
 include_directories(libs/uvw/src)
 
+# Include OpenSSL.
+find_package(OpenSSL REQUIRED)
+include_directories(${OPENSSL_INCLUDE_DIR})
+
 # Include YAML-CPP.
 add_subdirectory(libs/yaml-cpp)
 include_directories(libs/yaml-cpp/include)
@@ -63,7 +67,7 @@ add_executable(ardos ${ARDOS_SOURCES} ${ARDOS_HEADERS})
 add_subdirectory(libs/dclass)
 include_directories(libs/dclass)
 
-target_link_libraries(ardos PRIVATE uv yaml-cpp amqpcpp prometheus-cpp::pull)
+target_link_libraries(ardos PRIVATE uv OpenSSL::SSL yaml-cpp amqpcpp prometheus-cpp::pull)
 
 if (ARDOS_WANT_DB_SERVER)
     target_link_libraries(ardos PRIVATE mongo::mongocxx_shared mongo::bsoncxx_shared)

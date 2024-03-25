@@ -23,6 +23,9 @@ want-db-state-server: true
 # Do we want metrics collection on this instance?
 want-metrics: true
 
+# Do we want a web interface running on this instance?
+want-web-panel: true
+
 # UberDOG definitions.
 # Some example ones follow:
 uberdogs:
