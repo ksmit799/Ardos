@@ -11,7 +11,15 @@ class WebPanel {
 public:
   WebPanel();
 
+  static WebPanel *Instance;
+
+  typedef struct {
+    bool authed;
+  } ClientData;
+
 private:
+  void HandleData(ws28::Client *client, const std::string &data);
+
   std::string _username = "ardos";
   std::string _password = "ardos";
   int _port = 7781;

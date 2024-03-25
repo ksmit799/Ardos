@@ -11,6 +11,10 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 
+# Include OpenSSL.
+find_package(OpenSSL REQUIRED)
+include_directories(${OPENSSL_INCLUDE_DIR})
+
 # Include libuv.
 add_subdirectory(libs/libuv)
 include_directories(libs/libuv/include)
@@ -18,9 +22,9 @@ include_directories(libs/libuv/include)
 # Include uvw (libuv C++ wrapper).
 include_directories(libs/uvw/src)
 
-# Include OpenSSL.
-find_package(OpenSSL REQUIRED)
-include_directories(${OPENSSL_INCLUDE_DIR})
+# Include JSON.
+add_subdirectory(libs/json)
+include_directories(libs/json/include)
 
 # Include YAML-CPP.
 add_subdirectory(libs/yaml-cpp)
@@ -67,7 +71,7 @@ add_executable(ardos ${ARDOS_SOURCES} ${ARDOS_HEADERS})
 add_subdirectory(libs/dclass)
 include_directories(libs/dclass)
 
-target_link_libraries(ardos PRIVATE uv OpenSSL::SSL yaml-cpp amqpcpp prometheus-cpp::pull)
+target_link_libraries(ardos PRIVATE uv OpenSSL::SSL nlohmann_json::nlohmann_json yaml-cpp amqpcpp prometheus-cpp::pull)
 
 if (ARDOS_WANT_DB_SERVER)
     target_link_libraries(ardos PRIVATE mongo::mongocxx_shared mongo::bsoncxx_shared)
