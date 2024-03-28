@@ -39,6 +39,13 @@ uberdogs:
   - id: 4667
     class: FriendsManager
 
+# Web Panel configuration.
+# Can be accessed via the Ardos Web panel for debugging.
+web-panel:
+  username: ardos
+  password: ardos
+  port: 7781
+
 # Metrics (Prometheus) configuration.
 # This should be configured as a target in your Prometheus config.
 metrics:

@@ -3,6 +3,7 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/libs/AMQP-CPP" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/libs/json" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/libs/libuv" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/libs/uvw" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/libs/yaml-cpp" vcs="Git" />
