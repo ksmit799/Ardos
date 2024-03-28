@@ -32,11 +32,51 @@ WebPanel::WebPanel() {
     _port = portParam.as<int>();
   }
 
-  _server = new ws28::Server(g_loop->raw());
+  // SSL configuration.
+  if (auto certParam = config["certificate"]) {
+    _cert = certParam.as<std::string>();
+  }
+  if (auto keyParam = config["private-key"]) {
+    _key = keyParam.as<std::string>();
+  }
+
+  if (!_cert.empty() && !_key.empty()) {
+    // Configure SSL (if keys were supplied.)
+    ws28::TLS::InitSSL();
+    _secure = true;
+
+    const SSL_METHOD *method = TLS_server_method();
+
+    SSL_CTX *ctx = SSL_CTX_new(method);
+    if (!ctx) {
+      Logger::Error("Unable to create SSL context");
+    }
+
+    if (SSL_CTX_use_certificate_file(ctx, _cert.c_str(), SSL_FILETYPE_PEM) <=
+        0) {
+      Logger::Error(std::format("[WEB] Failed to load cert file: {}", _cert));
+      exit(1);
+    }
+
+    if (SSL_CTX_use_PrivateKey_file(ctx, _key.c_str(), SSL_FILETYPE_PEM) <= 0) {
+      Logger::Error(
+          std::format("[WEB] Failed to load private key file: {}", _cert));
+      exit(1);
+    }
+
+    _server = std::make_unique<ws28::Server>(g_loop->raw(), ctx);
+  } else {
+    // Otherwise, create an unsecure server.
+    _server = std::make_unique<ws28::Server>(g_loop->raw());
+  }
 
   // Set a max message size that reflects the
   // max length of a Datagram (+2 for length header.)
   _server->SetMaxMessageSize(kMaxDgSize + 2);
+
+  // Disable Origin checks.
+  _server->SetCheckConnectionCallback(
+      [](ws28::Client *client, ws28::HTTPRequest &) { return true; });
 
   _server->SetClientConnectedCallback(
       [](ws28::Client *client, ws28::HTTPRequest &) {
@@ -68,7 +108,8 @@ WebPanel::WebPanel() {
   // Start listening!
   _server->Listen(_port);
 
-  Logger::Info(std::format("[WEB] Listening on {}", _port));
+  Logger::Info(std::format("[WEB] Listening on {} [{}]", _port,
+                           _secure ? "SECURE" : "UNSECURE"));
 }
 
 void WebPanel::HandleData(ws28::Client *client, const std::string &data) {
@@ -105,6 +146,15 @@ void WebPanel::HandleData(ws28::Client *client, const std::string &data) {
     }
 
     clientData->authed = true;
+
+    // Send the auth response.
+    nlohmann::json resJson = {
+        {"type", "auth"},
+        {"success", true},
+    };
+    auto res = resJson.dump();
+
+    client->Send(res.c_str(), res.length(), 1);
   } else {
     client->Send(data.c_str(), data.length(), 1);
   }

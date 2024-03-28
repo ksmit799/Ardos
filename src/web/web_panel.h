@@ -23,8 +23,11 @@ private:
   std::string _username = "ardos";
   std::string _password = "ardos";
   int _port = 7781;
+  std::string _cert;
+  std::string _key;
+  bool _secure = false;
 
-  ws28::Server *_server;
+  std::unique_ptr<ws28::Server> _server;
 };
 
 } // namespace Ardos

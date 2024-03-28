@@ -46,6 +46,11 @@ web-panel:
   password: ardos
   port: 7781
 
+  # SSL/TLS config for web panel.
+  # The below two options can be omitted to disable SSL/TLS.
+  certificate: cert.pem
+  private-key: key.pem
+
 # Metrics (Prometheus) configuration.
 # This should be configured as a target in your Prometheus config.
 metrics:
