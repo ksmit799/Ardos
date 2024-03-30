@@ -1,7 +1,5 @@
 #include "web_panel.h"
 
-#include <nlohmann/json.hpp>
-
 #include "../net/datagram.h"
 #include "../util/config.h"
 #include "../util/globals.h"
@@ -19,17 +17,21 @@ WebPanel::WebPanel() {
   // Web Panel configuration.
   auto config = Config::Instance()->GetNode("web-panel");
 
+  // Cluster name configuration.
+  if (auto nameParam = config["name"]) {
+    _name = nameParam.as<std::string>();
+  }
+  // Port configuration.
+  if (auto portParam = config["port"]) {
+    _port = portParam.as<int>();
+  }
+
   // Login configuration.
   if (auto userParam = config["username"]) {
     _username = userParam.as<std::string>();
   }
   if (auto passParam = config["password"]) {
     _password = passParam.as<std::string>();
-  }
-
-  // Port configuration.
-  if (auto portParam = config["port"]) {
-    _port = portParam.as<int>();
   }
 
   // SSL configuration.
@@ -112,7 +114,18 @@ WebPanel::WebPanel() {
                            _secure ? "SECURE" : "UNSECURE"));
 }
 
+void WebPanel::Send(ws28::Client *client, const nlohmann::json &data) {
+  auto res = data.dump();
+  client->Send(res.c_str(), res.length(), 1);
+}
+
 void WebPanel::HandleData(ws28::Client *client, const std::string &data) {
+  // Make sure we have a valid JSON request.
+  if (!nlohmann::json::accept(data)) {
+    client->Close(400, "Improperly formatted request");
+    return;
+  }
+
   // Parse the request data and client data.
   nlohmann::json message = nlohmann::json::parse(data);
   auto clientData = (ClientData *)client->GetUserData();
@@ -141,6 +154,8 @@ void WebPanel::HandleData(ws28::Client *client, const std::string &data) {
     // Validate the auth credentials.
     if (message["username"].template get<std::string>() != _username ||
         message["password"].template get<std::string>() != _password) {
+      // Send the auth response.
+      Send(client, {{"type", "auth"}, {"success", false}});
       client->Close(401, "Invalid auth credentials");
       return;
     }
@@ -148,15 +163,17 @@ void WebPanel::HandleData(ws28::Client *client, const std::string &data) {
     clientData->authed = true;
 
     // Send the auth response.
-    nlohmann::json resJson = {
-        {"type", "auth"},
-        {"success", true},
-    };
-    auto res = resJson.dump();
-
-    client->Send(res.c_str(), res.length(), 1);
-  } else {
-    client->Send(data.c_str(), data.length(), 1);
+    Send(client, {
+                     {"type", "auth"},
+                     {"success", true},
+                     {"name", _name},
+                 });
+  } else if (messageType == "config") {
+    // Return the full config file this deployment has been loaded with.
+    Send(client, {
+                     {"type", "config"},
+                     {"config", YAML::Dump(Config::Instance()->GetConfig())},
+                 });
   }
 }
 

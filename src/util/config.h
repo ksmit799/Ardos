@@ -10,6 +10,7 @@ public:
   static Config *Instance();
 
   void LoadConfig(const std::string &name);
+  YAML::Node GetConfig() { return _config; }
 
   std::string GetString(const std::string &key, const std::string &defVal = "");
   YAML::Node GetNode(const std::string &key);

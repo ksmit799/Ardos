@@ -1,6 +1,8 @@
 #ifndef ARDOS_WEB_PANEL_H
 #define ARDOS_WEB_PANEL_H
 
+#include <nlohmann/json.hpp>
+
 #include <string>
 
 #include "../net/ws/Server.h"
@@ -18,13 +20,18 @@ public:
   } ClientData;
 
 private:
+  void Send(ws28::Client *client, const nlohmann::json &data);
   void HandleData(ws28::Client *client, const std::string &data);
+
+  std::string _name = "Ardos";
+  int _port = 7781;
 
   std::string _username = "ardos";
   std::string _password = "ardos";
-  int _port = 7781;
+
   std::string _cert;
   std::string _key;
+
   bool _secure = false;
 
   std::unique_ptr<ws28::Server> _server;

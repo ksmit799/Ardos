@@ -42,9 +42,13 @@ uberdogs:
 # Web Panel configuration.
 # Can be accessed via the Ardos Web panel for debugging.
 web-panel:
+  name: Ardos  # The cluster name to appear in the dashboard.
+  port: 7781  # Port the WS connection listens on.
+
+  # Auth options.
+  # Make sure to change these in PROD environments.
   username: ardos
   password: ardos
-  port: 7781
 
   # SSL/TLS config for web panel.
   # The below two options can be omitted to disable SSL/TLS.
