@@ -178,16 +178,16 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
 
               // Startup configured roles.
               if (Config::Instance()->GetBool("want-state-server")) {
-                new StateServer();
+                _stateServer = std::make_unique<StateServer>();
               }
 
               if (Config::Instance()->GetBool("want-client-agent")) {
-                new ClientAgent();
+                _clientAgent = std::make_unique<ClientAgent>();
               }
 
               if (Config::Instance()->GetBool("want-database")) {
 #ifdef ARDOS_WANT_DB_SERVER
-                new DatabaseServer();
+                _db = std::make_unique<DatabaseServer>();
 #else
                 Logger::Error("want-database was set to true but Ardos was "
                               "built without ARDOS_WANT_DB_SERVER");
@@ -196,7 +196,7 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
               }
 
               if (Config::Instance()->GetBool("want-db-state-server")) {
-                new DatabaseStateServer();
+                _dbss = std::make_unique<DatabaseStateServer>();
               }
 
               if (Config::Instance()->GetBool("want-web-panel")) {

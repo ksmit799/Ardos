@@ -528,8 +528,7 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
       auto dbField = fields[field->get_name()];
       if (dbField) {
         // Pack the field into our object datagram.
-        DatabaseUtils::PackField(field, dbField.get_value(),
-                                 objectDg);
+        DatabaseUtils::PackField(field, dbField.get_value(), objectDg);
       } else {
         // Pack a default value.
         objectDg.AddData(field->get_default_value());
@@ -1003,5 +1002,7 @@ void DatabaseServer::ReportFailed(const DatabaseServer::OperationType &type) {
     counter->Increment();
   }
 }
+
+void DatabaseServer::HandleWeb(ws28::Client *client, nlohmann::json &data) {}
 
 } // namespace Ardos

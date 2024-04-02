@@ -1,9 +1,9 @@
 #ifndef ARDOS_WEB_PANEL_H
 #define ARDOS_WEB_PANEL_H
 
-#include <nlohmann/json.hpp>
-
 #include <string>
+
+#include <nlohmann/json.hpp>
 
 #include "../net/ws/Server.h"
 
@@ -20,7 +20,7 @@ public:
   } ClientData;
 
 private:
-  void Send(ws28::Client *client, const nlohmann::json &data);
+  static void Send(ws28::Client *client, const nlohmann::json &data);
   void HandleData(ws28::Client *client, const std::string &data);
 
   std::string _name = "Ardos";

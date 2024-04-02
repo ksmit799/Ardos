@@ -1,6 +1,11 @@
 #include "web_panel.h"
 
+#include "../clientagent/client_agent.h"
+#include "../database/database_server.h"
+#include "../messagedirector/message_director.h"
 #include "../net/datagram.h"
+#include "../stateserver/database_state_server.h"
+#include "../stateserver/state_server.h"
 #include "../util/config.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
@@ -168,6 +173,50 @@ void WebPanel::HandleData(ws28::Client *client, const std::string &data) {
                      {"success", true},
                      {"name", _name},
                  });
+  } else if (messageType == "ss") {
+    // Handle the request on the State Server.
+    auto ss = MessageDirector::Instance()->GetStateServer();
+    if (ss) {
+      ss->HandleWeb(client, message);
+    } else {
+      Send(client, {
+                       {"type", "ss"},
+                       {"success", false},
+                   });
+    }
+  } else if (messageType == "ca") {
+    // Handle the request on the Client Agent.
+    auto ca = MessageDirector::Instance()->GetClientAgent();
+    if (ca) {
+      ca->HandleWeb(client, message);
+    } else {
+      Send(client, {
+                       {"type", "ca"},
+                       {"success", false},
+                   });
+    }
+  } else if (messageType == "db") {
+    // Handle the request on the Database Server.
+    auto db = MessageDirector::Instance()->GetDbServer();
+    if (db) {
+      db->HandleWeb(client, message);
+    } else {
+      Send(client, {
+                       {"type", "db"},
+                       {"success", false},
+                   });
+    }
+  } else if (messageType == "dbss") {
+    // Handle the request on the Database State Server.
+    auto dbss = MessageDirector::Instance()->GetDbStateServer();
+    if (dbss) {
+      dbss->HandleWeb(client, message);
+    } else {
+      Send(client, {
+                       {"type", "dbss"},
+                       {"success", false},
+                   });
+    }
   } else if (messageType == "config") {
     // Return the full config file this deployment has been loaded with.
     Send(client, {

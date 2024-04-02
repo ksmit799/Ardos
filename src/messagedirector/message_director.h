@@ -15,6 +15,11 @@ const std::string kGlobalExchange = "global-exchange";
 
 class ChannelSubscriber;
 
+class StateServer;
+class ClientAgent;
+class DatabaseServer;
+class DatabaseStateServer;
+
 class MessageDirector : public AMQP::ConnectionHandler {
 public:
   static MessageDirector *Instance();
@@ -34,6 +39,11 @@ public:
   void ParticipantJoined();
   void ParticipantLeft();
 
+  StateServer *GetStateServer() { return _stateServer.get(); }
+  ClientAgent *GetClientAgent() { return _clientAgent.get(); }
+  DatabaseServer *GetDbServer() { return _db.get(); }
+  DatabaseStateServer *GetDbStateServer() { return _dbss.get(); }
+
 private:
   MessageDirector();
 
@@ -44,6 +54,11 @@ private:
   static bool WithinGlobalRange(const std::string &channel);
 
   static MessageDirector *_instance;
+
+  std::unique_ptr<StateServer> _stateServer;
+  std::unique_ptr<ClientAgent> _clientAgent;
+  std::unique_ptr<DatabaseServer> _db;
+  std::unique_ptr<DatabaseStateServer> _dbss;
 
   std::unordered_set<ChannelSubscriber *> _subscribers;
   std::unordered_set<ChannelSubscriber *> _leavingSubscribers;

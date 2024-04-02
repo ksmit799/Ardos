@@ -16,13 +16,15 @@ bool UnpackDBFields(DatagramIterator &dgi, DCClass *dclass, FieldMap &required,
 class LoadingObject;
 
 class DatabaseStateServer final : public StateServerImplementation,
-                            public ChannelSubscriber {
+                                  public ChannelSubscriber {
 public:
   friend class LoadingObject;
 
   DatabaseStateServer();
 
   void RemoveDistributedObject(const uint32_t &doId) override;
+
+  void HandleWeb(ws28::Client *client, nlohmann::json &data);
 
 private:
   void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;

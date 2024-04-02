@@ -5,10 +5,13 @@
 #include <queue>
 
 #include <dcClass.h>
+#include <nlohmann/json.hpp>
 #include <prometheus/counter.h>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
 #include <uvw.hpp>
+
+#include "../net/ws/Client.h"
 
 namespace Ardos {
 
@@ -47,6 +50,8 @@ public:
   void RecordDatagram(const uint16_t &size);
   void RecordInterestTimeout();
   void RecordInterestTime(const double &seconds);
+
+  void HandleWeb(ws28::Client *client, nlohmann::json &data);
 
 private:
   void InitMetrics();

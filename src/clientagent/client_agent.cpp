@@ -354,4 +354,6 @@ void ClientAgent::InitMetrics() {
   _freeChannelsGauge->Set((double)(_channelsMax - _nextChannel));
 }
 
+void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {}
+
 } // namespace Ardos

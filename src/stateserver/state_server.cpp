@@ -148,4 +148,6 @@ void StateServer::InitMetrics() {
                                                   16384, 65536});
 }
 
+void StateServer::HandleWeb(ws28::Client *client, nlohmann::json &data) {}
+
 } // namespace Ardos

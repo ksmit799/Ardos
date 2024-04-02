@@ -441,4 +441,7 @@ bool UnpackDBFields(DatagramIterator &dgi, DCClass *dclass, FieldMap &required,
   return true;
 }
 
+void DatabaseStateServer::HandleWeb(ws28::Client *client,
+                                    nlohmann::json &data) {}
+
 } // namespace Ardos
