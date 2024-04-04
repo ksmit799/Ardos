@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <queue>
+#include <unordered_set>
 
 #include <dcClass.h>
 #include <nlohmann/json.hpp>
@@ -27,6 +28,8 @@ enum InterestsPermission {
   INTERESTS_DISABLED,
 };
 
+class ClientParticipant;
+
 class ClientAgent {
 public:
   ClientAgent();
@@ -46,7 +49,7 @@ public:
   [[nodiscard]] unsigned long GetInterestTimeout() const;
 
   void ParticipantJoined();
-  void ParticipantLeft();
+  void ParticipantLeft(ClientParticipant *client);
   void RecordDatagram(const uint16_t &size);
   void RecordInterestTimeout();
   void RecordInterestTime(const double &seconds);
@@ -70,6 +73,8 @@ private:
   unsigned long _interestTimeout;
 
   std::unordered_map<uint32_t, Uberdog> _uberdogs;
+
+  std::unordered_set<ClientParticipant *> _participants;
 
   uint64_t _nextChannel;
   uint64_t _channelsMax;

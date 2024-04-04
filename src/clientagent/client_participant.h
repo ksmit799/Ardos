@@ -44,6 +44,12 @@ public:
 
   friend class InterestOperation;
 
+  [[nodiscard]] uint64_t GetChannel() const { return _channel; }
+  [[nodiscard]] uint8_t GetAuthState() const { return _authState; }
+  [[nodiscard]] std::vector<std::shared_ptr<Datagram>> GetPostRemoves() const {
+    return _postRemoves;
+  }
+
 private:
   void Shutdown() override;
 
