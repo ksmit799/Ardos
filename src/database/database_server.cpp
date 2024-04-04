@@ -12,6 +12,7 @@
 #include "../util/globals.h"
 #include "../util/logger.h"
 #include "../util/metrics.h"
+#include "../web/web_panel.h"
 #include "database_utils.h"
 
 // For document, finalize, et al.
@@ -1003,6 +1004,15 @@ void DatabaseServer::ReportFailed(const DatabaseServer::OperationType &type) {
   }
 }
 
-void DatabaseServer::HandleWeb(ws28::Client *client, nlohmann::json &data) {}
+void DatabaseServer::HandleWeb(ws28::Client *client, nlohmann::json &data) {
+  WebPanel::Send(client, {
+                             {"type", "db"},
+                             {"success", true},
+                             {"host", _uri.to_string()},
+                             {"channel", _channel},
+                             {"minDoId", _minDoId},
+                             {"maxDoId", _maxDoId},
+                         });
+}
 
 } // namespace Ardos
