@@ -173,6 +173,9 @@ void WebPanel::HandleData(ws28::Client *client, const std::string &data) {
                      {"success", true},
                      {"name", _name},
                  });
+  } else if (messageType == "md") {
+    // Handle the request on the Message Director.
+    MessageDirector::Instance()->HandleWeb(client, message);
   } else if (messageType == "ss") {
     // Handle the request on the State Server.
     auto ss = MessageDirector::Instance()->GetStateServer();

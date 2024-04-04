@@ -4,16 +4,20 @@
 #include <unordered_set>
 
 #include <amqpcpp.h>
+#include <nlohmann/json.hpp>
 #include <prometheus/counter.h>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
 #include <uvw.hpp>
+
+#include "../net/ws/Client.h"
 
 namespace Ardos {
 
 const std::string kGlobalExchange = "global-exchange";
 
 class ChannelSubscriber;
+class MDParticipant;
 
 class StateServer;
 class ClientAgent;
@@ -37,7 +41,9 @@ public:
   void RemoveSubscriber(ChannelSubscriber *subscriber);
 
   void ParticipantJoined();
-  void ParticipantLeft();
+  void ParticipantLeft(MDParticipant *participant);
+
+  void HandleWeb(ws28::Client *client, nlohmann::json &data);
 
   StateServer *GetStateServer() { return _stateServer.get(); }
   ClientAgent *GetClientAgent() { return _clientAgent.get(); }
@@ -62,6 +68,7 @@ private:
 
   std::unordered_set<ChannelSubscriber *> _subscribers;
   std::unordered_set<ChannelSubscriber *> _leavingSubscribers;
+  std::unordered_set<MDParticipant *> _participants;
 
   std::shared_ptr<uvw::tcp_handle> _connectHandle;
   std::shared_ptr<uvw::tcp_handle> _listenHandle;
@@ -71,8 +78,12 @@ private:
   std::string _consumeTag;
   std::vector<char> _frameBuffer;
 
+  // Listen info.
   std::string _host = "127.0.0.1";
   int _port = 7100;
+  // RabbitMQ connect info.
+  std::string _rHost = "127.0.0.1";
+  int _rPort = 5672;
 
   prometheus::Counter *_datagramsObservedCounter = nullptr;
   prometheus::Counter *_datagramsProcessedCounter = nullptr;

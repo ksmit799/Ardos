@@ -13,12 +13,13 @@ class NetworkClient {
 public:
   explicit NetworkClient(const std::shared_ptr<uvw::tcp_handle> &socket);
 
+  [[nodiscard]] uvw::socket_address GetRemoteAddress() const;
+  [[nodiscard]] uvw::socket_address GetLocalAddress() const;
+
 protected:
   ~NetworkClient();
 
   [[nodiscard]] bool Disconnected() const;
-  [[nodiscard]] uvw::socket_address GetRemoteAddress() const;
-  [[nodiscard]] uvw::socket_address GetLocalAddress() const;
 
   void Shutdown();
 

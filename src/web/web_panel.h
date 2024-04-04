@@ -13,6 +13,8 @@ class WebPanel {
 public:
   WebPanel();
 
+  static void Send(ws28::Client *client, const nlohmann::json &data);
+
   static WebPanel *Instance;
 
   typedef struct {
@@ -20,7 +22,6 @@ public:
   } ClientData;
 
 private:
-  static void Send(ws28::Client *client, const nlohmann::json &data);
   void HandleData(ws28::Client *client, const std::string &data);
 
   std::string _name = "Ardos";

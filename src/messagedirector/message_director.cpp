@@ -6,9 +6,7 @@
 #endif
 #include "../net/address_utils.h"
 #include "../stateserver/database_state_server.h"
-#include "../stateserver/state_server.h"
 #include "../util/config.h"
-#include "../util/globals.h"
 #include "../util/logger.h"
 #include "../util/metrics.h"
 #include "../web/web_panel.h"
@@ -43,13 +41,11 @@ MessageDirector::MessageDirector() {
   }
 
   // RabbitMQ configuration.
-  std::string rHost = "127.0.0.1";
   if (auto hostParam = config["rabbitmq-host"]) {
-    rHost = hostParam.as<std::string>();
+    _rHost = hostParam.as<std::string>();
   }
-  int rPort = 5672;
   if (auto portParam = config["rabbitmq-port"]) {
-    rPort = portParam.as<int>();
+    _rPort = portParam.as<int>();
   }
   std::string user = "guest";
   if (auto userParam = config["rabbitmq-user"]) {
@@ -62,14 +58,13 @@ MessageDirector::MessageDirector() {
 
   // Socket events.
   _listenHandle->on<uvw::listen_event>(
-      [](const uvw::listen_event &, uvw::tcp_handle &srv) {
+      [this](const uvw::listen_event &, uvw::tcp_handle &srv) {
         std::shared_ptr<uvw::tcp_handle> client =
             srv.parent().resource<uvw::tcp_handle>();
         srv.accept(*client);
 
         // Create a new client for this connected participant.
-        // TODO: These should be tracked in a vector.
-        new MDParticipant(client);
+        _participants.insert(new MDParticipant(client));
       });
 
   _connectHandle->on<uvw::error_event>(
@@ -113,8 +108,8 @@ MessageDirector::MessageDirector() {
 
   // Start connecting/listening!
   _listenHandle->bind(_host, _port);
-  _connectHandle->connect(AddressUtils::resolve_host(g_loop, rHost, rPort),
-                          rPort);
+  _connectHandle->connect(AddressUtils::resolve_host(g_loop, _rHost, _rPort),
+                          _rPort);
 }
 
 /**
@@ -297,10 +292,12 @@ void MessageDirector::ParticipantJoined() {
 /**
  * Called when a participant disconnects.
  */
-void MessageDirector::ParticipantLeft() {
+void MessageDirector::ParticipantLeft(MDParticipant *participant) {
   if (_participantsGauge) {
     _participantsGauge->Decrement();
   }
+
+  _participants.erase(participant);
 }
 
 /**
@@ -419,6 +416,30 @@ bool MessageDirector::WithinGlobalRange(const std::string &routingKey) {
                        return channel >= i.first.first &&
                               channel <= i.first.second;
                      });
+}
+
+void MessageDirector::HandleWeb(ws28::Client *client, nlohmann::json &data) {
+  // Build up an array of connected participants.
+  nlohmann::json participantInfo = nlohmann::json::array();
+  for (const auto &participant : _participants) {
+    participantInfo.push_back({
+        {"name", participant->GetName()},
+        {"ip", participant->GetRemoteAddress().ip},
+        {"port", participant->GetRemoteAddress().port},
+        {"channels", participant->GetLocalChannels().size()},
+        {"postRemoves", participant->GetPostRemoves().size()},
+    });
+  }
+
+  WebPanel::Send(client, {
+                             {"type", "md"},
+                             {"success", true},
+                             {"listenIp", _host},
+                             {"listenPort", _port},
+                             {"connectIp", _rHost},
+                             {"connectPort", _rPort},
+                             {"participants", participantInfo},
+                         });
 }
 
 } // namespace Ardos
