@@ -49,6 +49,16 @@ public:
   [[nodiscard]] std::vector<std::shared_ptr<Datagram>> GetPostRemoves() const {
     return _postRemoves;
   }
+  [[nodiscard]] std::unordered_map<uint32_t, OwnedObject>
+  GetOwnedObjects() const {
+    return _ownedObjects;
+  }
+  [[nodiscard]] std::unordered_set<uint32_t> GetSessionObjects() const {
+    return _sessionObjects;
+  }
+  [[nodiscard]] std::unordered_map<uint16_t, Interest> GetInterests() const {
+    return _interests;
+  }
 
 private:
   void Shutdown() override;

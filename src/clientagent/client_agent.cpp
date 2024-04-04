@@ -357,31 +357,86 @@ void ClientAgent::InitMetrics() {
 }
 
 void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
-  // Build up an array of connected clients.
-  nlohmann::json clientInfo = nlohmann::json::array();
-  for (const auto &participant : _participants) {
-    clientInfo.push_back({
-        {"channel", participant->GetChannel()},
-        {"ip", participant->GetRemoteAddress().ip},
-        {"port", participant->GetRemoteAddress().port},
-        {"state", participant->GetAuthState()},
-        {"channels", participant->GetLocalChannels().size()},
-        {"postRemoves", participant->GetPostRemoves().size()},
-    });
-  }
+  if (data["msg"] == "init") {
+    // Build up an array of connected clients.
+    nlohmann::json clientInfo = nlohmann::json::array();
+    for (const auto &participant : _participants) {
+      clientInfo.push_back({
+          {"channel", participant->GetChannel()},
+          {"ip", participant->GetRemoteAddress().ip},
+          {"port", participant->GetRemoteAddress().port},
+          {"state", participant->GetAuthState()},
+          {"channels", participant->GetLocalChannels().size()},
+          {"postRemoves", participant->GetPostRemoves().size()},
+      });
+    }
 
-  WebPanel::Send(client, {
-                             {"type", "ca"},
-                             {"success", true},
-                             {"listenIp", _host},
-                             {"listenPort", _port},
+    WebPanel::Send(client, {
+                               {"type", "ca:init"},
+                               {"success", true},
+                               {"listenIp", _host},
+                               {"listenPort", _port},
 #ifdef ARDOS_USE_LEGACY_CLIENT
-                             {"legacy", true},
+                               {"legacy", true},
 #else
-                             {"legacy", false},
+                               {"legacy", false},
 #endif
-                             {"clients", clientInfo},
-                         });
+                               {"clients", clientInfo},
+                           });
+  } else if (data["msg"] == "client") {
+    auto channel = data["channel"].template get<uint64_t>();
+
+    // Try to find a matching client for the provided channel.
+    auto participant =
+        std::find_if(_participants.begin(), _participants.end(),
+                     [&channel](ClientParticipant *participant) {
+                       return participant->GetChannel() == channel;
+                     });
+    if (participant == _participants.end()) {
+      WebPanel::Send(client, {
+                                 {"type", "ca:client"},
+                                 {"success", false},
+                             });
+      return;
+    }
+
+    // Build an owned object array.
+    nlohmann::json ownedObjs = nlohmann::json::array();
+    for (const auto &obj : (*participant)->GetOwnedObjects()) {
+      ownedObjs.push_back({{"doId", obj.first},
+                           {"clsName", obj.second.dcc->get_name()},
+                           {"parent", obj.second.parent},
+                           {"zone", obj.second.zone}});
+    }
+
+    // Build a session object array.
+    nlohmann::json sessionObjs = nlohmann::json::array();
+    for (const auto &doId : (*participant)->GetSessionObjects()) {
+      sessionObjs.push_back({{"doId", doId}});
+    }
+
+    // Build an active interests array.
+    nlohmann::json interests = nlohmann::json::array();
+    for (const auto &interest : (*participant)->GetInterests()) {
+      ownedObjs.push_back({{"id", interest.first},
+                           {"parent", interest.second.parent},
+                           {"zones", interest.second.zones}});
+    }
+
+    WebPanel::Send(client,
+                   {
+                       {"type", "ca:client"},
+                       {"success", true},
+                       {"ip", (*participant)->GetRemoteAddress().ip},
+                       {"port", (*participant)->GetRemoteAddress().port},
+                       {"state", (*participant)->GetAuthState()},
+                       {"channels", (*participant)->GetLocalChannels().size()},
+                       {"postRemoves", (*participant)->GetPostRemoves().size()},
+                       {"owned", ownedObjs},
+                       {"session", sessionObjs},
+                       {"interests", interests},
+                   });
+  }
 }
 
 } // namespace Ardos
