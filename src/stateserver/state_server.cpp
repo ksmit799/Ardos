@@ -191,7 +191,7 @@ void StateServer::HandleWeb(ws28::Client *client, nlohmann::json &data) {
     // Build a dictionary of zone objects under this Distributed Object.
     nlohmann::json zoneObjs = nlohmann::json::object();
     for (const auto &zoneData : distObj->GetZoneObjects()) {
-      zoneObjs[zoneData.first] = zoneData.second;
+      zoneObjs[std::to_string(zoneData.first)] = zoneData.second;
     }
 
     WebPanel::Send(client, {
