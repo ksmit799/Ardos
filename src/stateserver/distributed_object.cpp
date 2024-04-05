@@ -93,17 +93,9 @@ size_t DistributedObject::Size() const {
   return objectSize;
 }
 
-uint64_t DistributedObject::GetAI() const { return _aiChannel; }
-
-bool DistributedObject::IsAIExplicitlySet() const { return _aiExplicitlySet; }
-
-uint32_t DistributedObject::GetDoId() const { return _doId; }
-
 uint64_t DistributedObject::GetLocation() const {
   return LocationAsChannel(_parentId, _zoneId);
 }
-
-uint64_t DistributedObject::GetOwner() const { return _ownerChannel; }
 
 void DistributedObject::Annihilate(const uint64_t &sender,
                                    const bool &notifyParent) {

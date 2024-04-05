@@ -24,13 +24,23 @@ public:
 
   [[nodiscard]] size_t Size() const;
 
-  [[nodiscard]] uint64_t GetAI() const;
-  [[nodiscard]] bool IsAIExplicitlySet() const;
+  [[nodiscard]] uint64_t GetAI() const { return _aiChannel; }
+  [[nodiscard]] bool IsAIExplicitlySet() const { return _aiExplicitlySet; }
 
-  [[nodiscard]] uint32_t GetDoId() const;
+  [[nodiscard]] uint32_t GetDoId() const { return _doId; }
+  [[nodiscard]] DCClass *GetDClass() const { return _dclass; }
 
   [[nodiscard]] uint64_t GetLocation() const;
-  [[nodiscard]] uint64_t GetOwner() const;
+  [[nodiscard]] uint64_t GetOwner() const { return _ownerChannel; }
+  [[nodiscard]] uint32_t GetParentId() const { return _parentId; }
+  [[nodiscard]] uint32_t GetZoneId() const { return _zoneId; }
+
+  [[nodiscard]] std::unordered_map<uint32_t, std::unordered_set<uint32_t>>
+  GetZoneObjects() const {
+    return _zoneObjects;
+  }
+
+  [[nodiscard]] FieldMap GetRamFields() const { return _ramFields; }
 
 private:
   void Annihilate(const uint64_t &sender, const bool &notifyParent = true);
