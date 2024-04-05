@@ -191,7 +191,15 @@ void StateServer::HandleWeb(ws28::Client *client, nlohmann::json &data) {
     // Build a dictionary of zone objects under this Distributed Object.
     nlohmann::json zoneObjs = nlohmann::json::object();
     for (const auto &zoneData : distObj->GetZoneObjects()) {
-      zoneObjs[std::to_string(zoneData.first)] = zoneData.second;
+      for (const auto &zoneDoId : zoneData.second) {
+        // Try to get the DClass name for the zone object.
+        auto clsName = _distObjs.contains(zoneDoId)
+                           ? _distObjs[zoneDoId]->GetDClass()->get_name()
+                           : "Unknown";
+
+        zoneObjs[std::to_string(zoneData.first)].push_back(
+            {{"doId", zoneDoId}, {"clsName", clsName}});
+      }
     }
 
     WebPanel::Send(client, {
