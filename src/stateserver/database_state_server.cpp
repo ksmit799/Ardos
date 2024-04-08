@@ -1,5 +1,7 @@
 #include "database_state_server.h"
 
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 #include "../util/config.h"
 #include "../util/logger.h"
 #include "../util/metrics.h"
@@ -9,12 +11,24 @@
 namespace Ardos {
 
 DatabaseStateServer::DatabaseStateServer() : ChannelSubscriber() {
-  Logger::Info("Starting Database State Server component...");
+  spdlog::info("Starting Database State Server component...");
 
   // Database State Server configuration.
   auto config = Config::Instance()->GetNode("db-state-server");
+
+  // Log configuration.
+  // We need to set up both `dbss` and `ss` for Distributed Object logging.
+  spdlog::stdout_color_mt("dbss");
+  spdlog::stdout_color_mt("ss");
+  if (auto logLevel = config["log-level"]) {
+    spdlog::get("dbss")->set_level(
+        Logger::LevelFromString(logLevel.as<std::string>()));
+    spdlog::get("ss")->set_level(
+        Logger::LevelFromString(logLevel.as<std::string>()));
+  }
+
   if (!config["database"]) {
-    Logger::Error("[DBSS] Missing or invalid database channel!");
+    spdlog::get("dbss")->error("Missing or invalid database channel!");
     exit(1);
   }
 
@@ -105,11 +119,11 @@ void DatabaseStateServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       break;
     default:
       // Hopefully we managed to unpack the sender...
-      Logger::Verbose(std::format("[DBSS] Ignoring message: {} from sender: {}",
-                                  msgType, sender));
+      spdlog::get("dbss")->debug("Ignoring message: {} from sender: {}",
+                                 msgType, sender);
     }
   } catch (const DatagramIteratorEOF &) {
-    Logger::Error("[DBSS] Received a truncated datagram!");
+    spdlog::get("dbss")->error("Received a truncated datagram!");
   }
 }
 
@@ -121,8 +135,8 @@ void DatabaseStateServer::HandleActivate(DatagramIterator &dgi,
 
   // Make sure we don't have a duplicate generate.
   if (_distObjs.contains(doId) || _loadObjs.contains(doId)) {
-    Logger::Error(
-        std::format("[DBSS] Received duplicate generate for DoId: {}", doId));
+    spdlog::get("dbss")->error("Received duplicate generate for DoId: {}",
+                               doId);
     return;
   }
 
@@ -144,9 +158,9 @@ void DatabaseStateServer::HandleActivate(DatagramIterator &dgi,
   // Make sure we have a valid distributed class.
   DCClass *dcClass = g_dc_file->get_class(dcId);
   if (!dcClass) {
-    Logger::Error(std::format(
-        "[DBSS] Received ACTIVATE_OTHER with unknown distributed class {}: {}",
-        doId, dcId));
+    spdlog::get("dbss")->error(
+        "Received ACTIVATE_OTHER with unknown distributed class {}: {}", doId,
+        dcId);
     return;
   }
 
@@ -223,9 +237,9 @@ void DatabaseStateServer::HandleSetField(DatagramIterator &dgi,
 
     auto field = g_dc_file->get_field_by_index(fieldId);
     if (!field) {
-      Logger::Warn(std::format("[DBSS] Distributed object: {} received set "
-                               "field(s) with invalid field id: {}",
-                               doId, fieldId));
+      spdlog::get("dbss")->warn("Distributed object: {} received set "
+                                "field(s) with invalid field id: {}",
+                                doId, fieldId);
       continue;
     }
 

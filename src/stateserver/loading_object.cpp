@@ -37,18 +37,18 @@ LoadingObject::LoadingObject(DatabaseStateServer *stateServer,
 
     auto field = _dclass->get_field_by_index(fieldId);
     if (!field) {
-      Logger::Error(std::format("[DBSS] Loading object: {} received invalid "
-                                "field index on generate: {}",
-                                _doId, fieldId));
+      spdlog::get("dbss")->error("Loading object: {} received invalid "
+                                 "field index on generate: {}",
+                                 _doId, fieldId);
       return;
     }
 
     if (field->is_ram() || field->is_required()) {
       dgi.UnpackField(field, _fieldUpdates[field]);
     } else {
-      Logger::Error(std::format(
-          "[DBSS] Loading object: {} received non-RAM field on generate: {}",
-          _doId, field->get_name()));
+      spdlog::get("dbss")->error(
+          "Loading object: {} received non-RAM field on generate: {}", _doId,
+          field->get_name());
     }
   }
 
@@ -86,19 +86,19 @@ void LoadingObject::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       // Make sure the context from the database is valid.
       uint32_t context = dgi.GetUint32();
       if (context != _context && !_validContexts.contains(context)) {
-        Logger::Warn(std::format("[DBSS] Loading object: {} received "
-                                 "GET_ALL_RESP with invalid context: {}",
-                                 _doId, context));
+        spdlog::get("dbss")->warn("Loading object: {} received "
+                                  "GET_ALL_RESP with invalid context: {}",
+                                  _doId, context);
         break;
       }
 
-      Logger::Verbose(std::format(
-          "[DBSS] Loading object: {} received GET_ALL_RESP", _doId));
+      spdlog::get("dbss")->debug("Loading object: {} received GET_ALL_RESP",
+                                 _doId);
       _isLoaded = true;
 
       if (!dgi.GetBool()) {
-        Logger::Verbose(std::format(
-            "[DBSS] Loading object: {} was not found in database", _doId));
+        spdlog::get("dbss")->debug(
+            "Loading object: {} was not found in database", _doId);
         Finalize();
         break;
       }
@@ -106,27 +106,26 @@ void LoadingObject::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       uint16_t dcId = dgi.GetUint16();
       auto dcClass = g_dc_file->get_class(dcId);
       if (!dcClass) {
-        Logger::Error(std::format("[DBSS] Loading object: {} received invalid "
-                                  "dclass from database: {}",
-                                  _doId, dcId));
+        spdlog::get("dbss")->error("Loading object: {} received invalid "
+                                   "dclass from database: {}",
+                                   _doId, dcId);
         Finalize();
         break;
       }
 
       // Make sure both dclass's match if we were supplied with one.
       if (_dclass && dcClass != _dclass) {
-        Logger::Error(std::format(
-            "[DBSS] Loading object: {} received mismatched dclass: {} - {}",
-            _doId, _dclass->get_name(), dcClass->get_name()));
+        spdlog::get("dbss")->error(
+            "Loading object: {} received mismatched dclass: {} - {}", _doId,
+            _dclass->get_name(), dcClass->get_name());
         Finalize();
         break;
       }
 
       // Unpack fields from database.
       if (!UnpackDBFields(dgi, dcClass, _requiredFields, _ramFields)) {
-        Logger::Error(std::format(
-            "[DBSS] Loading object: {} failed to unpack fields from database.",
-            _doId));
+        spdlog::get("dbss")->error(
+            "Loading object: {} failed to unpack fields from database.", _doId);
         Finalize();
         break;
       }
@@ -174,8 +173,8 @@ void LoadingObject::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       break;
     }
   } catch (const DatagramIteratorEOF &) {
-    Logger::Error(std::format(
-        "[DBSS] Loading object: {} received a truncated datagram!", _doId));
+    spdlog::get("dbss")->error(
+        "Loading object: {} received a truncated datagram!", _doId);
   }
 }
 
@@ -187,30 +186,29 @@ void LoadingObject::Finalize() {
 }
 
 void LoadingObject::ReplayDatagrams(DistributedObject *distObj) {
-  Logger::Verbose(std::format(
-      "[DBSS] Loading object: {} replaying datagrams received while loading...",
-      _doId));
+  spdlog::get("dbss")->debug(
+      "Loading object: {} replaying datagrams received while loading...",
+      _doId);
   for (const auto &dg : _datagramQueue) {
     if (!_stateServer->_distObjs.contains(_doId)) {
-      Logger::Verbose(
-          std::format("[DBSS] Deleted while replaying, aborting...", _doId));
+      spdlog::get("dbss")->debug("Deleted while replaying, aborting...", _doId);
       return;
     }
 
     distObj->HandleDatagram(dg);
   }
 
-  Logger::Verbose(std::format("[DBSS] Replay finished.", _doId));
+  spdlog::get("dbss")->debug("Replay finished.");
 }
 
 void LoadingObject::ForwardDatagrams() {
-  Logger::Verbose(std::format("[DBSS] Loading object: {} forwarding datagrams "
-                              "received while loading...",
-                              _doId));
+  spdlog::get("dbss")->debug("Loading object: {} forwarding datagrams "
+                             "received while loading...",
+                             _doId);
   for (const auto &dg : _datagramQueue) {
     _stateServer->HandleDatagram(dg);
   }
-  Logger::Verbose(std::format("[DBSS] Finished forwarding.", _doId));
+  spdlog::get("dbss")->debug("Finished forwarding.");
 }
 
 } // namespace Ardos
