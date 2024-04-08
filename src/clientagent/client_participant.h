@@ -44,6 +44,22 @@ public:
 
   friend class InterestOperation;
 
+  [[nodiscard]] uint64_t GetChannel() const { return _channel; }
+  [[nodiscard]] uint8_t GetAuthState() const { return _authState; }
+  [[nodiscard]] std::vector<std::shared_ptr<Datagram>> GetPostRemoves() const {
+    return _postRemoves;
+  }
+  [[nodiscard]] std::unordered_map<uint32_t, OwnedObject>
+  GetOwnedObjects() const {
+    return _ownedObjects;
+  }
+  [[nodiscard]] std::unordered_set<uint32_t> GetSessionObjects() const {
+    return _sessionObjects;
+  }
+  [[nodiscard]] std::unordered_map<uint16_t, Interest> GetInterests() const {
+    return _interests;
+  }
+
 private:
   void Shutdown() override;
 

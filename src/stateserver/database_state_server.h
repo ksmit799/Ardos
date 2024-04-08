@@ -16,13 +16,15 @@ bool UnpackDBFields(DatagramIterator &dgi, DCClass *dclass, FieldMap &required,
 class LoadingObject;
 
 class DatabaseStateServer final : public StateServerImplementation,
-                            public ChannelSubscriber {
+                                  public ChannelSubscriber {
 public:
   friend class LoadingObject;
 
   DatabaseStateServer();
 
   void RemoveDistributedObject(const uint32_t &doId) override;
+
+  void HandleWeb(ws28::Client *client, nlohmann::json &data);
 
 private:
   void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;
@@ -48,6 +50,8 @@ private:
   void ReportActivateTime(const uvw::timer_handle::time &startTime);
 
   uint64_t _dbChannel;
+  uint64_t _minDoId;
+  uint64_t _maxDoId;
 
   std::unordered_map<uint32_t, DistributedObject *> _distObjs;
   std::unordered_map<uint32_t, LoadingObject *> _loadObjs;

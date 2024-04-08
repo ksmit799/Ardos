@@ -3,12 +3,16 @@
 
 #include <memory>
 #include <queue>
+#include <unordered_set>
 
 #include <dcClass.h>
+#include <nlohmann/json.hpp>
 #include <prometheus/counter.h>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
 #include <uvw.hpp>
+
+#include "../net/ws/Client.h"
 
 namespace Ardos {
 
@@ -23,6 +27,8 @@ enum InterestsPermission {
   INTERESTS_VISIBLE,
   INTERESTS_DISABLED,
 };
+
+class ClientParticipant;
 
 class ClientAgent {
 public:
@@ -43,10 +49,12 @@ public:
   [[nodiscard]] unsigned long GetInterestTimeout() const;
 
   void ParticipantJoined();
-  void ParticipantLeft();
+  void ParticipantLeft(ClientParticipant *client);
   void RecordDatagram(const uint16_t &size);
   void RecordInterestTimeout();
   void RecordInterestTime(const double &seconds);
+
+  void HandleWeb(ws28::Client *client, nlohmann::json &data);
 
 private:
   void InitMetrics();
@@ -65,6 +73,8 @@ private:
   unsigned long _interestTimeout;
 
   std::unordered_map<uint32_t, Uberdog> _uberdogs;
+
+  std::unordered_set<ClientParticipant *> _participants;
 
   uint64_t _nextChannel;
   uint64_t _channelsMax;

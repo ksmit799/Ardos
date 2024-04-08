@@ -4,6 +4,7 @@
 #include "../util/globals.h"
 #include "../util/logger.h"
 #include "../util/metrics.h"
+#include "../web/web_panel.h"
 #include "client_participant.h"
 
 namespace Ardos {
@@ -27,7 +28,7 @@ ClientAgent::ClientAgent() {
   _version = config["version"].as<std::string>();
 
   // DC hash configuration.
-  // Can be manually overriden in CA config.
+  // Can be manually overridden in CA config.
   _dcHash = g_dc_file->get_hash();
   if (auto manualHash = config["manual-dc-hash"]) {
     _dcHash = manualHash.as<uint32_t>();
@@ -123,8 +124,7 @@ ClientAgent::ClientAgent() {
         srv.accept(*client);
 
         // Create a new client for this connected participant.
-        // TODO: These should be tracked in a vector.
-        new ClientParticipant(this, client);
+        _participants.insert(new ClientParticipant(this, client));
       });
 
   // Initialize metrics.
@@ -259,10 +259,12 @@ void ClientAgent::ParticipantJoined() {
 /**
  * Called when a participant disconnects.
  */
-void ClientAgent::ParticipantLeft() {
+void ClientAgent::ParticipantLeft(ClientParticipant *client) {
   if (_participantsGauge) {
     _participantsGauge->Decrement();
   }
+
+  _participants.erase(client);
 }
 
 /**
@@ -352,6 +354,94 @@ void ClientAgent::InitMetrics() {
 
   // Initialize free channels to our range of allocated channels.
   _freeChannelsGauge->Set((double)(_channelsMax - _nextChannel));
+}
+
+void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
+  if (data["msg"] == "init") {
+    // Build up an array of connected clients.
+    nlohmann::json clientInfo = nlohmann::json::array();
+    for (const auto &participant : _participants) {
+      clientInfo.push_back({
+          {"channel", std::to_string(participant->GetChannel())},
+          {"ip", participant->GetRemoteAddress().ip},
+          {"port", participant->GetRemoteAddress().port},
+          {"state", participant->GetAuthState()},
+          {"channels", participant->GetLocalChannels().size()},
+          {"postRemoves", participant->GetPostRemoves().size()},
+      });
+    }
+
+    WebPanel::Send(client, {
+                               {"type", "ca:init"},
+                               {"success", true},
+                               {"listenIp", _host},
+                               {"listenPort", _port},
+#ifdef ARDOS_USE_LEGACY_CLIENT
+                               {"legacy", true},
+#else
+                               {"legacy", false},
+#endif
+                               {"clients", clientInfo},
+                           });
+  } else if (data["msg"] == "client") {
+    // We have to do this terribleness because JavaScript doesn't support
+    // uint64's.
+    auto channel = std::stoull(data["channel"].template get<std::string>());
+
+    // Try to find a matching client for the provided channel.
+    auto participant =
+        std::find_if(_participants.begin(), _participants.end(),
+                     [&channel](ClientParticipant *participant) {
+                       return participant->GetChannel() == channel;
+                     });
+    if (participant == _participants.end()) {
+      WebPanel::Send(client, {
+                                 {"type", "ca:client"},
+                                 {"success", false},
+                             });
+      return;
+    }
+
+    // Build an owned object array.
+    nlohmann::json ownedObjs = nlohmann::json::array();
+    for (const auto &obj : (*participant)->GetOwnedObjects()) {
+      ownedObjs.push_back({{"doId", obj.first},
+                           {"clsName", obj.second.dcc->get_name()},
+                           {"parent", obj.second.parent},
+                           {"zone", obj.second.zone}});
+    }
+
+    // Build a session object array.
+    nlohmann::json sessionObjs = nlohmann::json::array();
+    for (const auto &doId : (*participant)->GetSessionObjects()) {
+      sessionObjs.push_back({{"doId", doId}});
+    }
+
+    // Build an active interests array.
+    nlohmann::json interests = nlohmann::json::array();
+    for (const auto &interest : (*participant)->GetInterests()) {
+      interests.push_back({{"id", interest.first},
+                           {"parent", interest.second.parent},
+                           {"zones", interest.second.zones}});
+    }
+
+    WebPanel::Send(
+        client,
+        {
+            {"type", "ca:client"},
+            {"success", true},
+            {"ip", (*participant)->GetRemoteAddress().ip},
+            {"port", (*participant)->GetRemoteAddress().port},
+            {"state", (*participant)->GetAuthState()},
+            {"channelHi", ((*participant)->GetChannel() >> 32) & 0xFFFFFFFF},
+            {"channelLo", (*participant)->GetChannel() & 0xFFFFFFFF},
+            {"channels", (*participant)->GetLocalChannels().size()},
+            {"postRemoves", (*participant)->GetPostRemoves().size()},
+            {"owned", ownedObjs},
+            {"session", sessionObjs},
+            {"interests", interests},
+        });
+  }
 }
 
 } // namespace Ardos

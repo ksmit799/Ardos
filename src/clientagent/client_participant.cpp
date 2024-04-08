@@ -55,7 +55,7 @@ ClientParticipant::~ClientParticipant() {
   // Call shutdown just in-case (most likely redundant.)
   Shutdown();
 
-  _clientAgent->ParticipantLeft();
+  _clientAgent->ParticipantLeft(this);
 }
 
 /**
@@ -338,8 +338,9 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     break;
   }
   case CLIENTAGENT_GET_NETWORK_ADDRESS: {
-    auto resp = std::make_shared<Datagram>(sender, _channel, CLIENTAGENT_GET_NETWORK_ADDRESS_RESP);
-    resp->AddUint32(dgi.GetUint32());  // Context.
+    auto resp = std::make_shared<Datagram>(
+        sender, _channel, CLIENTAGENT_GET_NETWORK_ADDRESS_RESP);
+    resp->AddUint32(dgi.GetUint32()); // Context.
     resp->AddString(GetRemoteAddress().ip);
     resp->AddUint16(GetRemoteAddress().port);
     resp->AddString(GetLocalAddress().ip);
@@ -517,6 +518,9 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
   case STATESERVER_OBJECT_CHANGING_LOCATION: {
     uint32_t doId = dgi.GetUint32();
     if (TryQueuePending(doId, dgi.GetUnderlyingDatagram())) {
+      // The object that's changing location is currently generating inside an
+      // active InterestOperation. Queue this message to be handled after it
+      // generates.
       return;
     }
 

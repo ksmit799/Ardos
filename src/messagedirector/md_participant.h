@@ -16,6 +16,11 @@ public:
   explicit MDParticipant(const std::shared_ptr<uvw::tcp_handle> &socket);
   ~MDParticipant() override;
 
+  [[nodiscard]] std::string GetName() const { return _connName; }
+  [[nodiscard]] std::vector<std::shared_ptr<Datagram>> GetPostRemoves() const {
+    return _postRemoves;
+  }
+
 private:
   void Shutdown() override;
   void HandleDisconnect(uv_errno_t code) override;

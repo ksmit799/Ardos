@@ -3,23 +3,28 @@
 
 #include <memory>
 
+#include <nlohmann/json.hpp>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
 
 #include "../messagedirector/channel_subscriber.h"
 #include "../net/datagram.h"
 #include "../net/datagram_iterator.h"
+#include "../net/ws/Client.h"
 #include "state_server_implementation.h"
 
 namespace Ardos {
 
 class DistributedObject;
 
-class StateServer final : public StateServerImplementation, public ChannelSubscriber {
+class StateServer final : public StateServerImplementation,
+                          public ChannelSubscriber {
 public:
   StateServer();
 
   void RemoveDistributedObject(const uint32_t &doId) override;
+
+  void HandleWeb(ws28::Client *client, nlohmann::json &data);
 
 private:
   void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;

@@ -7,6 +7,7 @@
 #include "../util/globals.h"
 #include "../util/logger.h"
 #include "../util/metrics.h"
+#include "../web/web_panel.h"
 #include "distributed_object.h"
 
 namespace Ardos {
@@ -146,6 +147,73 @@ void StateServer::InitMetrics() {
   _objectsSizeHistogram = &objectsSizeBuilder.Add(
       {}, prometheus::Histogram::BucketBoundaries{0, 4, 16, 64, 256, 1024, 4096,
                                                   16384, 65536});
+}
+
+void StateServer::HandleWeb(ws28::Client *client, nlohmann::json &data) {
+  if (data["msg"] == "init") {
+    // Build up an array of distributed objects.
+    nlohmann::json distObjInfo = nlohmann::json::array();
+    for (const auto &distObj : _distObjs) {
+      distObjInfo.push_back({
+          {"doId", distObj.first},
+          {"clsName", distObj.second->GetDClass()->get_name()},
+          {"parentId", distObj.second->GetParentId()},
+          {"zoneId", distObj.second->GetZoneId()},
+      });
+    }
+
+    WebPanel::Send(client, {
+                               {"type", "ss:init"},
+                               {"success", true},
+                               {"channel", _channel},
+                               {"distObjs", distObjInfo},
+                           });
+  } else if (data["msg"] == "distobj") {
+    auto doId = data["doId"].template get<uint32_t>();
+
+    // Try to find a matching Distributed Object for the provided DoId.
+    if (!_distObjs.contains(doId)) {
+      WebPanel::Send(client, {
+                                 {"type", "ss:distobj"},
+                                 {"success", false},
+                             });
+      return;
+    }
+
+    auto distObj = _distObjs[doId];
+
+    // Build an array of explicitly set RAM fields.
+    nlohmann::json ramFields = nlohmann::json::array();
+    for (const auto &field : distObj->GetRamFields()) {
+      ramFields.push_back({{"fieldName", field.first->get_name()}});
+    }
+
+    // Build a dictionary of zone objects under this Distributed Object.
+    nlohmann::json zoneObjs = nlohmann::json::object();
+    for (const auto &zoneData : distObj->GetZoneObjects()) {
+      for (const auto &zoneDoId : zoneData.second) {
+        // Try to get the DClass name for the zone object.
+        auto clsName = _distObjs.contains(zoneDoId)
+                           ? _distObjs[zoneDoId]->GetDClass()->get_name()
+                           : "Unknown";
+
+        zoneObjs[std::to_string(zoneData.first)].push_back(
+            {{"doId", zoneDoId}, {"clsName", clsName}});
+      }
+    }
+
+    WebPanel::Send(client, {
+                               {"type", "ss:distobj"},
+                               {"success", true},
+                               {"clsName", distObj->GetDClass()->get_name()},
+                               {"parentId", distObj->GetParentId()},
+                               {"zoneId", distObj->GetZoneId()},
+                               {"owner", distObj->GetOwner()},
+                               {"size", distObj->Size()},
+                               {"ram", ramFields},
+                               {"zones", zoneObjs},
+                           });
+  }
 }
 
 } // namespace Ardos

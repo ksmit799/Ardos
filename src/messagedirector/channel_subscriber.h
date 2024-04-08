@@ -33,6 +33,10 @@ public:
    */
   void PublishDatagram(const std::shared_ptr<Datagram> &dg);
 
+  [[nodiscard]] std::vector<std::string> GetLocalChannels() const {
+    return _localChannels;
+  }
+
 protected:
   virtual void HandleDatagram(const std::shared_ptr<Datagram> &dg) = 0;
 

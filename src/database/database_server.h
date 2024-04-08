@@ -3,6 +3,7 @@
 
 #include <mongocxx/client.hpp>
 #include <mongocxx/instance.hpp>
+#include <nlohmann/json.hpp>
 #include <prometheus/counter.h>
 #include <prometheus/histogram.h>
 #include <uvw/timer.h>
@@ -10,12 +11,15 @@
 #include "../messagedirector/channel_subscriber.h"
 #include "../net/datagram_iterator.h"
 #include "../net/message_types.h"
+#include "../net/ws/Client.h"
 
 namespace Ardos {
 
 class DatabaseServer final : public ChannelSubscriber {
 public:
   DatabaseServer();
+
+  void HandleWeb(ws28::Client *client, nlohmann::json &data);
 
 private:
   void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;

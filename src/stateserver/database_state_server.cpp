@@ -5,6 +5,7 @@
 #include "../util/config.h"
 #include "../util/logger.h"
 #include "../util/metrics.h"
+#include "../web/web_panel.h"
 #include "loading_object.h"
 
 namespace Ardos {
@@ -26,11 +27,11 @@ DatabaseStateServer::DatabaseStateServer() : ChannelSubscriber() {
   _dbChannel = config["database"].as<uint64_t>();
 
   auto rangeParam = config["ranges"];
-  auto min = rangeParam["min"].as<uint64_t>();
-  auto max = rangeParam["max"].as<uint64_t>();
+  _minDoId = rangeParam["min"].as<uint64_t>();
+  _maxDoId = rangeParam["max"].as<uint64_t>();
 
   // Start listening to DoId's in our listening range.
-  SubscribeRange(min, max);
+  SubscribeRange(_minDoId, _maxDoId);
 
   // Initialize metrics.
   InitMetrics();
@@ -439,6 +440,76 @@ bool UnpackDBFields(DatagramIterator &dgi, DCClass *dclass, FieldMap &required,
   }
 
   return true;
+}
+
+void DatabaseStateServer::HandleWeb(ws28::Client *client,
+                                    nlohmann::json &data) {
+  if (data["msg"] == "init") {
+    // Build up an array of distributed objects.
+    nlohmann::json distObjInfo = nlohmann::json::array();
+    for (const auto &distObj : _distObjs) {
+      distObjInfo.push_back({
+          {"doId", distObj.first},
+          {"clsName", distObj.second->GetDClass()->get_name()},
+          {"parentId", distObj.second->GetParentId()},
+          {"zoneId", distObj.second->GetZoneId()},
+      });
+    }
+
+    WebPanel::Send(client, {
+                               {"type", "dbss:init"},
+                               {"success", true},
+                               {"dbChannel", _dbChannel},
+                               {"minDoId", _minDoId},
+                               {"maxDoId", _maxDoId},
+                               {"distObjs", distObjInfo},
+                           });
+  } else if (data["msg"] == "distobj") {
+    auto doId = data["doId"].template get<uint32_t>();
+
+    // Try to find a matching Distributed Object for the provided DoId.
+    if (!_distObjs.contains(doId)) {
+      WebPanel::Send(client, {
+                                 {"type", "dbss:distobj"},
+                                 {"success", false},
+                             });
+      return;
+    }
+
+    auto distObj = _distObjs[doId];
+
+    // Build an array of explicitly set RAM fields.
+    nlohmann::json ramFields = nlohmann::json::array();
+    for (const auto &field : distObj->GetRamFields()) {
+      ramFields.push_back({{"fieldName", field.first->get_name()}});
+    }
+
+    // Build a dictionary of zone objects under this Distributed Object.
+    nlohmann::json zoneObjs = nlohmann::json::object();
+    for (const auto &zoneData : distObj->GetZoneObjects()) {
+      for (const auto &zoneDoId : zoneData.second) {
+        // Try to get the DClass name for the zone object.
+        auto clsName = _distObjs.contains(zoneDoId)
+                           ? _distObjs[zoneDoId]->GetDClass()->get_name()
+                           : "Unknown";
+
+        zoneObjs[std::to_string(zoneData.first)].push_back(
+            {{"doId", zoneDoId}, {"clsName", clsName}});
+      }
+    }
+
+    WebPanel::Send(client, {
+                               {"type", "dbss:distobj"},
+                               {"success", true},
+                               {"clsName", distObj->GetDClass()->get_name()},
+                               {"parentId", distObj->GetParentId()},
+                               {"zoneId", distObj->GetZoneId()},
+                               {"owner", distObj->GetOwner()},
+                               {"size", distObj->Size()},
+                               {"ram", ramFields},
+                               {"zones", zoneObjs},
+                           });
+  }
 }
 
 } // namespace Ardos

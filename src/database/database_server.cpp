@@ -12,6 +12,7 @@
 #include "../util/globals.h"
 #include "../util/logger.h"
 #include "../util/metrics.h"
+#include "../web/web_panel.h"
 #include "database_utils.h"
 
 // For document, finalize, et al.
@@ -528,8 +529,7 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
       auto dbField = fields[field->get_name()];
       if (dbField) {
         // Pack the field into our object datagram.
-        DatabaseUtils::PackField(field, dbField.get_value(),
-                                 objectDg);
+        DatabaseUtils::PackField(field, dbField.get_value(), objectDg);
       } else {
         // Pack a default value.
         objectDg.AddData(field->get_default_value());
@@ -1002,6 +1002,17 @@ void DatabaseServer::ReportFailed(const DatabaseServer::OperationType &type) {
   if (counter) {
     counter->Increment();
   }
+}
+
+void DatabaseServer::HandleWeb(ws28::Client *client, nlohmann::json &data) {
+  WebPanel::Send(client, {
+                             {"type", "db"},
+                             {"success", true},
+                             {"host", _uri.to_string()},
+                             {"channel", _channel},
+                             {"minDoId", _minDoId},
+                             {"maxDoId", _maxDoId},
+                         });
 }
 
 } // namespace Ardos

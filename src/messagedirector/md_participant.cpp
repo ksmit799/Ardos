@@ -20,7 +20,7 @@ MDParticipant::~MDParticipant() {
   // Call shutdown just in-case (most likely redundant.)
   Shutdown();
 
-  MessageDirector::Instance()->ParticipantLeft();
+  MessageDirector::Instance()->ParticipantLeft(this);
 }
 
 /**
@@ -34,7 +34,8 @@ void MDParticipant::Shutdown() {
   // Kill the network connection.
   NetworkClient::Shutdown();
 
-  // Unsubscribe from all channels so post removes aren't accidently routed to us.
+  // Unsubscribe from all channels so post removes aren't accidentally routed to
+  // us.
   ChannelSubscriber::Shutdown();
 
   Logger::Verbose(std::format("[MD] Routing {} post-remove(s) for '{}'",
