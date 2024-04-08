@@ -1,7 +1,5 @@
 #include "database_server.h"
 
-#include <format>
-
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/json.hpp>
 #include <dcClass.h>

@@ -1,7 +1,6 @@
 #include "config.h"
 #include "logger.h"
 
-#include <format>
 #include <fstream>
 
 namespace Ardos {
@@ -19,8 +18,7 @@ Config *Config::Instance() {
 void Config::LoadConfig(const std::string &name) {
   std::ifstream file(name.c_str());
   if (!file.is_open()) {
-    Logger::Error(
-        std::format("Failed to open config file `{}`. Does it exist?", name));
+    spdlog::error("Failed to open config file `{}`. Does it exist?", name);
     exit(1);
   }
 

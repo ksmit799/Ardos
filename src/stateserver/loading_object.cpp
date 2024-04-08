@@ -1,7 +1,5 @@
 #include "loading_object.h"
 
-#include <format>
-
 #include "../util/logger.h"
 
 namespace Ardos {

@@ -1,35 +1,29 @@
 #ifndef ARDOS_LOGGER_H
 #define ARDOS_LOGGER_H
 
-#include <string>
+#include <spdlog/spdlog.h>
 
 namespace Ardos {
 
-enum LogLevel {
-  LL_None,
-  LL_Error,
-  LL_Warning,
-  LL_Info,
-  LL_Verbose,
-};
-
 class Logger {
 public:
-  static void SetLogLevel(const LogLevel &level);
-  static void SetLogLevel(std::string_view level);
-
-  static void Verbose(std::string_view message);
-  static void Info(std::string_view message);
-  static void Warn(std::string_view message);
-  static void Error(std::string_view message);
-
-protected:
-  Logger() = default;
-  ~Logger() = default;
-
-  static LogLevel _logLevel;
-
-  static std::string GetTime();
+  static spdlog::level::level_enum LevelFromString(const std::string &level) {
+    if (level == "debug" || level == "verbose") {
+      return spdlog::level::debug;
+    } else if (level == "info") {
+      return spdlog::level::info;
+    } else if (level == "warning" || level == "warn") {
+      return spdlog::level::warn;
+    } else if (level == "error") {
+      return spdlog::level::err;
+    } else if (level == "none") {
+      return spdlog::level::off;
+    } else {
+      spdlog::error("Invalid config log-level `{}`, defaulting to warn...",
+                    level);
+      return spdlog::level::warn;
+    }
+  }
 };
 
 } // namespace Ardos

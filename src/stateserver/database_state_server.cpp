@@ -1,7 +1,5 @@
 #include "database_state_server.h"
 
-#include <format>
-
 #include "../util/config.h"
 #include "../util/logger.h"
 #include "../util/metrics.h"

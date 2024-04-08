@@ -1,6 +1,5 @@
 #include "distributed_object.h"
 
-#include <format>
 #include <unordered_set>
 
 #include <dcAtomicField.h>

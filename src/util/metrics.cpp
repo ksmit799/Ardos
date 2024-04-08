@@ -1,7 +1,5 @@
 #include "metrics.h"
 
-#include <format>
-
 #include <prometheus/exposer.h>
 
 #include "config.h"
