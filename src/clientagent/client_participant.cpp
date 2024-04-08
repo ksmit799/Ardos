@@ -1147,7 +1147,7 @@ void ClientParticipant::AddInterest(Interest &i, const uint32_t &context,
 
     std::unordered_set<uint32_t> killedZones;
     for (const auto &zone : previousInterest.zones) {
-      if (!LookupInterests(previousInterest.parent, zone).empty()) {
+      if (LookupInterests(previousInterest.parent, zone).size() > 1) {
         // An interest other than the altered one can see this parent/zone, so
         // we don't care about it.
         continue;
@@ -1293,6 +1293,11 @@ void ClientParticipant::RemoveInterest(Interest &i, const uint32_t &context,
 
 void ClientParticipant::CloseZones(
     const uint32_t &parent, const std::unordered_set<uint32_t> &killedZones) {
+  for (const auto &zone : killedZones) {
+    spdlog::get("ca")->debug("Client: {} closing zone: {} - {}", _channel,
+                             parent, zone);
+  }
+
   std::vector<uint32_t> toRemove;
   for (const auto &objects : _visibleObjects) {
     const VisibleObject &visibleObject = objects.second;
