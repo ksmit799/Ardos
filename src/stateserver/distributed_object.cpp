@@ -4,8 +4,7 @@
 
 #include <dcAtomicField.h>
 #include <dcMolecularField.h>
-
-#include "../util/logger.h"
+#include <spdlog/spdlog.h>
 
 namespace Ardos {
 
@@ -31,9 +30,9 @@ DistributedObject::DistributedObject(StateServerImplementation *stateServer,
       uint16_t fieldId = dgi.GetUint16();
       auto field = _dclass->get_field_by_index(fieldId);
       if (!field) {
-        Logger::Error(std::format(
-            "[SS] Received generated with unknown field id: {} for DoId: {}",
-            fieldId, _doId));
+        spdlog::get("ss")->error(
+            "Received generated with unknown field id: {} for DoId: {}",
+            fieldId, _doId);
         break;
       }
 
@@ -42,18 +41,17 @@ DistributedObject::DistributedObject(StateServerImplementation *stateServer,
       if (field->is_ram()) {
         dgi.UnpackField(field, _ramFields[field]);
       } else {
-        Logger::Error(std::format(
-            "[SS] Received generated with non RAM field: {} for DoId: ",
-            field->get_name(), _doId));
+        spdlog::get("ss")->error(
+            "Received generated with non RAM field: {} for DoId: ",
+            field->get_name(), _doId);
       }
     }
   }
 
   SubscribeChannel(_doId);
 
-  Logger::Verbose(
-      std::format("[SS] Distributed Object: '{}' generated with DoId: {}",
-                  _dclass->get_name(), _doId));
+  spdlog::get("ss")->debug("Distributed Object: '{}' generated with DoId: {}",
+                           _dclass->get_name(), _doId);
 
   dgi.SeekPayload();
   HandleLocationChange(parentId, zoneId, dgi.GetUint64());
@@ -71,9 +69,8 @@ DistributedObject::DistributedObject(StateServerImplementation *stateServer,
       _requiredFields(reqFields), _ramFields(ramFields) {
   SubscribeChannel(_doId);
 
-  Logger::Verbose(
-      std::format("[SS] Distributed Object: '{}' generated with DoId: {}",
-                  _dclass->get_name(), _doId));
+  spdlog::get("ss")->debug("Distributed Object: '{}' generated with DoId: {}",
+                           _dclass->get_name(), _doId);
 
   HandleLocationChange(parentId, zoneId, sender);
   WakeChildren();
@@ -130,7 +127,7 @@ void DistributedObject::Annihilate(const uint64_t &sender,
   _stateServer->RemoveDistributedObject(_doId);
   ChannelSubscriber::Shutdown();
 
-  Logger::Verbose(std::format("[SS] Distributed Object: '{}' deleted.", _doId));
+  spdlog::get("ss")->debug("Distributed Object: '{}' deleted.", _doId);
 }
 
 void DistributedObject::DeleteChildren(const uint64_t &sender) {
@@ -155,9 +152,9 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
   case STATESERVER_DELETE_AI_OBJECTS: {
     uint64_t channel = dgi.GetUint64();
     if (_aiChannel != channel) {
-      Logger::Warn(std::format("[SS] Distributed Object: '{}' ({}) received "
-                               "delete for wrong AI channel: {}",
-                               _doId, _aiChannel, channel));
+      spdlog::get("ss")->warn("Distributed Object: '{}' ({}) received "
+                              "delete for wrong AI channel: {}",
+                              _doId, _aiChannel, channel);
       break;
     }
     Annihilate(sender);
@@ -202,14 +199,14 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
     uint32_t parentId = dgi.GetUint32();
     uint64_t newChannel = dgi.GetUint64();
 
-    Logger::Verbose(std::format(
-        "[SS] Distributed Object: '{}' received changing AI from: {}", _doId,
-        parentId));
+    spdlog::get("ss")->debug(
+        "Distributed Object: '{}' received changing AI from: {}", _doId,
+        parentId);
 
     if (parentId != _parentId) {
-      Logger::Warn(std::format("[SS] Distributed Object: '{}' received "
-                               "changing AI from: {} but my parent is: {}",
-                               _doId, parentId, _parentId));
+      spdlog::get("ss")->warn("Distributed Object: '{}' received "
+                              "changing AI from: {} but my parent is: {}",
+                              _doId, parentId, _parentId);
       break;
     }
 
@@ -223,16 +220,15 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
   case STATESERVER_OBJECT_SET_AI: {
     uint64_t newChannel = dgi.GetUint64();
 
-    Logger::Verbose(std::format(
-        "[SS] Distributed Object: '{}' updating AI to: {}", _doId, newChannel));
+    spdlog::get("ss")->debug("Distributed Object: '{}' updating AI to: {}",
+                             _doId, newChannel);
 
     HandleAIChange(newChannel, sender, true);
     break;
   }
   case STATESERVER_OBJECT_GET_AI: {
-    Logger::Verbose(
-        std::format("[SS] Distributed Object: '{}' received AI query from: {}",
-                    _doId, sender));
+    spdlog::get("ss")->debug(
+        "Distributed Object: '{}' received AI query from: {}", _doId, sender);
 
     auto dg = std::make_shared<Datagram>(sender, _doId,
                                          STATESERVER_OBJECT_GET_AI_RESP);
@@ -246,14 +242,14 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
     dgi.GetUint32(); // Discard context.
     uint32_t parentId = dgi.GetUint32();
 
-    Logger::Verbose(std::format(
-        "[SS] Distributed Object: '{}' received AI query response from: {}",
-        _doId, parentId));
+    spdlog::get("ss")->debug(
+        "Distributed Object: '{}' received AI query response from: {}", _doId,
+        parentId);
 
     if (parentId != _parentId) {
-      Logger::Warn(std::format("[SS] Distributed Object: '{}' received AI "
-                               "channel from: {} but my parent is: {}",
-                               _doId, parentId, _parentId));
+      spdlog::get("ss")->warn("Distributed Object: '{}' received AI "
+                              "channel from: {} but my parent is: {}",
+                              _doId, parentId, _parentId);
       break;
     }
 
@@ -299,10 +295,9 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
         _zoneObjects.erase(zoneId);
       }
     } else {
-      Logger::Warn(
-          std::format("[SS] Distributed Object: '{}' received changing "
-                      "location from: {} for mismatched DoId: {}",
-                      _doId, childId, doId));
+      spdlog::get("ss")->warn("Distributed Object: '{}' received changing "
+                              "location from: {} for mismatched DoId: {}",
+                              _doId, childId, doId);
     }
     break;
   }
@@ -310,19 +305,18 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
     uint32_t parentId = dgi.GetUint32();
     uint32_t zoneId = dgi.GetUint32();
     if (parentId != _parentId) {
-      Logger::Verbose(
-          std::format("[SS] Distributed Object: '{}' received location "
-                      "acknowledgement from: {} but my parent is: {}",
-                      _doId, parentId, _parentId));
+      spdlog::get("ss")->debug("Distributed Object: '{}' received location "
+                               "acknowledgement from: {} but my parent is: {}",
+                               _doId, parentId, _parentId);
     } else if (zoneId != _zoneId) {
-      Logger::Verbose(
-          std::format("[SS] Distributed Object: '{}' received location "
-                      "acknowledgement for zone: {} but my zone is: {}",
-                      _doId, zoneId, _zoneId));
+      spdlog::get("ss")->debug(
+          "Distributed Object: '{}' received location "
+          "acknowledgement for zone: {} but my zone is: {}",
+          _doId, zoneId, _zoneId);
     } else {
-      Logger::Verbose(std::format("[SS] Distributed Object: '{}' parent "
-                                  "acknowledged my location change.",
-                                  _doId));
+      spdlog::get("ss")->debug("Distributed Object: '{}' parent "
+                               "acknowledged my location change.",
+                               _doId);
       _parentSynchronized = true;
     }
     break;
@@ -331,9 +325,9 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
     uint32_t newParent = dgi.GetUint32();
     uint32_t newZone = dgi.GetUint32();
 
-    Logger::Verbose(
-        std::format("[SS] Distributed Object: '{}' updating location to: {}/{}",
-                    _doId, newParent, newZone));
+    spdlog::get("ss")->debug(
+        "Distributed Object: '{}' updating location to: {}/{}", _doId,
+        newParent, newZone);
 
     HandleLocationChange(newParent, newZone, sender);
     break;
@@ -355,9 +349,9 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
     // of its pre-existing children.
 
     if (dgi.GetUint32() != STATESERVER_CONTEXT_WAKE_CHILDREN) {
-      Logger::Warn(std::format("[SS] Distributed Object: '{}' received "
-                               "unexpected location response from: {}",
-                               _doId, dgi.GetUint32()));
+      spdlog::get("ss")->warn("Distributed Object: '{}' received "
+                              "unexpected location response from: {}",
+                              _doId, dgi.GetUint32());
       break;
     }
 
@@ -426,9 +420,9 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
       if (!requestedFields.insert(fieldId).second) {
         DCField *field = _dclass->get_field_by_index(i);
         if (field) {
-          Logger::Warn(std::format("[SS] Distributed Object: '{}' received "
-                                   "duplicate field: {} in get fields",
-                                   _doId, field->get_name()));
+          spdlog::get("ss")->warn("Distributed Object: '{}' received "
+                                  "duplicate field: {} in get fields",
+                                  _doId, field->get_name());
         }
       }
     }
@@ -465,9 +459,8 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
   case STATESERVER_OBJECT_SET_OWNER: {
     uint64_t newOwner = dgi.GetUint64();
 
-    Logger::Verbose(
-        std::format("[SS] Distributed Object: '{}' updating owner to: {}",
-                    _doId, newOwner));
+    spdlog::get("ss")->debug("Distributed Object: '{}' updating owner to: {}",
+                             _doId, newOwner);
 
     if (newOwner == _ownerChannel) {
       return;
@@ -494,9 +487,9 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
     uint32_t context = dgi.GetUint32();
     uint32_t queriedParent = dgi.GetUint32();
 
-    Logger::Verbose(std::format("[SS] Distributed Object: '{}' handling get "
-                                "zones with parent: {} where my parent is: {}",
-                                _doId, queriedParent, _parentId));
+    spdlog::get("ss")->debug("Distributed Object: '{}' handling get "
+                             "zones with parent: {} where my parent is: {}",
+                             _doId, queriedParent, _parentId);
 
     uint16_t zoneCount = 1;
     if (msgType == STATESERVER_OBJECT_GET_ZONES_OBJECTS) {
@@ -576,9 +569,9 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram> &dgIn) {
     break;
   }
   default:
-    Logger::Warn(std::format(
-        "[SS] Distributed Object: '{}' ignoring unknown message type: {}",
-        _doId, msgType));
+    spdlog::get("ss")->warn(
+        "Distributed Object: '{}' ignoring unknown message type: {}", _doId,
+        msgType);
   }
 }
 
@@ -603,8 +596,8 @@ void DistributedObject::HandleLocationChange(const uint32_t &newParent,
 
   // Make sure we're not breaking our DO tree.
   if (newParent == _doId) {
-    Logger::Warn(std::format(
-        "[SS] Distributed Object: '{}' cannot be parented to itself.", _doId));
+    spdlog::get("ss")->warn(
+        "Distributed Object: '{}' cannot be parented to itself.", _doId);
     return;
   }
 
@@ -698,8 +691,8 @@ void DistributedObject::HandleAIChange(const uint64_t &newAI,
   PublishDatagram(dg);
 
   if (newAI) {
-    Logger::Verbose(std::format(
-        "[SS] Distributed Object: '{}' sending AI entry to: {}", _doId, newAI));
+    spdlog::get("ss")->debug(
+        "[SS] Distributed Object: '{}' sending AI entry to: {}", _doId, newAI);
     SendAIEntry(newAI);
   }
 }
@@ -827,24 +820,24 @@ bool DistributedObject::HandleOneUpdate(DatagramIterator &dgi,
 
   DCField *field = _dclass->get_field_by_index(fieldId);
   if (!field) {
-    Logger::Error(std::format("[SS] Distributed Object: '{}' received field "
-                              "update for invalid field: {} - {}",
-                              _doId, fieldId, _dclass->get_name()));
+    spdlog::get("ss")->error("Distributed Object: '{}' received field "
+                             "update for invalid field: {} - {}",
+                             _doId, fieldId, _dclass->get_name());
     return false;
   }
 
-  Logger::Verbose(
-      std::format("[SS] Distributed Object: '{}' handling field update for: {}",
-                  _doId, field->get_name()));
+  spdlog::get("ss")->debug(
+      "Distributed Object: '{}' handling field update for: {}", _doId,
+      field->get_name());
 
   uint16_t fieldStart = dgi.Tell();
 
   try {
     dgi.UnpackField(field, data);
   } catch (const DatagramIteratorEOF &) {
-    Logger::Error(std::format(
-        "[SS] Distributed Object: '{}' received truncated field update for: {}",
-        _doId, field->get_name()));
+    spdlog::get("ss")->error(
+        "Distributed Object: '{}' received truncated field update for: {}",
+        _doId, field->get_name());
     return false;
   }
 
@@ -892,9 +885,9 @@ bool DistributedObject::HandleOneGet(const std::shared_ptr<Datagram> &dg,
                                      const bool &isSubfield) {
   DCField *field = _dclass->get_field_by_index(fieldId);
   if (!field) {
-    Logger::Error(std::format(
-        "[SS] Distributed Object: '{}' get field for: {} not valid for class: ",
-        _doId, fieldId, _dclass->get_name()));
+    spdlog::get("ss")->error(
+        "Distributed Object: '{}' get field for: {} not valid for class: ",
+        _doId, fieldId, _dclass->get_name());
     return false;
   }
 
