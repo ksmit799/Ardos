@@ -1,6 +1,6 @@
 #include "address_utils.h"
 
-#include "../util/logger.h"
+#include <spdlog/spdlog.h>
 
 namespace Ardos {
 
@@ -23,8 +23,7 @@ std::string AddressUtils::resolve_host(const std::shared_ptr<uvw::loop> &loop,
   auto dnsRequest = loop->resource<uvw::get_addr_info_req>();
   auto dnsResult = dnsRequest->addr_info_sync(host, std::to_string(port));
   if (!dnsResult.first) {
-    Logger::Error(
-        std::format("[NET] Failed to resolve host address: {}:{}", host, port));
+    spdlog::error("[NET] Failed to resolve host address: {}:{}", host, port);
     exit(1);
   }
 
@@ -32,11 +31,10 @@ std::string AddressUtils::resolve_host(const std::shared_ptr<uvw::loop> &loop,
   if (inet_ntop(dnsResult.second->ai_family,
                 get_in_addr(dnsResult.second->ai_addr), addr,
                 dnsResult.second->ai_addrlen)) {
-    return std::string(addr);
+    return {addr};
   }
 
-  Logger::Error(
-      std::format("[NET] Failed to parse host address: {}:{}", host, port));
+  spdlog::error("[NET] Failed to parse host address: {}:{}", host, port);
   exit(1);
 }
 

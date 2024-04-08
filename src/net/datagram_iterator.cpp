@@ -1,6 +1,6 @@
 #include "datagram_iterator.h"
 
-#include "../util/logger.h"
+#include <spdlog/spdlog.h>
 
 namespace Ardos {
 
@@ -216,8 +216,8 @@ void DatagramIterator::UnpackField(const DCPackerInterface *field,
       break;
     }
     default:
-      Logger::Error(std::format(
-          "[DGI] Unhandled field unpack for variable length: {}", length));
+      spdlog::error("[DGI] Unhandled field unpack for variable length: {}",
+                    length);
     }
 
     // Unpack field data into the buffer.
@@ -291,8 +291,8 @@ void DatagramIterator::SkipField(const DCPackerInterface *field) {
       break;
     }
     default:
-      Logger::Error(std::format(
-          "[DGI] Unhandled field unpack for variable length: {}", length));
+      spdlog::error("[DGI] Unhandled field unpack for variable length: {}",
+                    length);
     }
 
     // Skip the field data.
@@ -312,7 +312,9 @@ void DatagramIterator::SkipField(const DCPackerInterface *field) {
  * Returns the remaining read size in bytes.
  * @return
  */
-size_t DatagramIterator::GetRemainingSize() const { return _dg->Size() - _offset; }
+size_t DatagramIterator::GetRemainingSize() const {
+  return _dg->Size() - _offset;
+}
 
 /**
  * Returns the remaining bytes to be read.

@@ -17,14 +17,20 @@ DatabaseStateServer::DatabaseStateServer() : ChannelSubscriber() {
   auto config = Config::Instance()->GetNode("db-state-server");
 
   // Log configuration.
-  // We need to set up both `dbss` and `ss` for Distributed Object logging.
   spdlog::stdout_color_mt("dbss");
-  spdlog::stdout_color_mt("ss");
   if (auto logLevel = config["log-level"]) {
     spdlog::get("dbss")->set_level(
         Logger::LevelFromString(logLevel.as<std::string>()));
-    spdlog::get("ss")->set_level(
-        Logger::LevelFromString(logLevel.as<std::string>()));
+  }
+
+  // If we don't already have a State Server category setup,
+  // we need to create one for Distributed Object's.
+  if (!spdlog::get("ss")) {
+    spdlog::stdout_color_mt("ss");
+    if (auto logLevel = config["log-level"]) {
+      spdlog::get("ss")->set_level(
+          Logger::LevelFromString(logLevel.as<std::string>()));
+    }
   }
 
   if (!config["database"]) {

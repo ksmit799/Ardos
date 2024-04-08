@@ -1,6 +1,7 @@
 #include "metrics.h"
 
 #include <prometheus/exposer.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include "config.h"
 #include "logger.h"
@@ -24,7 +25,16 @@ Metrics::Metrics() {
     return;
   }
 
+  spdlog::info("Starting Metrics component...");
+
   auto config = Config::Instance()->GetNode("metrics");
+
+  // Log configuration.
+  spdlog::stdout_color_mt("metrics");
+  if (auto logLevel = config["log-level"]) {
+    spdlog::get("metrics")->set_level(
+        Logger::LevelFromString(logLevel.as<std::string>()));
+  }
 
   // Listen configuration.
   if (auto hostParam = config["host"]) {
@@ -42,7 +52,7 @@ Metrics::Metrics() {
   _registry = std::make_shared<prometheus::Registry>();
   _exposer->RegisterCollectable(_registry);
 
-  Logger::Info(std::format("[METRICS] Listening on {}:{}", _host, _port));
+  spdlog::get("metrics")->info("Listening on {}:{}", _host, _port);
 }
 
 bool Metrics::WantMetrics() const { return _wantMetrics; }

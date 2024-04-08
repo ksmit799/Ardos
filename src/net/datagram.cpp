@@ -1,6 +1,7 @@
 #include "datagram.h"
 
 #include <cstring>
+#include <format>
 
 namespace Ardos {
 
