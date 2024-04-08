@@ -5,9 +5,9 @@
 #include <dcClassParameter.h>
 #include <dcField.h>
 #include <dcSimpleParameter.h>
+#include <spdlog/spdlog.h>
 
 #include "../util/globals.h"
-#include "../util/logger.h"
 
 namespace Ardos {
 
@@ -18,8 +18,8 @@ bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
     uint16_t fieldId = dgi.GetUint16();
     auto field = g_dc_file->get_field_by_index(fieldId);
     if (!field) {
-      Logger::Error(std::format("[DB] Attempted to unpack invalid field ID: {}",
-                                fieldId));
+      spdlog::get("db")->error("Attempted to unpack invalid field ID: {}",
+                               fieldId);
       return false;
     }
 
@@ -39,16 +39,15 @@ bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
           out[field] = std::vector<uint8_t>();
         }
       } catch (const DatagramIteratorEOF &) {
-        Logger::Error(std::format(
-            "[DB] Received truncated field in create/modify request: {}",
-            field->get_name()));
+        spdlog::get("db")->error(
+            "Received truncated field in create/modify request: {}",
+            field->get_name());
         return false;
       }
     } else {
       // Oops, we got a non-db field.
-      Logger::Error(
-          std::format("[DB] Got non-db field in create/modify request: {}",
-                      field->get_name()));
+      spdlog::get("db")->error("Got non-db field in create/modify request: {}",
+                               field->get_name());
 
       // Don't read-in a non-db field.
       if (!clearFields) {
@@ -67,8 +66,8 @@ bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
     uint16_t fieldId = dgi.GetUint16();
     auto field = g_dc_file->get_field_by_index(fieldId);
     if (!field) {
-      Logger::Error(std::format("[DB] Attempted to unpack invalid field ID: {}",
-                                fieldId));
+      spdlog::get("db")->error("Attempted to unpack invalid field ID: {}",
+                               fieldId);
       return false;
     }
 
@@ -80,15 +79,15 @@ bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
         // Unpack the updated field value.
         dgi.UnpackField(field, out[field]);
       } catch (const DatagramIteratorEOF &) {
-        Logger::Error(
-            std::format("[DB] Received truncated field in modify request: {}",
-                        field->get_name()));
+        spdlog::get("db")->error(
+            "Received truncated field in modify request: {}",
+            field->get_name());
         return false;
       }
     } else {
       // Oops, we got a non-db field.
-      Logger::Error(std::format("[DB] Got non-db field in modify request: {}",
-                                field->get_name()));
+      spdlog::get("db")->error("Got non-db field in modify request: {}",
+                               field->get_name());
 
       // We need valid db fields for _IF_EQUALS updates.
       return false;
@@ -448,9 +447,9 @@ bool DatabaseUtils::VerifyFields(const DCClass *dclass,
     if (!dclass->get_field_by_index(field.first->get_number())) {
       // We don't immediately break out here in case we have multiple
       // non-belonging fields.
-      Logger::Error(std::format("[DB] Failed to verify field on class: {} "
-                                "with non-belonging field: {}",
-                                dclass->get_name(), field.first->get_name()));
+      spdlog::get("db")->error("Failed to verify field on class: {} "
+                               "with non-belonging field: {}",
+                               dclass->get_name(), field.first->get_name());
       errors = true;
     }
   }
