@@ -1,7 +1,6 @@
 #include "channel_subscriber.h"
 
 #include "../net/datagram_iterator.h"
-#include "../util/logger.h"
 #include "message_director.h"
 
 namespace Ardos {
