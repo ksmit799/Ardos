@@ -362,10 +362,7 @@ void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
     nlohmann::json clientInfo = nlohmann::json::array();
     for (const auto &participant : _participants) {
       clientInfo.push_back({
-          // We have to do this terribleness because JavaScript doesn't support
-          // uint64's (see handling 'client' messages below.)
-          {"channelHi", (participant->GetChannel() >> 32) & 0xFFFFFFFF},
-          {"channelLo", participant->GetChannel() & 0xFFFFFFFF},
+          {"channel", std::to_string(participant->GetChannel())},
           {"ip", participant->GetRemoteAddress().ip},
           {"port", participant->GetRemoteAddress().port},
           {"state", participant->GetAuthState()},
@@ -389,8 +386,7 @@ void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
   } else if (data["msg"] == "client") {
     // We have to do this terribleness because JavaScript doesn't support
     // uint64's.
-    auto channel = (uint64_t)data["channelHi"].template get<uint32_t>() << 32 |
-                   data["channelLo"].template get<uint32_t>();
+    auto channel = std::stoull(data["channel"].template get<std::string>());
 
     // Try to find a matching client for the provided channel.
     auto participant =
@@ -429,19 +425,22 @@ void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
                            {"zones", interest.second.zones}});
     }
 
-    WebPanel::Send(client,
-                   {
-                       {"type", "ca:client"},
-                       {"success", true},
-                       {"ip", (*participant)->GetRemoteAddress().ip},
-                       {"port", (*participant)->GetRemoteAddress().port},
-                       {"state", (*participant)->GetAuthState()},
-                       {"channels", (*participant)->GetLocalChannels().size()},
-                       {"postRemoves", (*participant)->GetPostRemoves().size()},
-                       {"owned", ownedObjs},
-                       {"session", sessionObjs},
-                       {"interests", interests},
-                   });
+    WebPanel::Send(
+        client,
+        {
+            {"type", "ca:client"},
+            {"success", true},
+            {"ip", (*participant)->GetRemoteAddress().ip},
+            {"port", (*participant)->GetRemoteAddress().port},
+            {"state", (*participant)->GetAuthState()},
+            {"channelHi", ((*participant)->GetChannel() >> 32) & 0xFFFFFFFF},
+            {"channelLo", (*participant)->GetChannel() & 0xFFFFFFFF},
+            {"channels", (*participant)->GetLocalChannels().size()},
+            {"postRemoves", (*participant)->GetPostRemoves().size()},
+            {"owned", ownedObjs},
+            {"session", sessionObjs},
+            {"interests", interests},
+        });
   }
 }
 
