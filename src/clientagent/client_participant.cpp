@@ -518,6 +518,9 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
   case STATESERVER_OBJECT_CHANGING_LOCATION: {
     uint32_t doId = dgi.GetUint32();
     if (TryQueuePending(doId, dgi.GetUnderlyingDatagram())) {
+      // The object that's changing location is currently generating inside an
+      // active InterestOperation. Queue this message to be handled after it
+      // generates.
       return;
     }
 

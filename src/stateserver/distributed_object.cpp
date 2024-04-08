@@ -651,7 +651,7 @@ void DistributedObject::HandleLocationChange(const uint32_t &newParent,
   }
 
   // Send changing location message.
-  auto dg = std::make_shared<Datagram>(targets, sender,
+  auto dg = std::make_shared<Datagram>(targets, _doId,
                                        STATESERVER_OBJECT_CHANGING_LOCATION);
   dg->AddUint32(_doId);
   dg->AddLocation(newParent, newZone);
