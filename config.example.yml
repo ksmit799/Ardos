@@ -1,6 +1,6 @@
-# Console output log level.
-# Options are verbose, info, warn, error or none.
-log-level: verbose
+# Global console output log level.
+# Options are debug, info, warn, error or none.
+log-level: info
 
 # DC (Distributed Class) file paths.
 # These should be kept in-sync globally.
@@ -42,6 +42,10 @@ uberdogs:
 # Web Panel configuration.
 # Can be accessed via the Ardos Web panel for debugging.
 web-panel:
+  # Components can have their own individual log level set.
+  # This will override the global log level set previously.
+  log-level: debug
+
   name: Ardos  # The cluster name to appear in the dashboard.
   port: 7781  # Port the WS connection listens on.
 
