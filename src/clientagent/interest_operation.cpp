@@ -35,8 +35,8 @@ InterestOperation::~InterestOperation() {
 }
 
 void InterestOperation::HandleInterestTimeout() {
-  Logger::Warn(std::format("Interest operation: {}:{} timed out, forcing...",
-                           _interestId, _clientContext));
+  spdlog::get("ca")->warn("Interest operation: {}:{} timed out, forcing...",
+                          _interestId, _clientContext);
 
   _client->_clientAgent->RecordInterestTimeout();
 

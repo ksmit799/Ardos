@@ -12,12 +12,12 @@ ClientParticipant::ClientParticipant(
     ClientAgent *clientAgent, const std::shared_ptr<uvw::tcp_handle> &socket)
     : NetworkClient(socket), ChannelSubscriber(), _clientAgent(clientAgent) {
   auto address = GetRemoteAddress();
-  Logger::Verbose(std::format("[CA] Client connected from {}:{}", address.ip,
-                              address.port));
+  spdlog::get("ca")->debug("Client connected from {}:{}", address.ip,
+                           address.port);
 
   _channel = _clientAgent->AllocateChannel();
   if (!_channel) {
-    Logger::Error("[CA] Channel range depleted!");
+    spdlog::get("ca")->error("Channel range depleted!");
     SendDisconnect(CLIENT_DISCONNECT_GENERIC, "Channel range depleted");
     return;
   }
@@ -91,8 +91,8 @@ void ClientParticipant::Shutdown() {
   while (!_sessionObjects.empty()) {
     uint32_t doId = *_sessionObjects.begin();
     _sessionObjects.erase(doId);
-    Logger::Verbose(std::format(
-        "[CA] Client: {} exited, deleting session object: {}", _channel, doId));
+    spdlog::get("ca")->debug("Client: {} exited, deleting session object: {}",
+                             _channel, doId);
 
     auto dg = std::make_shared<Datagram>(doId, _channel,
                                          STATESERVER_OBJECT_DELETE_RAM);
@@ -107,8 +107,8 @@ void ClientParticipant::Shutdown() {
     (it++)->second->Finish();
   }
 
-  Logger::Verbose(std::format("[CA] Routing {} post-remove(s) for '{}'",
-                              _postRemoves.size(), _channel));
+  spdlog::get("ca")->debug("Routing {} post-remove(s) for '{}'",
+                           _postRemoves.size(), _channel);
 
   // Route any post remove datagrams we might have stored.
   for (const auto &dg : _postRemoves) {
@@ -125,8 +125,8 @@ void ClientParticipant::HandleDisconnect(uv_errno_t code) {
     auto address = GetRemoteAddress();
 
     auto errorEvent = uvw::error_event{(int)code};
-    Logger::Verbose(std::format("[CA] Lost connection from {}:{}: {}",
-                                address.ip, address.port, errorEvent.what()));
+    spdlog::get("ca")->debug("Lost connection from {}:{}: {}", address.ip,
+                             address.port, errorEvent.what());
   }
 
   Shutdown();
@@ -270,9 +270,9 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     uint16_t dcId = dgi.GetUint16();
 
     if (_declaredObjects.contains(doId)) {
-      Logger::Warn(std::format(
-          "[CA] Client: {} received duplicate object declaration: {}", _channel,
-          doId));
+      spdlog::get("ca")->warn(
+          "Client: {} received duplicate object declaration: {}", _channel,
+          doId);
       break;
     }
 
@@ -285,9 +285,9 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
   case CLIENTAGENT_UNDECLARE_OBJECT: {
     uint32_t doId = dgi.GetUint32();
     if (!_declaredObjects.contains(doId)) {
-      Logger::Warn(std::format(
-          "[CA] Client: {} received un-declare object for unknown DoId: ",
-          _channel, doId));
+      spdlog::get("ca")->warn(
+          "Client: {} received un-declare object for unknown DoId: ", _channel,
+          doId);
       break;
     }
 
@@ -309,14 +309,14 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
   case CLIENTAGENT_ADD_SESSION_OBJECT: {
     uint32_t doId = dgi.GetUint32();
     if (_sessionObjects.contains(doId)) {
-      Logger::Warn(std::format(
-          "[CA] Client: {} received duplicate session object declaration: {}",
-          _channel, doId));
+      spdlog::get("ca")->warn(
+          "Client: {} received duplicate session object declaration: {}",
+          _channel, doId);
       break;
     }
 
-    Logger::Verbose(std::format("[CA] Client: {} added session object: {}",
-                                _channel, doId));
+    spdlog::get("ca")->debug("Client: {} added session object: {}", _channel,
+                             doId);
 
     _sessionObjects.insert(doId);
     break;
@@ -324,15 +324,14 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
   case CLIENTAGENT_REMOVE_SESSION_OBJECT: {
     uint32_t doId = dgi.GetUint32();
     if (!_sessionObjects.contains(doId)) {
-      Logger::Warn(std::format(
-          "[CA] Client: {} received remove session object for unknown DoId: {}",
-          _channel, doId));
+      spdlog::get("ca")->warn(
+          "Client: {} received remove session object for unknown DoId: {}",
+          _channel, doId);
       break;
     }
 
-    Logger::Verbose(
-        std::format("[CA] Client: {} removed session object with DoId: {}",
-                    _channel, doId));
+    spdlog::get("ca")->debug("Client: {} removed session object with DoId: {}",
+                             _channel, doId);
 
     _sessionObjects.erase(doId);
     break;
@@ -355,9 +354,9 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
         return;
       }
 
-      Logger::Warn(std::format("[CA] Client: {} received server-side field "
-                               "update for unknown object: {}",
-                               _channel, doId));
+      spdlog::get("ca")->warn("Client: {} received server-side field "
+                              "update for unknown object: {}",
+                              _channel, doId);
       return;
     }
 
@@ -374,10 +373,9 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
         return;
       }
 
-      Logger::Warn(
-          std::format("[CA] Client: {} received server-side multi-field "
-                      "update for unknown object: {}",
-                      _channel, doId));
+      spdlog::get("ca")->warn("Client: {} received server-side multi-field "
+                              "update for unknown object: {}",
+                              _channel, doId);
       return;
     }
 
@@ -390,18 +388,18 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
   case STATESERVER_OBJECT_DELETE_RAM: {
     uint32_t doId = dgi.GetUint32();
 
-    Logger::Verbose(std::format(
-        "[CA] Client: {} received DeleteRam for object with DoId: {}", _channel,
-        doId));
+    spdlog::get("ca")->debug(
+        "Client: {} received DeleteRam for object with DoId: {}", _channel,
+        doId);
 
     if (!LookupObject(doId)) {
       if (TryQueuePending(doId, dgi.GetUnderlyingDatagram())) {
         return;
       }
 
-      Logger::Warn(std::format(
-          "[CA] Client: {} received server-side delete for unknown object: {}",
-          _channel, doId));
+      spdlog::get("ca")->warn(
+          "Client: {} received server-side delete for unknown object: {}",
+          _channel, doId);
       return;
     }
 
@@ -483,9 +481,9 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     uint32_t requestContext = dgi.GetUint32();
     auto it = _pendingInterests.find(requestContext);
     if (it == _pendingInterests.end()) {
-      Logger::Warn(std::format("[CA] Client: {} received object entrance into "
-                               "interest with unknown context: {}",
-                               _channel, requestContext));
+      spdlog::get("ca")->warn("Client: {} received object entrance into "
+                              "interest with unknown context: {}",
+                              _channel, requestContext);
       return;
     }
 
@@ -503,9 +501,9 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
 
     auto it = _pendingInterests.find(context);
     if (it == _pendingInterests.end()) {
-      Logger::Error(std::format(
-          "[CA] Client: {} received GET_ZONES_COUNT for unknown context: {}",
-          _channel, context));
+      spdlog::get("ca")->error(
+          "Client: {} received GET_ZONES_COUNT for unknown context: {}",
+          _channel, context);
       return;
     }
 
@@ -603,9 +601,9 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     }
 
     if (!_ownedObjects.contains(doId)) {
-      Logger::Error(std::format(
-          "[CA] Client: {} received changing owner for unowned object: {}",
-          _channel, doId));
+      spdlog::get("ca")->error(
+          "Client: {} received changing owner for unowned object: {}", _channel,
+          doId);
       return;
     }
 
@@ -624,8 +622,8 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     break;
   }
   default:
-    Logger::Error(std::format("Client: {} received unknown MsgType: {}",
-                              _channel, msgType));
+    spdlog::get("ca")->error("Client: {} received unknown MsgType: {}",
+                             _channel, msgType);
   }
 }
 
@@ -642,9 +640,10 @@ void ClientParticipant::SendDisconnect(const uint16_t &reason,
     return;
   }
 
-  std::string logOut = std::format("[CA] Ejecting client: '{}': {} - {}",
-                                   _channel, reason, message);
-  security ? Logger::Error(logOut) : Logger::Warn(logOut);
+  security ? spdlog::get("ca")->error("Ejecting client: '{}': {} - {}",
+                                      _channel, reason, message)
+           : spdlog::get("ca")->warn("Ejecting client: '{}': {} - {}", _channel,
+                                     reason, message);
 
   auto dg = std::make_shared<Datagram>();
   dg->AddUint16(CLIENT_EJECT);
@@ -745,7 +744,7 @@ void ClientParticipant::HandlePreHello(DatagramIterator &dgi) {
 void ClientParticipant::HandleLoginLegacy(DatagramIterator &dgi) {
   uint32_t authShim = _clientAgent->GetAuthShim();
   if (!authShim) {
-    Logger::Error("[CA] No configured auth shim for legacy login!");
+    spdlog::get("ca")->error("No configured auth shim for legacy login!");
     SendDisconnect(CLIENT_DISCONNECT_GENERIC, "No available login handler!");
     return;
   }
@@ -753,8 +752,8 @@ void ClientParticipant::HandleLoginLegacy(DatagramIterator &dgi) {
   // Get the configured shim UberDOG.
   DCClass *authClass = LookupObject(authShim);
   if (!authClass) {
-    Logger::Error(std::format(
-        "[CA] Auth shim DoId: {} is not a configured UberDOG", authShim));
+    spdlog::get("ca")->error("Auth shim DoId: {} is not a configured UberDOG",
+                             authShim);
     SendDisconnect(CLIENT_DISCONNECT_GENERIC, "No available login handler!");
     return;
   }
@@ -763,8 +762,8 @@ void ClientParticipant::HandleLoginLegacy(DatagramIterator &dgi) {
   // messages.
   DCField *authField = authClass->get_field_by_name("login");
   if (!authField) {
-    Logger::Error(std::format(
-        "[CA] Auth shim UberDOG: {} does not define a login field", authShim));
+    spdlog::get("ca")->error(
+        "Auth shim UberDOG: {} does not define a login field", authShim);
     SendDisconnect(CLIENT_DISCONNECT_GENERIC, "No available login handler!");
     return;
   }
@@ -961,8 +960,8 @@ void ClientParticipant::HandleClientObjectUpdateField(DatagramIterator &dgi) {
       // Get the configured shim UberDOG.
       DCClass *chatClass = LookupObject(chatShim);
       if (!chatClass) {
-        Logger::Error(std::format(
-            "[CA] Chat shim DoId: {} is not a configured UberDOG", chatShim));
+        spdlog::get("ca")->error(
+            "Chat shim DoId: {} is not a configured UberDOG", chatShim);
         // Just drop the message to be safe.
         return;
       }
@@ -971,9 +970,9 @@ void ClientParticipant::HandleClientObjectUpdateField(DatagramIterator &dgi) {
       // This is a 1-1 mapping with the TalkPath_ field names.
       DCField *chatField = chatClass->get_field_by_name(field->get_name());
       if (!chatField) {
-        Logger::Error(std::format(
-            "[CA] Chat shim UberDOG: {} does not define chat field: {}",
-            chatShim, field->get_name()));
+        spdlog::get("ca")->error(
+            "Chat shim UberDOG: {} does not define chat field: {}", chatShim,
+            field->get_name());
         // Just drop the message to be safe.
         return;
       }
@@ -1036,9 +1035,9 @@ void ClientParticipant::HandleClientObjectLocation(DatagramIterator &dgi) {
   auto parentId = dgi.GetUint32();
   auto zoneId = dgi.GetUint32();
 
-  Logger::Verbose(std::format(
-      "[CA] Client: {} relocating owned object: {} to location: {}/{}",
-      _channel, doId, parentId, zoneId));
+  spdlog::get("ca")->debug(
+      "Client: {} relocating owned object: {} to location: {}/{}", _channel,
+      doId, parentId, zoneId);
 
   // Update the object's location with the state server.
   auto dg = std::make_shared<Datagram>(doId, _channel,
@@ -1381,8 +1380,8 @@ void ClientParticipant::HandleAddObject(
   auto dg = std::make_shared<Datagram>();
   dg->AddUint16(other ? CLIENT_ENTER_OBJECT_REQUIRED_OTHER
                       : CLIENT_ENTER_OBJECT_REQUIRED);
-  Logger::Verbose(std::format("[CA] Sending entry of object: {} to client: {}",
-                              doId, _channel));
+  spdlog::get("ca")->debug("Sending entry of object: {} to client: {}", doId,
+                           _channel);
 #ifdef ARDOS_USE_LEGACY_CLIENT
   // TODO: Check if this is the same for Toontown/Pirates.
   dg->AddLocation(parentId, zoneId);
@@ -1436,8 +1435,8 @@ void ClientParticipant::HandleAddOwnership(
     const uint32_t &doId, const uint32_t &parentId, const uint32_t &zoneId,
     const uint16_t &dcId, DatagramIterator &dgi, const bool &other) {
   auto dg = std::make_shared<Datagram>();
-  Logger::Info(std::format(
-      "[CA] Sending owner entry of object: {} to client: {}", doId, _channel));
+  spdlog::get("ca")->debug("Sending owner entry of object: {} to client: {}",
+                           doId, _channel);
 #ifdef ARDOS_USE_LEGACY_CLIENT
   // Fairies only accepts OTHER_OWNER entries and has a slightly different data
   // order.

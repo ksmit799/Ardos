@@ -1,5 +1,7 @@
 #include "client_agent.h"
 
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 #include "../util/config.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
@@ -10,11 +12,18 @@
 namespace Ardos {
 
 ClientAgent::ClientAgent() {
-  Logger::Info("Starting Client Agent component...");
+  spdlog::info("Starting Client Agent component...");
 
   _listenHandle = g_loop->resource<uvw::tcp_handle>();
 
   auto config = Config::Instance()->GetNode("client-agent");
+
+  // Log configuration.
+  spdlog::stdout_color_mt("ca");
+  if (auto logLevel = config["log-level"]) {
+    spdlog::get("ca")->set_level(
+        Logger::LevelFromString(logLevel.as<std::string>()));
+  }
 
   // Listen configuration.
   if (auto hostParam = config["host"]) {
@@ -54,9 +63,9 @@ ClientAgent::ClientAgent() {
     DCClass *dcc =
         g_dc_file->get_class_by_name(uberdog["class"].as<std::string>());
     if (!dcc) {
-      Logger::Error(std::format(
-          "[CA] UberDOG: {} Distributed Class: {} does not exist!",
-          uberdog["id"].as<uint32_t>(), uberdog["class"].as<std::string>()));
+      spdlog::get("ca")->error(
+          "UberDOG: {} Distributed Class: {} does not exist!",
+          uberdog["id"].as<uint32_t>(), uberdog["class"].as<std::string>());
       exit(1);
     }
 
@@ -134,7 +143,7 @@ ClientAgent::ClientAgent() {
   _listenHandle->bind(_host, _port);
   _listenHandle->listen();
 
-  Logger::Info(std::format("[CA] Listening on {}:{}", _host, _port));
+  spdlog::get("ca")->info("Listening on {}:{}", _host, _port);
 }
 
 /**

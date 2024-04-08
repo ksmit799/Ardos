@@ -30,6 +30,17 @@ include_directories(libs/json/include)
 add_subdirectory(libs/yaml-cpp)
 include_directories(libs/yaml-cpp/include)
 
+# Include AMQP-CPP (RabbitMQ).
+add_subdirectory(libs/AMQP-CPP)
+include_directories(libs/AMQP-CPP/include)
+
+# Include spdlog.
+add_subdirectory(libs/spdlog)
+include_directories(libs/spdlog/include)
+
+# Include Prometheus metrics.
+find_package(prometheus-cpp CONFIG REQUIRED)
+
 set(ARDOS_WANT_DB_SERVER ON CACHE BOOL "If on, Ardos will be built with the Database Server component.")
 if (ARDOS_WANT_DB_SERVER)
     # Include MongoDB driver.
@@ -41,13 +52,6 @@ if (ARDOS_WANT_DB_SERVER)
 
     add_definitions(-DARDOS_WANT_DB_SERVER)
 endif ()
-
-# Include AMQP-CPP (RabbitMQ).
-add_subdirectory(libs/AMQP-CPP)
-include_directories(libs/AMQP-CPP/include)
-
-# Include Prometheus metrics.
-find_package(prometheus-cpp CONFIG REQUIRED)
 
 # Optimize windows build.
 if (WIN32)

@@ -1,8 +1,9 @@
 #include "md_participant.h"
 
+#include <spdlog/spdlog.h>
+
 #include "../net/datagram_iterator.h"
 #include "../net/message_types.h"
-#include "../util/logger.h"
 #include "message_director.h"
 
 namespace Ardos {
@@ -10,8 +11,8 @@ namespace Ardos {
 MDParticipant::MDParticipant(const std::shared_ptr<uvw::tcp_handle> &socket)
     : NetworkClient(socket), ChannelSubscriber() {
   auto address = GetRemoteAddress();
-  Logger::Info(std::format("[MD] Participant connected from {}:{}", address.ip,
-                           address.port));
+  spdlog::get("md")->info("Participant connected from {}:{}", address.ip,
+                          address.port);
 
   MessageDirector::Instance()->ParticipantJoined();
 }
@@ -38,8 +39,8 @@ void MDParticipant::Shutdown() {
   // us.
   ChannelSubscriber::Shutdown();
 
-  Logger::Verbose(std::format("[MD] Routing {} post-remove(s) for '{}'",
-                              _postRemoves.size(), _connName));
+  spdlog::get("md")->debug("Routing {} post-remove(s) for '{}'",
+                           _postRemoves.size(), _connName);
 
   // Route any post remove datagrams we might have stored.
   for (const auto &dg : _postRemoves) {
@@ -55,9 +56,8 @@ void MDParticipant::HandleDisconnect(uv_errno_t code) {
   auto address = GetRemoteAddress();
 
   auto errorEvent = uvw::error_event{(int)code};
-  Logger::Info(std::format("[MD] Lost connection from '{}' ({}:{}): {}",
-                           _connName, address.ip, address.port,
-                           errorEvent.what()));
+  spdlog::get("md")->info("Lost connection from '{}' ({}:{}): {}", _connName,
+                          address.ip, address.port, errorEvent.what());
 
   Shutdown();
 }
@@ -91,9 +91,9 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram> &dg) {
         _connName = dgi.GetString();
         break;
       default:
-        Logger::Error(std::format(
-            "[MD] Participant '{}' received unknown control message: {}",
-            _connName, msgType));
+        spdlog::get("md")->error(
+            "Participant '{}' received unknown control message: {}", _connName,
+            msgType);
       }
 
       // We've handled their control message, no need to route through MD.
@@ -103,8 +103,8 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram> &dg) {
     // This wasn't a control message, route it through the message director.
     PublishDatagram(dg);
   } catch (const DatagramIteratorEOF &) {
-    Logger::Error(std::format(
-        "[MD] Participant '{}' received a truncated datagram!", _connName));
+    spdlog::get("md")->error("Participant '{}' received a truncated datagram!",
+                             _connName);
     Shutdown();
   }
 }

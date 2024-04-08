@@ -1,5 +1,7 @@
 #include "message_director.h"
 
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 #include "../clientagent/client_agent.h"
 #ifdef ARDOS_WANT_DB_SERVER
 #include "../database/database_server.h"
@@ -25,12 +27,19 @@ MessageDirector *MessageDirector::Instance() {
 }
 
 MessageDirector::MessageDirector() {
-  Logger::Info("Starting Message Director component...");
+  spdlog::info("Starting Message Director component...");
 
   _connectHandle = g_loop->resource<uvw::tcp_handle>();
   _listenHandle = g_loop->resource<uvw::tcp_handle>();
 
   auto config = Config::Instance()->GetNode("message-director");
+
+  // Log configuration.
+  spdlog::stdout_color_mt("md");
+  if (auto logLevel = config["log-level"]) {
+    spdlog::get("md")->set_level(
+        Logger::LevelFromString(logLevel.as<std::string>()));
+  }
 
   // Listen configuration.
   if (auto hostParam = config["host"]) {
@@ -71,7 +80,7 @@ MessageDirector::MessageDirector() {
       [](const uvw::error_event &event, uvw::tcp_handle &) {
         // Just die on error, the message director always needs a connection to
         // RabbitMQ.
-        Logger::Error(std::format("[MD] Socket error: {}", event.what()));
+        spdlog::get("md")->error("Socket error: {}", event.what());
         exit(1);
       });
 
@@ -184,8 +193,9 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
 #ifdef ARDOS_WANT_DB_SERVER
                 _db = std::make_unique<DatabaseServer>();
 #else
-                Logger::Error("want-database was set to true but Ardos was "
-                              "built without ARDOS_WANT_DB_SERVER");
+                spdlog::get("md")->error(
+                    "want-database was set to true but Ardos was "
+                    "built without ARDOS_WANT_DB_SERVER");
                 exit(1);
 #endif
               }
@@ -201,20 +211,18 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
               // Start listening for incoming connections.
               _listenHandle->listen();
 
-              Logger::Verbose(std::format("[MD] Local Queue: {}", _localQueue));
-
-              Logger::Info(
-                  std::format("[MD] Listening on {}:{}", _host, _port));
+              spdlog::get("md")->debug("Local Queue: {}", _localQueue);
+              spdlog::get("md")->info("Listening on {}:{}", _host, _port);
             })
             .onError([](const char *message) {
-              Logger::Error(std::format(
-                  "[MD] Failed to declare local queue: {}", message));
+              spdlog::get("md")->error("Failed to declare local queue: {}",
+                                       message);
               exit(1);
             });
       })
       .onError([](const char *message) {
-        Logger::Error(
-            std::format("[MD] Failed to declare global exchange: {}", message));
+        spdlog::get("md")->error("Failed to declare global exchange: {}",
+                                 message);
         exit(1);
       });
 }
@@ -234,7 +242,7 @@ void MessageDirector::onError(AMQP::Connection *connection,
                               const char *message) {
   // The connection is dead at this point.
   // Log out an exception and shut everything down.
-  Logger::Error(std::format("[MD] RabbitMQ error: {}", message));
+  spdlog::get("md")->error("RabbitMQ error: {}", message);
   exit(1);
 }
 
@@ -402,10 +410,10 @@ void MessageDirector::StartConsuming() {
         _leavingSubscribers.clear();
       })
       .onCancelled([](const std::string &consumerTag) {
-        Logger::Error("[MD] Channel consuming cancelled unexpectedly.");
+        spdlog::get("md")->error("Channel consuming cancelled unexpectedly.");
       })
       .onError([](const char *message) {
-        Logger::Error(std::format("[MD] Received error: {}", message));
+        spdlog::get("md")->error("Received error: {}", message);
       });
 }
 

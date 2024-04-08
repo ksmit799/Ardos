@@ -1,3 +1,5 @@
+#include <spdlog/spdlog.h>
+
 #include "messagedirector/message_director.h"
 #include "util/config.h"
 #include "util/globals.h"
@@ -16,18 +18,20 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  spdlog::info("Starting Ardos cluster...");
+
   Config::Instance()->LoadConfig(configName);
 
-  Logger::SetLogLevel(Config::Instance()->GetString("log-level", "warning"));
-
-  Logger::Info("Starting Ardos cluster...");
+  // Set global log level.
+  spdlog::set_level(Logger::LevelFromString(
+      Config::Instance()->GetString("log-level", "warning")));
 
   // Load DC files from config.
   g_dc_file = new DCFile();
 
   auto dcList = Config::Instance()->GetNode("dc-files");
   if (!dcList) {
-    Logger::Error("Your config file must contain a dc-files definition!");
+    spdlog::error("Your config file must contain a dc-files definition!");
     return EXIT_FAILURE;
   }
 
@@ -36,12 +40,12 @@ int main(int argc, char *argv[]) {
     if (!g_dc_file->read(dcName)) {
       // Just die if we can't read a DC file, they're very important to have
       // loaded correctly.
-      Logger::Error(std::format("Failed to read DC file `{}`!", dcName));
+      spdlog::error("Failed to read DC file `{}`!", dcName);
       return EXIT_FAILURE;
     }
   }
 
-  Logger::Verbose(std::format("Computed DC hash: {}", g_dc_file->get_hash()));
+  spdlog::debug("Computed DC hash: {}", g_dc_file->get_hash());
 
   // Setup main event loop.
   g_main_thread_id = std::this_thread::get_id();

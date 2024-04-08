@@ -1,13 +1,12 @@
 #include "web_panel.h"
 
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 #include "../clientagent/client_agent.h"
 #include "../database/database_server.h"
 #include "../messagedirector/message_director.h"
-#include "../net/datagram.h"
 #include "../stateserver/database_state_server.h"
-#include "../stateserver/state_server.h"
 #include "../util/config.h"
-#include "../util/globals.h"
 #include "../util/logger.h"
 
 namespace Ardos {
@@ -15,12 +14,19 @@ namespace Ardos {
 WebPanel *WebPanel::Instance = nullptr;
 
 WebPanel::WebPanel() {
-  Logger::Info("Starting Web Panel component...");
+  spdlog::info("Starting Web Panel component...");
 
   Instance = this;
 
   // Web Panel configuration.
   auto config = Config::Instance()->GetNode("web-panel");
+
+  // Log configuration.
+  spdlog::stdout_color_mt("web");
+  if (auto logLevel = config["log-level"]) {
+    spdlog::get("web")->set_level(
+        Logger::LevelFromString(logLevel.as<std::string>()));
+  }
 
   // Cluster name configuration.
   if (auto nameParam = config["name"]) {
@@ -56,18 +62,17 @@ WebPanel::WebPanel() {
 
     SSL_CTX *ctx = SSL_CTX_new(method);
     if (!ctx) {
-      Logger::Error("Unable to create SSL context");
+      spdlog::get("web")->error("Unable to create SSL context");
     }
 
     if (SSL_CTX_use_certificate_file(ctx, _cert.c_str(), SSL_FILETYPE_PEM) <=
         0) {
-      Logger::Error(std::format("[WEB] Failed to load cert file: {}", _cert));
+      spdlog::get("web")->error("Failed to load cert file: {}", _cert);
       exit(1);
     }
 
     if (SSL_CTX_use_PrivateKey_file(ctx, _key.c_str(), SSL_FILETYPE_PEM) <= 0) {
-      Logger::Error(
-          std::format("[WEB] Failed to load private key file: {}", _cert));
+      spdlog::get("web")->error("Failed to load private key file: {}", _cert);
       exit(1);
     }
 
@@ -87,8 +92,7 @@ WebPanel::WebPanel() {
 
   _server->SetClientConnectedCallback(
       [](ws28::Client *client, ws28::HTTPRequest &) {
-        Logger::Verbose(
-            std::format("[WEB] Client connected from {}", client->GetIP()));
+        spdlog::get("web")->debug("Client connected from {}", client->GetIP());
 
         auto *data = (ClientData *)malloc(sizeof(ClientData));
         data->authed = false;
@@ -97,8 +101,7 @@ WebPanel::WebPanel() {
       });
 
   _server->SetClientDisconnectedCallback([](ws28::Client *client) {
-    Logger::Verbose(
-        std::format("[WEB] Client '{}' disconnected", client->GetIP()));
+    spdlog::get("web")->debug("Client '{}' disconnected", client->GetIP());
 
     // Free alloc'd user data.
     if (client->GetUserData() != nullptr) {
@@ -115,8 +118,8 @@ WebPanel::WebPanel() {
   // Start listening!
   _server->Listen(_port);
 
-  Logger::Info(std::format("[WEB] Listening on {} [{}]", _port,
-                           _secure ? "SECURE" : "UNSECURE"));
+  spdlog::get("web")->info("Listening on {} [{}]", _port,
+                           _secure ? "SECURE" : "UNSECURE");
 }
 
 void WebPanel::Send(ws28::Client *client, const nlohmann::json &data) {

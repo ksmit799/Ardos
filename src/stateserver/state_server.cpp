@@ -1,6 +1,7 @@
 #include "state_server.h"
 
 #include <dcClass.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include "../net/message_types.h"
 #include "../util/config.h"
@@ -13,12 +14,20 @@
 namespace Ardos {
 
 StateServer::StateServer() : ChannelSubscriber() {
-  Logger::Info("Starting State Server component...");
+  spdlog::info("Starting State Server component...");
 
   // State Server configuration.
   auto config = Config::Instance()->GetNode("state-server");
+
+  // Log configuration.
+  spdlog::stdout_color_mt("ss");
+  if (auto logLevel = config["log-level"]) {
+    spdlog::get("ss")->set_level(
+        Logger::LevelFromString(logLevel.as<std::string>()));
+  }
+
   if (!config["channel"]) {
-    Logger::Error("[SS] Missing or invalid channel!");
+    spdlog::get("ss")->error("Missing or invalid channel!");
     exit(1);
   }
 
@@ -60,12 +69,11 @@ void StateServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       break;
     default:
       // Hopefully we managed to unpack the sender...
-      Logger::Warn(
-          std::format("[SS] Received unknown message: {} from sender: {}",
-                      msgType, sender));
+      spdlog::get("ss")->warn("Received unknown message: {} from sender: {}",
+                              msgType, sender);
     }
   } catch (const DatagramIteratorEOF &) {
-    Logger::Error("[SS] Received a truncated datagram!");
+    spdlog::get("ss")->error("Received a truncated datagram!");
   }
 }
 
@@ -77,16 +85,15 @@ void StateServer::HandleGenerate(DatagramIterator &dgi, const bool &other) {
 
   // Make sure we don't have a duplicate generate.
   if (_distObjs.contains(doId)) {
-    Logger::Error(
-        std::format("[SS] Received duplicate generate for DoId: {}", doId));
+    spdlog::get("ss")->error("Received duplicate generate for DoId: {}", doId);
     return;
   }
 
   // Make sure we have a valid distributed class.
   DCClass *dcClass = g_dc_file->get_class(dcId);
   if (!dcClass) {
-    Logger::Error(std::format(
-        "[SS] Received generate for unknown distributed class: {}", dcId));
+    spdlog::get("ss")->error(
+        "Received generate for unknown distributed class: {}", dcId);
     return;
   }
 
@@ -107,8 +114,8 @@ void StateServer::HandleDeleteAI(DatagramIterator &dgi,
                                  const uint64_t &sender) {
   uint64_t aiChannel = dgi.GetUint64();
 
-  Logger::Info(std::format("[SS] AI '{}' going offline... Deleting objects.",
-                           aiChannel));
+  spdlog::get("ss")->info("AI '{}' going offline... Deleting objects.",
+                          aiChannel);
 
   std::unordered_set<uint64_t> targets;
   for (const auto &distObj : _distObjs) {
