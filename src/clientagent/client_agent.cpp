@@ -362,7 +362,10 @@ void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
     nlohmann::json clientInfo = nlohmann::json::array();
     for (const auto &participant : _participants) {
       clientInfo.push_back({
-          {"channel", participant->GetChannel()},
+          // We have to do this terribleness because JavaScript doesn't support
+          // uint64's (see handling 'client' messages below.)
+          {"channelHi", (participant->GetChannel() >> 32) & 0xFFFFFFFF},
+          {"channelLo", participant->GetChannel() & 0xFFFFFFFF},
           {"ip", participant->GetRemoteAddress().ip},
           {"port", participant->GetRemoteAddress().port},
           {"state", participant->GetAuthState()},
@@ -384,7 +387,10 @@ void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
                                {"clients", clientInfo},
                            });
   } else if (data["msg"] == "client") {
-    auto channel = data["channel"].template get<uint64_t>();
+    // We have to do this terribleness because JavaScript doesn't support
+    // uint64's.
+    auto channel = (uint64_t)data["channelHi"].template get<uint32_t>() << 32 |
+                   data["channelLo"].template get<uint32_t>();
 
     // Try to find a matching client for the provided channel.
     auto participant =
@@ -418,7 +424,7 @@ void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
     // Build an active interests array.
     nlohmann::json interests = nlohmann::json::array();
     for (const auto &interest : (*participant)->GetInterests()) {
-      ownedObjs.push_back({{"id", interest.first},
+      interests.push_back({{"id", interest.first},
                            {"parent", interest.second.parent},
                            {"zones", interest.second.zones}});
     }
