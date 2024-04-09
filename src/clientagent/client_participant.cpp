@@ -982,6 +982,10 @@ void ClientParticipant::HandleClientObjectUpdateField(DatagramIterator &dgi) {
                                            STATESERVER_OBJECT_SET_FIELD);
       dg->AddUint32(chatShim);
       dg->AddUint16(chatField->get_number());
+      // For whisper messages, add the target DoId (receiver.)
+      if (field->get_name() == "setTalkWhisper") {
+        dg->AddUint32(doId);
+      }
       dg->AddData(data);
       PublishDatagram(dg);
       return;
