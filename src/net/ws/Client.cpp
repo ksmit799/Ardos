@@ -1,15 +1,27 @@
 #include "Client.h"
 #include "Server.h"
-#include "base64.h"
+
+#include <openssl/evp.h>
+#include <openssl/sha.h>
+
+#include <array>
 #include <string>
 #include <sstream>
 #include <cassert>
 
-#include <openssl/sha.h>
-
 namespace ws28 {
 	
 namespace detail {
+	template<size_t Length>
+	static auto base64_encode_static(const unsigned char (&input)[Length]){
+		constexpr size_t LengthReserved = ((Length + 2) / 3) * 4 + 1;
+		std::array<char, LengthReserved> output;
+		int res = EVP_EncodeBlock((unsigned char*) output.data(), input, Length);
+		(void) res;
+		assert(LengthReserved - 1 == (size_t) res);
+		return output;
+	}
+	
 	bool equalsi(std::string_view a, std::string_view b){
 		if(a.size() != b.size()) return false;
 		for(;;){
@@ -190,11 +202,12 @@ void Client::Destroy(){
 	
 	m_Socket->data = nullptr;
 	
-	auto myself = m_pServer->NotifyClientPreDestroyed(this);
+	auto myself = shared_from_this();
+	m_pServer->NotifyClientPreDestroyed(this);
 	
 	struct ShutdownRequest : uv_shutdown_t {
 		SocketHandle socket;
-		std::unique_ptr<Client> client;
+		std::shared_ptr<Client> client;
 		Server::ClientDisconnectedFn cb;
 	};
 	
@@ -280,7 +293,7 @@ void Client::WriteRawQueue(std::unique_ptr<char[]> data, size_t len){
 	
 	struct CustomWriteRequest {
 		uv_write_t req;
-		Client *client;
+		std::shared_ptr<Client> client;
 		std::unique_ptr<char[]> data;
 	};
 	
@@ -289,7 +302,7 @@ void Client::WriteRawQueue(std::unique_ptr<char[]> data, size_t len){
 	buf.len = len;
 
 	auto request = new CustomWriteRequest();
-	request->client = this;
+	request->client = shared_from_this();
 	request->data = std::move(data);
 	
 	if(uv_write(&request->req, (uv_stream_t*) m_Socket.get(), &buf, 1, [](uv_write_t* req, int status){
@@ -651,7 +664,7 @@ void Client::OnSocketData(char *data, size_t len){
 		EVP_MD_CTX_free(sha1);
 #endif
 		
-		auto solvedHash = base64_encode(hash, sizeof(hash));
+		auto solvedHash = detail::base64_encode_static(hash);
 		
 		char buf[256]; // We can use up to 101 + 27 + 28 + 1 characters, and we round up just because
 		int bufLen = snprintf(buf, sizeof(buf),
@@ -662,7 +675,7 @@ void Client::OnSocketData(char *data, size_t len){
 			"Sec-WebSocket-Accept: %s\r\n\r\n",
 			
 			sendMyVersion ? "Sec-WebSocket-Version: 13\r\n" : "",
-			solvedHash.c_str()
+			solvedHash.data()
 		);
 		
 		assert(bufLen >= 0 && (size_t) bufLen < sizeof(buf));
