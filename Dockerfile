@@ -1,9 +1,9 @@
-FROM ubuntu:24.04 as build
+FROM ubuntu:24.04 AS build
 
 # Install dependencies.
 RUN set -ex; \
     apt-get update; \
-    apt-get install -y cmake g++ gcc curl libssl-dev;
+    apt-get install -y cmake g++ gcc curl make git libssl-dev;
 
 # Copy source files.
 COPY . /app
