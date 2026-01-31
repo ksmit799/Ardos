@@ -10,7 +10,7 @@ COPY . /app
 
 # Build.
 WORKDIR /app/build
-RUN cmake .. -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release && make
+RUN cmake .. -DCMAKE_TOOLCHAIN_FILE=/app/libs/vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release && make
 
 FROM ubuntu:24.04
 
