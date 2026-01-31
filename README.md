@@ -23,22 +23,51 @@ behaviour.
 Please see the [1.0.0 Milestone](https://github.com/ksmit799/Ardos/milestone/1) which tracks progress towards Ardos'
 first major release.
 
-## Requirements
+## Building
 
-### MongoDB Driver
+Ardos uses CMake and vcpkg for dependency management. vcpkg is included as a git submodule, so you do not need to install it separately. The project's `vcpkg.json` manifest automatically installs all dependencies except `dclass` (which is included in-tree).
 
-NOTE: The MongoDB Driver is only required if you're building Ardos with `ARDOS_WANT_DB_SERVER`
+### Prerequisites
 
-See this [tutorial](https://www.mongodb.com/developer/products/mongodb/getting-started-mongodb-c/) for an installation
-guide.
+- CMake 3.22 or later
+- C++20 compatible compiler
+- Git (to clone the repository and its submodules)
 
-### Prometheus Metrics
+### Building Ardos
 
-NOTE: While Ardos requires Prometheus Metrics to build, it can be configured on/off via the config.
-It's highly recommended to run Ardos with metrics enabled, as it allows insight into how a particular cluster is
-operating/performing.
+1. Clone the repository and its submodules (this includes vcpkg):
+   ```bash
+   git clone --recurse-submodules https://github.com/ksmit799/Ardos.git
+   cd Ardos
+   ```
+   If you already cloned without submodules:
+   ```bash
+   git submodule update --init --recursive
+   ```
 
-See this [tutorial](https://github.com/jupp0r/prometheus-cpp#via-cmake) for an installation guide.
+2. Configure CMake using the bundled vcpkg toolchain:
+   ```bash
+   cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake
+   ```
+   On Windows (PowerShell):
+   ```powershell
+   cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake
+   ```
+
+3. Build:
+   ```bash
+   cmake --build build
+   ```
+
+The binary will be located at `build/bin/ardos` (or `build/bin/ardos.exe` on Windows).
+
+### Optional: Database Server Support
+
+To build with MongoDB database server support, ensure `ARDOS_WANT_DB_SERVER` is enabled (it's ON by default). The MongoDB C++ driver will be automatically installed via vcpkg.
+
+### Legacy Build Instructions
+
+If you prefer to build dependencies manually or use system packages, see the [wiki](https://github.com/ksmit799/Ardos/wiki) for detailed instructions.
 
 ## OTP Architecture Resources
 

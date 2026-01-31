@@ -1,0 +1,21 @@
+{
+  "name": "ardos",
+  "version": "1.2.0",
+  "description": "A Realtime Distributed Object Server.",
+  "homepage": "https://github.com/ksmit799/Ardos",
+  "license": "BSD 3-Clause",
+  "dependencies": [
+    "openssl",
+    "libuv",
+    "uvw",
+    "nlohmann-json",
+    "yaml-cpp",
+    "amqpcpp",
+    "spdlog",
+    "prometheus-cpp",
+    {
+      "name": "mongo-cxx-driver",
+      "features": ["shared"]
+    }
+  ]
+}
