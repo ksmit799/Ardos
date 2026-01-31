@@ -1,42 +1,18 @@
-FROM ubuntu:23.10 as build
+FROM ubuntu:24.04 as build
 
 # Install dependencies.
 RUN set -ex; \
     apt-get update; \
     apt-get install -y cmake g++ gcc curl libssl-dev;
 
-# Install/build MongoDB C driver.
-WORKDIR /app/repos
-RUN curl -OL https://github.com/mongodb/mongo-c-driver/releases/download/1.24.3/mongo-c-driver-1.24.3.tar.gz
-RUN tar -xzf mongo-c-driver-1.24.3.tar.gz
-WORKDIR /app/repos/mongo-c-driver-1.24.3/cmake-build
-RUN cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DENABLE_TESTS=OFF
-RUN cmake --build . --target install
-
-# Install/build MongoDB CXX driver.
-WORKDIR /app/repos
-RUN curl -OL https://github.com/mongodb/mongo-cxx-driver/releases/download/r3.8.0/mongo-cxx-driver-r3.8.0.tar.gz
-RUN tar -xzf mongo-cxx-driver-r3.8.0.tar.gz
-WORKDIR /app/repos/mongo-cxx-driver-r3.8.0/build
-RUN cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_CXX_STANDARD=20 -DENABLE_TESTS=OFF
-RUN cmake --build . --target install
-
-# Install/build Prometheus metrics.
-WORKDIR /app/repos
-RUN curl -OL https://github.com/jupp0r/prometheus-cpp/releases/download/v1.1.0/prometheus-cpp-with-submodules.tar.gz
-RUN tar -xzf prometheus-cpp-with-submodules.tar.gz
-WORKDIR /app/repos/prometheus-cpp-with-submodules/_build
-RUN cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_CXX_STANDARD=20 -DBUILD_SHARED_LIBS=ON -DENABLE_PUSH=OFF -DENABLE_COMPRESSION=OFF
-RUN cmake --build . --target install
-
 # Copy source files.
 COPY . /app
 
 # Build.
 WORKDIR /app/build
-RUN cmake .. -DCMAKE_BUILD_TYPE=Release && make
+RUN cmake .. -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release && make
 
-FROM ubuntu:23.10
+FROM ubuntu:24.04
 
 # Install dependencies.
 RUN set -ex; \

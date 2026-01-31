@@ -11,7 +11,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 
-# Find dependencies via vcpkg (or system packages).
+# Find dependencies via vcpkg.
 find_package(OpenSSL REQUIRED)
 find_package(libuv CONFIG REQUIRED)
 find_package(uvw CONFIG REQUIRED)
@@ -24,7 +24,7 @@ find_package(prometheus-cpp CONFIG REQUIRED)
 set(ARDOS_WANT_DB_SERVER ON CACHE BOOL "If on, Ardos will be built with the Database Server component.")
 if (ARDOS_WANT_DB_SERVER)
     # Include MongoDB driver.
-    find_package(mongo-cxx-driver CONFIG REQUIRED)
+    find_package(mongocxx CONFIG REQUIRED)
 
     add_definitions(-DARDOS_WANT_DB_SERVER)
 endif ()

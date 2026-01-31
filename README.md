@@ -18,20 +18,14 @@ It's highly recommended to view the Ardos [wiki](https://github.com/ksmit799/Ard
 configuration examples, deployment strategies, networking topology, and help on determining whether Ardos is the right
 fit for you.
 
-Ardos is still early in its development, and as such you may encounter missing/incomplete features and erratic
-behaviour.
-Please see the [1.0.0 Milestone](https://github.com/ksmit799/Ardos/milestone/1) which tracks progress towards Ardos'
-first major release.
-
 ## Building
 
-Ardos uses CMake and vcpkg for dependency management. vcpkg is included as a git submodule, so you do not need to install it separately. The project's `vcpkg.json` manifest automatically installs all dependencies except `dclass` (which is included in-tree).
+Ardos uses CMake and vcpkg for dependency management. vcpkg is included as a git submodule, so you do not need to install it separately.
 
 ### Prerequisites
 
 - CMake 3.22 or later
 - C++20 compatible compiler
-- Git (to clone the repository and its submodules)
 
 ### Building Ardos
 
@@ -49,25 +43,19 @@ Ardos uses CMake and vcpkg for dependency management. vcpkg is included as a git
    ```bash
    cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake
    ```
-   On Windows (PowerShell):
-   ```powershell
-   cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake
-   ```
 
 3. Build:
    ```bash
    cmake --build build
    ```
 
-The binary will be located at `build/bin/ardos` (or `build/bin/ardos.exe` on Windows).
-
 ### Optional: Database Server Support
 
 To build with MongoDB database server support, ensure `ARDOS_WANT_DB_SERVER` is enabled (it's ON by default). The MongoDB C++ driver will be automatically installed via vcpkg.
 
-### Legacy Build Instructions
+### Optional: Legacy Mode
 
-If you prefer to build dependencies manually or use system packages, see the [wiki](https://github.com/ksmit799/Ardos/wiki) for detailed instructions.
+Ardos supports building in "legacy" mode, which makes the cluster compatible with original Disney clients. Generally, this shouldn't be used for new projects. To enable legacy mode, compile with `ARDOS_USE_LEGACY_CLIENT`. 
 
 ## OTP Architecture Resources
 

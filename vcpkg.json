@@ -3,7 +3,7 @@
   "version": "1.2.0",
   "description": "A Realtime Distributed Object Server.",
   "homepage": "https://github.com/ksmit799/Ardos",
-  "license": "BSD 3-Clause",
+  "license": "BSD-3-Clause",
   "dependencies": [
     "openssl",
     "libuv",
@@ -13,9 +13,7 @@
     "amqpcpp",
     "spdlog",
     "prometheus-cpp",
-    {
-      "name": "mongo-cxx-driver",
-      "features": ["shared"]
-    }
-  ]
+    "mongo-cxx-driver"
+  ],
+  "builtin-baseline": "66c0373dc7fca549e5803087b9487edfe3aca0a1"
 }
