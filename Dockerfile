@@ -3,10 +3,22 @@ FROM ubuntu:24.04 AS build
 # Install dependencies.
 RUN set -ex; \
     apt-get update; \
-    apt-get install -y cmake g++ gcc curl make git libssl-dev;
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        curl \
+        git \
+        libssl-dev \
+        tar \
+        unzip \
+        zip; \
+    rm -rf /var/lib/apt/lists/*;
 
 # Copy source files.
 COPY . /app
+
+# Bootstrap vcpkg first so the toolchain finds the vcpkg binary.
+RUN /app/libs/vcpkg/bootstrap-vcpkg.sh -disableMetrics
 
 # Build.
 WORKDIR /app/build
