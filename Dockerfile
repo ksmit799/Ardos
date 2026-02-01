@@ -14,17 +14,11 @@ RUN cmake .. -DCMAKE_TOOLCHAIN_FILE=/app/libs/vcpkg/scripts/buildsystems/vcpkg.c
 
 FROM ubuntu:24.04
 
-# Install dependencies.
 RUN set -ex; \
-    apt-get update; \
-    apt-get install -y libssl3;
+    apt-get update;
 
 # Copy the build artificat.
 COPY --from=build /app/build/bin/ardos /app/ardos
-COPY --from=build /app/build/bin/libuv.s* /usr/local/lib/
-COPY --from=build /usr/local/lib/lib* /usr/local/lib/
-
-RUN ldconfig
 
 # Run.
 ENTRYPOINT ["./app/ardos"]
