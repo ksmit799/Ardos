@@ -53,7 +53,7 @@ include_directories(libs/dclass)
 
 target_link_libraries(ardos PRIVATE
     OpenSSL::SSL
-    libuv::uv
+    $<IF:$<TARGET_EXISTS:libuv::uv_a>,libuv::uv_a,libuv::uv>
     uvw::uvw
     nlohmann_json::nlohmann_json
     yaml-cpp::yaml-cpp
@@ -63,5 +63,9 @@ target_link_libraries(ardos PRIVATE
 )
 
 if (ARDOS_WANT_DB_SERVER)
-    target_link_libraries(ardos PRIVATE mongo::mongocxx_shared mongo::bsoncxx_shared)
+    # mongo-cxx-driver: vcpkg uses static on Linux, shared on Windows by default
+    target_link_libraries(ardos PRIVATE
+        $<IF:$<TARGET_EXISTS:mongo::mongocxx_static>,mongo::mongocxx_static,mongo::mongocxx_shared>
+        $<IF:$<TARGET_EXISTS:mongo::bsoncxx_static>,mongo::bsoncxx_static,mongo::bsoncxx_shared>
+    )
 endif ()
