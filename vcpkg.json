@@ -15,5 +15,5 @@
     "prometheus-cpp",
     "mongo-cxx-driver"
   ],
-  "builtin-baseline": "66c0373dc7fca549e5803087b9487edfe3aca0a1"
+  "builtin-baseline": "3895230f38e498525f2560a281223d12066fa74a"
 }
