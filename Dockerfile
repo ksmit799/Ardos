@@ -8,6 +8,8 @@ RUN set -ex; \
 # Copy source files.
 COPY . /app
 
+RUN git submodule update --init --recursive
+
 # Build.
 WORKDIR /app/build
 RUN cmake .. -DCMAKE_TOOLCHAIN_FILE=/app/libs/vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release && make
