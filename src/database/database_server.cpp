@@ -2,6 +2,7 @@
 
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/json.hpp>
+#include <bsoncxx/stdx/optional.hpp>
 #include <dcClass.h>
 #include <dcPacker.h>
 #include <mongocxx/exception/operation_exception.hpp>
@@ -366,7 +367,7 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
   uint32_t context = dgi.GetUint32();
   uint32_t doId = dgi.GetUint32();
 
-  std::optional<bsoncxx::document::value> obj;
+  bsoncxx::stdx::optional<bsoncxx::document::value> obj;
   try {
     obj = _db["objects"].find_one(
         document{} << "_id" << static_cast<int64_t>(doId) << finalize);
@@ -463,7 +464,7 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
   auto responseType = multiple ? DBSERVER_OBJECT_GET_FIELDS_RESP
                                : DBSERVER_OBJECT_GET_FIELD_RESP;
 
-  std::optional<bsoncxx::document::value> obj;
+  bsoncxx::stdx::optional<bsoncxx::document::value> obj;
   try {
     obj = _db["objects"].find_one(
         document{} << "_id" << static_cast<int64_t>(doId) << finalize);
@@ -569,7 +570,7 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
   auto doId = dgi.GetUint32();
   auto fieldCount = multiple ? dgi.GetUint16() : 1;
 
-  std::optional<bsoncxx::document::value> obj;
+  bsoncxx::stdx::optional<bsoncxx::document::value> obj;
   try {
     obj = _db["objects"].find_one(
         document{} << "_id" << static_cast<int64_t>(doId) << finalize);
@@ -690,7 +691,7 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
   auto responseType = multiple ? DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS_RESP
                                : DBSERVER_OBJECT_SET_FIELD_IF_EQUALS_RESP;
 
-  std::optional<bsoncxx::document::value> obj;
+  bsoncxx::stdx::optional<bsoncxx::document::value> obj;
   try {
     obj = _db["objects"].find_one(
         document{} << "_id" << static_cast<int64_t>(doId) << finalize);

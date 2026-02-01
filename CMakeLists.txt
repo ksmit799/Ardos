@@ -11,44 +11,20 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 
-# Include OpenSSL.
+# Find dependencies via vcpkg.
 find_package(OpenSSL REQUIRED)
-include_directories(${OPENSSL_INCLUDE_DIR})
-
-# Include libuv.
-add_subdirectory(libs/libuv)
-include_directories(libs/libuv/include)
-
-# Include uvw (libuv C++ wrapper).
-include_directories(libs/uvw/src)
-
-# Include JSON.
-add_subdirectory(libs/json)
-include_directories(libs/json/include)
-
-# Include YAML-CPP.
-add_subdirectory(libs/yaml-cpp)
-include_directories(libs/yaml-cpp/include)
-
-# Include AMQP-CPP (RabbitMQ).
-add_subdirectory(libs/AMQP-CPP)
-include_directories(libs/AMQP-CPP/include)
-
-# Include spdlog.
-add_subdirectory(libs/spdlog)
-include_directories(libs/spdlog/include)
-
-# Include Prometheus metrics.
+find_package(libuv CONFIG REQUIRED)
+find_package(uvw CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+find_package(yaml-cpp CONFIG REQUIRED)
+find_package(amqpcpp CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
 find_package(prometheus-cpp CONFIG REQUIRED)
 
 set(ARDOS_WANT_DB_SERVER ON CACHE BOOL "If on, Ardos will be built with the Database Server component.")
 if (ARDOS_WANT_DB_SERVER)
     # Include MongoDB driver.
     find_package(mongocxx CONFIG REQUIRED)
-    find_package(bsoncxx CONFIG REQUIRED)
-
-    include_directories(${LIBMONGOCXX_INCLUDE_DIRS})
-    include_directories(${LIBBSONCXX_INCLUDE_DIRS})
 
     add_definitions(-DARDOS_WANT_DB_SERVER)
 endif ()
@@ -75,8 +51,21 @@ add_executable(ardos ${ARDOS_SOURCES} ${ARDOS_HEADERS})
 add_subdirectory(libs/dclass)
 include_directories(libs/dclass)
 
-target_link_libraries(ardos PRIVATE uv OpenSSL::SSL nlohmann_json::nlohmann_json yaml-cpp amqpcpp prometheus-cpp::pull)
+target_link_libraries(ardos PRIVATE
+    OpenSSL::SSL
+    $<IF:$<TARGET_EXISTS:libuv::uv_a>,libuv::uv_a,libuv::uv>
+    uvw::uvw
+    nlohmann_json::nlohmann_json
+    yaml-cpp::yaml-cpp
+    amqpcpp
+    spdlog::spdlog
+    prometheus-cpp::pull
+)
 
 if (ARDOS_WANT_DB_SERVER)
-    target_link_libraries(ardos PRIVATE mongo::mongocxx_shared mongo::bsoncxx_shared)
+    # mongo-cxx-driver: vcpkg uses static on Linux, shared on Windows by default
+    target_link_libraries(ardos PRIVATE
+        $<IF:$<TARGET_EXISTS:mongo::mongocxx_static>,mongo::mongocxx_static,mongo::mongocxx_shared>
+        $<IF:$<TARGET_EXISTS:mongo::bsoncxx_static>,mongo::bsoncxx_static,mongo::bsoncxx_shared>
+    )
 endif ()

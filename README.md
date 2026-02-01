@@ -18,27 +18,44 @@ It's highly recommended to view the Ardos [wiki](https://github.com/ksmit799/Ard
 configuration examples, deployment strategies, networking topology, and help on determining whether Ardos is the right
 fit for you.
 
-Ardos is still early in its development, and as such you may encounter missing/incomplete features and erratic
-behaviour.
-Please see the [1.0.0 Milestone](https://github.com/ksmit799/Ardos/milestone/1) which tracks progress towards Ardos'
-first major release.
+## Building
 
-## Requirements
+Ardos uses CMake and vcpkg for dependency management. vcpkg is included as a git submodule, so you do not need to install it separately.
 
-### MongoDB Driver
+### Prerequisites
 
-NOTE: The MongoDB Driver is only required if you're building Ardos with `ARDOS_WANT_DB_SERVER`
+- CMake 3.22 or later
+- C++20 compatible compiler
 
-See this [tutorial](https://www.mongodb.com/developer/products/mongodb/getting-started-mongodb-c/) for an installation
-guide.
+### Building Ardos
 
-### Prometheus Metrics
+1. Clone the repository and its submodules (this includes vcpkg):
+   ```bash
+   git clone --recurse-submodules https://github.com/ksmit799/Ardos.git
+   cd Ardos
+   ```
+   If you already cloned without submodules:
+   ```bash
+   git submodule update --init --recursive
+   ```
 
-NOTE: While Ardos requires Prometheus Metrics to build, it can be configured on/off via the config.
-It's highly recommended to run Ardos with metrics enabled, as it allows insight into how a particular cluster is
-operating/performing.
+2. Configure CMake using the bundled vcpkg toolchain:
+   ```bash
+   cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake
+   ```
 
-See this [tutorial](https://github.com/jupp0r/prometheus-cpp#via-cmake) for an installation guide.
+3. Build:
+   ```bash
+   cmake --build build
+   ```
+
+### Optional: Database Server Support
+
+To build with MongoDB database server support, ensure `ARDOS_WANT_DB_SERVER` is enabled (it's ON by default). The MongoDB C++ driver will be automatically installed via vcpkg.
+
+### Optional: Legacy Mode
+
+Ardos supports building in "legacy" mode, which makes the cluster compatible with original Disney clients. Generally, this shouldn't be used for new projects. To enable legacy mode, compile with `ARDOS_USE_LEGACY_CLIENT`. 
 
 ## OTP Architecture Resources
 
