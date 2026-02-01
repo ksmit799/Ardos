@@ -5,8 +5,6 @@ RUN set -ex; \
     apt-get update; \
     apt-get install -y build-essential cmake tar git zip unzip curl pkg-config
 
-RUN git submodule update --init --recursive
-
 # Copy source files.
 COPY . /app
 
