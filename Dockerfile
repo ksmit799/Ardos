@@ -8,6 +8,7 @@ RUN set -ex; \
 # Copy source files.
 COPY . /app
 
+WORKDIR /app
 RUN git submodule update --init --recursive
 
 # Build.
