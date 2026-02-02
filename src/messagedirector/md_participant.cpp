@@ -77,8 +77,10 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram> &dg) {
         UnsubscribeChannel(dgi.GetUint64());
         break;
       case CONTROL_ADD_RANGE:
+        SubscribeRange(dgi.GetUint64(), dgi.GetUint64());
         break;
       case CONTROL_REMOVE_RANGE:
+        UnsubscribeRange(dgi.GetUint64(), dgi.GetUint64());
         break;
       case CONTROL_ADD_POST_REMOVE:
         dgi.GetUint64(); // Sender channel.
