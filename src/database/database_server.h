@@ -38,6 +38,7 @@ private:
                       const bool &multiple);
 
   void HandleSetField(DatagramIterator &dgi, const bool &multiple);
+  void HandleDeleteField(DatagramIterator &dgi, const bool &multiple);
   void HandleSetFieldEquals(DatagramIterator &dgi, const uint64_t &sender,
                             const bool &multiple);
 

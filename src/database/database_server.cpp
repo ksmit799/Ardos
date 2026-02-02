@@ -120,8 +120,7 @@ void DatabaseServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       break;
     case DBSERVER_OBJECT_DELETE_FIELD:
     case DBSERVER_OBJECT_DELETE_FIELDS:
-      // TODO: Implement this.
-      spdlog::get("db")->error("OBJECT_DELETE_FIELD(S) NOT YET IMPLEMENTED!");
+      HandleDeleteField(dgi, msgType == DBSERVER_OBJECT_DELETE_FIELDS);
       break;
     case DBSERVER_OBJECT_SET_FIELD_IF_EMPTY:
       // TODO: Implement this.
@@ -725,6 +724,59 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
         e.what());
 
     ReportFailed(SET_OBJECT_FIELDS);
+  }
+}
+
+void DatabaseServer::HandleDeleteField(DatagramIterator &dgi,
+                                       const bool &multiple) {
+  auto startTime = g_loop->now();
+
+  auto doId = dgi.GetUint32();
+  auto fieldCount = multiple ? dgi.GetUint16() : 1;
+
+  // Unpack just the field IDs we want to delete. We don't need the current
+  // object from MongoDB, only the field metadata to build the update.
+  FieldMap fieldsToClear;
+  if (!DatabaseUtils::UnpackFields(dgi, fieldCount, fieldsToClear,
+                                   true)) {
+    spdlog::get("db")
+        ->error("Failed to unpack delete field(s) for object: {}", doId);
+
+    ReportFailed(UPDATE_OBJECT_FIELDS);
+    return;
+  }
+
+  // Build an $unset update for each requested field path.
+  auto builder = document{};
+  for (const auto &field : fieldsToClear) {
+    builder << std::string_view("fields." + field.first->get_name()) << 1;
+  }
+  auto unsetDoc = builder << finalize;
+  auto updateDoc = document{} << "$unset" << unsetDoc << finalize;
+
+  try {
+    auto updateOperation = _db["objects"].update_one(
+        document{} << "_id" << static_cast<int64_t>(doId) << finalize,
+        updateDoc.view());
+
+    if (!updateOperation) {
+      spdlog::get("db")->error(
+          "Delete field(s) update operation failed for object {}", doId);
+
+      ReportFailed(UPDATE_OBJECT_FIELDS);
+      return;
+    }
+
+    spdlog::get("db")->debug("Deleted field(s) for object {}: {}", doId,
+                             bsoncxx::to_json(unsetDoc.view()));
+
+    ReportCompleted(UPDATE_OBJECT_FIELDS, startTime);
+  } catch (const mongocxx::operation_exception &e) {
+    spdlog::get("db")->error(
+        "Unexpected error while deleting field(s) on object {}: {}", doId,
+        e.what());
+
+    ReportFailed(UPDATE_OBJECT_FIELDS);
   }
 }
 
