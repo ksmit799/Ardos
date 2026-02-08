@@ -1,11 +1,13 @@
 #include "database_server.h"
 
+#include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/json.hpp>
 #include <bsoncxx/stdx/optional.hpp>
 #include <dcClass.h>
 #include <dcPacker.h>
 #include <mongocxx/exception/operation_exception.hpp>
+#include <mongocxx/options/find.hpp>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include "../util/config.h"
@@ -118,13 +120,10 @@ void DatabaseServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       break;
     case DBSERVER_OBJECT_DELETE_FIELD:
     case DBSERVER_OBJECT_DELETE_FIELDS:
-      // TODO: Implement this.
-      spdlog::get("db")->error("OBJECT_DELETE_FIELD(S) NOT YET IMPLEMENTED!");
+      HandleDeleteField(dgi, msgType == DBSERVER_OBJECT_DELETE_FIELDS);
       break;
     case DBSERVER_OBJECT_SET_FIELD_IF_EMPTY:
-      // TODO: Implement this.
-      spdlog::get("db")->error(
-          "OBJECT_SET_FIELD_IF_EMPTY NOT YET IMPLEMENTED!");
+      HandleSetFieldIfEmpty(dgi);
       break;
     case DBSERVER_OBJECT_SET_FIELD_IF_EQUALS:
     case DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS:
@@ -464,10 +463,20 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
   auto responseType = multiple ? DBSERVER_OBJECT_GET_FIELDS_RESP
                                : DBSERVER_OBJECT_GET_FIELD_RESP;
 
-  bsoncxx::stdx::optional<bsoncxx::document::value> obj;
+  const auto filter =
+      document{} << "_id" << static_cast<int64_t>(doId) << finalize;
+
+  // First, fetch only the dclass id so we can resolve field numbers to names and build
+  // a projection. This avoids loading the full document when only a few fields
+  // are requested.
+  mongocxx::options::find dclassOnlyOpts;
+  dclassOnlyOpts.projection(
+      bsoncxx::builder::basic::make_document(
+          bsoncxx::builder::basic::kvp("dclass", 1)));
+
+  bsoncxx::stdx::optional<bsoncxx::document::value> dclassDoc;
   try {
-    obj = _db["objects"].find_one(
-        document{} << "_id" << static_cast<int64_t>(doId) << finalize);
+    dclassDoc = _db["objects"].find_one(filter.view(), dclassOnlyOpts);
   } catch (const mongocxx::operation_exception &e) {
     spdlog::get("db")->error(
         "Unexpected error while getting field(s) on object {}: {}", doId,
@@ -478,7 +487,7 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
     return;
   }
 
-  if (!obj) {
+  if (!dclassDoc) {
     spdlog::get("db")->error(
         "Failed to get field(s) on non-existent object: {}", doId);
 
@@ -487,7 +496,8 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
     return;
   }
 
-  auto dclassName = std::string(obj->view()["dclass"].get_string().value);
+  auto dclassName =
+      std::string(dclassDoc->view()["dclass"].get_string().value);
 
   // Make sure we have a valid distributed class.
   DCClass *dcClass = g_dc_file->get_class_by_name(dclassName);
@@ -501,31 +511,67 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
     return;
   }
 
-  // Unpack fields.
-  auto fields = obj->view()["fields"].get_document().value;
+  // Read requested field numbers and resolve to DCField* and names for
+  // projection.
+  std::vector<DCField *> requestedFields;
+  requestedFields.reserve(fieldCount);
+  for (size_t i = 0; i < fieldCount; i++) {
+    // Fetch the field by number.
+    auto fieldNum = dgi.GetUint16();
+    auto field = dcClass->get_field_by_index(fieldNum);
+    if (!field) {
+      spdlog::get("db")->error("[DB] Encountered unexpected field while "
+                               "fetching object {}: {} - {}",
+                               doId, dclassName, fieldNum);
+
+      HandleContextFailure(responseType, sender, ctx);
+      ReportFailed(GET_OBJECT_FIELDS);
+      return;
+    }
+    requestedFields.push_back(field);
+  }
+
+  // Fetch only the requested fields from MongoDB (projection).
+  bsoncxx::builder::basic::document projectionBuilder;
+  projectionBuilder.append(bsoncxx::builder::basic::kvp("dclass", 1));
+  for (DCField *field : requestedFields) {
+    projectionBuilder.append(
+        bsoncxx::builder::basic::kvp("fields." + field->get_name(), 1));
+  }
+  auto projection = projectionBuilder.extract();
+
+  mongocxx::options::find findOpts;
+  findOpts.projection(projection.view());
+
+  bsoncxx::stdx::optional<bsoncxx::document::value> obj;
+  try {
+    obj = _db["objects"].find_one(filter.view(), findOpts);
+  } catch (const mongocxx::operation_exception &e) {
+    spdlog::get("db")->error(
+        "Unexpected error while getting field(s) on object {}: {}", doId,
+        e.what());
+
+    HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(GET_OBJECT_FIELDS);
+    return;
+  }
+
+  if (!obj) {
+    HandleContextFailure(responseType, sender, ctx);
+    ReportFailed(GET_OBJECT_FIELDS);
+    return;
+  }
+
+  auto fieldsDoc = obj->view()["fields"].get_document().value;
 
   FieldMap objectFields;
-  Datagram objectDg;
   try {
-    for (size_t i = 0; i < fieldCount; i++) {
-      // Fetch the field by number.
-      auto fieldNum = dgi.GetUint16();
-      DCField *field = dcClass->get_field_by_index(fieldNum);
-      if (!field) {
-        spdlog::get("db")->error("[DB] Encountered unexpected field while "
-                                 "fetching object {}: {} - {}",
-                                 doId, dclassName, fieldNum);
-
-        HandleContextFailure(responseType, sender, ctx);
-        ReportFailed(GET_OBJECT_FIELDS);
-        return;
-      }
-
+    Datagram objectDg;
+    for (DCField *field : requestedFields) {
       // The field may not yet exist in the db for this object.
       // E.g. It was only recently made 'required' in the dc schema.
       // In that case, pack a default value instead.
-      auto dbField = fields[field->get_name()];
-      if (dbField) {
+      if (auto dbField = fieldsDoc[field->get_name()]) {
         // Pack the field into our object datagram.
         DatabaseUtils::PackField(field, dbField.get_value(), objectDg);
       } else {
@@ -676,6 +722,181 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
         e.what());
 
     ReportFailed(SET_OBJECT_FIELDS);
+  }
+}
+
+void DatabaseServer::HandleDeleteField(DatagramIterator &dgi,
+                                       const bool &multiple) {
+  auto startTime = g_loop->now();
+
+  auto doId = dgi.GetUint32();
+  auto fieldCount = multiple ? dgi.GetUint16() : 1;
+
+  // Unpack just the field IDs we want to delete. We don't need the current
+  // object from MongoDB, only the field metadata to build the update.
+  FieldMap fieldsToClear;
+  if (!DatabaseUtils::UnpackFields(dgi, fieldCount, fieldsToClear,
+                                   true)) {
+    spdlog::get("db")
+        ->error("Failed to unpack delete field(s) for object: {}", doId);
+
+    ReportFailed(UPDATE_OBJECT_FIELDS);
+    return;
+  }
+
+  // Build an $unset update for each requested field path.
+  auto builder = document{};
+  for (const auto &field : fieldsToClear) {
+    builder << std::string_view("fields." + field.first->get_name()) << 1;
+  }
+  auto unsetDoc = builder << finalize;
+  auto updateDoc = document{} << "$unset" << unsetDoc << finalize;
+
+  try {
+    auto updateOperation = _db["objects"].update_one(
+        document{} << "_id" << static_cast<int64_t>(doId) << finalize,
+        updateDoc.view());
+
+    if (!updateOperation) {
+      spdlog::get("db")->error(
+          "Delete field(s) update operation failed for object {}", doId);
+
+      ReportFailed(UPDATE_OBJECT_FIELDS);
+      return;
+    }
+
+    spdlog::get("db")->debug("Deleted field(s) for object {}: {}", doId,
+                             bsoncxx::to_json(unsetDoc.view()));
+
+    ReportCompleted(UPDATE_OBJECT_FIELDS, startTime);
+  } catch (const mongocxx::operation_exception &e) {
+    spdlog::get("db")->error(
+        "Unexpected error while deleting field(s) on object {}: {}", doId,
+        e.what());
+
+    ReportFailed(UPDATE_OBJECT_FIELDS);
+  }
+}
+
+void DatabaseServer::HandleSetFieldIfEmpty(DatagramIterator &dgi) {
+  auto startTime = g_loop->now();
+
+  auto doId = dgi.GetUint32();
+
+  // Unpack the field we want to set.
+  FieldMap objectFields;
+  if (!DatabaseUtils::UnpackFields(dgi, 1, objectFields)) {
+    spdlog::get("db")->error(
+        "Failed to unpack set field if empty for object: {}", doId);
+
+    ReportFailed(UPDATE_OBJECT_FIELDS);
+    return;
+  }
+
+  if (objectFields.empty()) {
+    ReportCompleted(UPDATE_OBJECT_FIELDS, startTime);
+    return;
+  }
+
+  auto fieldIt = objectFields.begin();
+  auto field = fieldIt->first;
+
+  // Build a projection to fetch just this field from MongoDB.
+  bsoncxx::builder::basic::document projectionBuilder;
+  projectionBuilder.append(bsoncxx::builder::basic::kvp(
+      "fields." + field->get_name(), 1));
+  auto projection = projectionBuilder.extract();
+
+  mongocxx::options::find findOpts;
+  findOpts.projection(projection.view());
+
+  bsoncxx::stdx::optional<bsoncxx::document::value> obj;
+  try {
+    obj = _db["objects"].find_one(
+        document{} << "_id" << static_cast<int64_t>(doId) << finalize,
+        findOpts);
+  } catch (const mongocxx::operation_exception &e) {
+    spdlog::get("db")->error(
+        "Unexpected error while setting field if empty on object {}: {}", doId,
+        e.what());
+
+    ReportFailed(UPDATE_OBJECT_FIELDS);
+    return;
+  }
+
+  if (!obj) {
+    spdlog::get("db")->error(
+        "Failed to set field if empty on non-existent object: {}", doId);
+
+    ReportFailed(UPDATE_OBJECT_FIELDS);
+    return;
+  }
+
+  // Check if the field is already present.
+  auto view = obj->view();
+  bsoncxx::document::view fieldsDoc;
+  if (auto fieldsElem = view["fields"]) {
+    fieldsDoc = fieldsElem.get_document().value;
+  }
+
+  auto existing = fieldsDoc[field->get_name()];
+  if (existing) {
+    // Field already has a value; nothing to do.
+    spdlog::get("db")->debug(
+        "Field-if-empty not applied because field {} already exists on "
+        "object {}",
+        field->get_name(), doId);
+
+    ReportCompleted(UPDATE_OBJECT_FIELDS, startTime);
+    return;
+  }
+
+  // Field is empty/missing; apply the update.
+  DCPacker packer;
+  auto builder = document{};
+  try {
+    packer.set_unpack_data(fieldIt->second);
+    packer.begin_unpack(field);
+
+    DatabaseUtils::FieldToBson(
+        builder << std::string_view("fields." + field->get_name()), packer);
+
+    packer.end_unpack();
+  } catch (const ConversionException &e) {
+    spdlog::get("db")->error(
+        "Failed to unpack object fields for set field if empty {}: {}", doId,
+        e.what());
+
+    ReportFailed(UPDATE_OBJECT_FIELDS);
+    return;
+  }
+
+  auto fieldBuilder = builder << finalize;
+  auto fieldUpdate = document{} << "$set" << fieldBuilder << finalize;
+
+  try {
+    auto updateOperation = _db["objects"].update_one(
+        document{} << "_id" << static_cast<int64_t>(doId) << finalize,
+        fieldUpdate.view());
+
+    if (!updateOperation) {
+      spdlog::get("db")->error(
+          "Set field if empty update operation failed for object {}", doId);
+
+      ReportFailed(UPDATE_OBJECT_FIELDS);
+      return;
+    }
+
+    spdlog::get("db")->debug("Set field if empty for object {}: {}", doId,
+                             bsoncxx::to_json(fieldBuilder.view()));
+
+    ReportCompleted(UPDATE_OBJECT_FIELDS, startTime);
+  } catch (const mongocxx::operation_exception &e) {
+    spdlog::get("db")->error(
+        "Unexpected error while setting field if empty on object {}: {}", doId,
+        e.what());
+
+    ReportFailed(UPDATE_OBJECT_FIELDS);
   }
 }
 
