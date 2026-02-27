@@ -57,6 +57,13 @@ ClientAgent::ClientAgent() {
     _authTimeout = timeoutParam.as<long>();
   }
 
+  // Historical object configration.
+  // By default, historical objects persist.
+  _historicalTTL = 0;
+  if (auto historicalParam = config["historical-objects-ttl"]) {
+    _historicalTTL = historicalParam.as<long>();
+  }
+
   // UberDOG's configuration.
   auto uberdogs = Config::Instance()->GetNode("uberdogs");
   for (auto uberdog : uberdogs) {
@@ -73,7 +80,7 @@ ClientAgent::ClientAgent() {
     ud.doId = uberdog["id"].as<uint32_t>();
     ud.dcc = dcc;
 
-    // UberDOG's are anonymous by default (non-authed CA's can't update fields
+    // UberDOG's aren't anonymous by default (non-authed CA's can't update fields
     // on them.)
     ud.anonymous = false;
     if (auto anonParam = uberdog["anonymous"]) {
@@ -97,6 +104,8 @@ ClientAgent::ClientAgent() {
       _interestsPermission = INTERESTS_ENABLED;
     } else if (level == "visible") {
       _interestsPermission = INTERESTS_VISIBLE;
+    } else if (level == "disabled") {
+      _interestsPermission = INTERESTS_DISABLED;
     }
   }
 
@@ -222,6 +231,15 @@ unsigned long ClientAgent::GetHeartbeatInterval() const {
  * @return
  */
 unsigned long ClientAgent::GetAuthTimeout() const { return _authTimeout; }
+
+/**
+ * Returns the number of MS a previously visible object to a client can receive updates before the
+ * client is ejected for a security violation.
+ * @return
+ */
+unsigned long ClientAgent::GetHistoricalTTL() const {
+  return _historicalTTL;
+}
 
 /**
  * Returns the configured UberDOG's.

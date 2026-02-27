@@ -61,6 +61,10 @@ public:
   }
 
 private:
+  static uint64_t now_ms() {
+    return uv_hrtime() / 1000000;
+  }
+
   void Shutdown() override;
 
   void HandleDisconnect(uv_errno_t code) override;
@@ -74,6 +78,7 @@ private:
   void HandleClientHeartbeat();
   void HandleHeartbeatTimeout();
   void HandleAuthTimeout();
+  void CleanupHistorical();
 
   void HandlePreHello(DatagramIterator &dgi);
   void HandlePreAuth(DatagramIterator &dgi);
@@ -142,6 +147,7 @@ private:
 
   std::shared_ptr<uvw::timer_handle> _heartbeatTimer;
   std::shared_ptr<uvw::timer_handle> _authTimer;
+  std::shared_ptr<uvw::timer_handle> _historicalTimer;
 
   AuthState _authState = AUTH_STATE_NEW;
   bool _cleanDisconnect = false;
@@ -149,7 +155,7 @@ private:
   // A list of all objects visible through open interests.
   std::unordered_set<uint32_t> _seenObjects;
   // A list of all objects that were once visible, but are no longer.
-  std::unordered_set<uint32_t> _historicalObjects;
+  std::unordered_map<uint32_t, uint64_t> _historicalObjects;
   // A list of objects that's lifetime is bound to this clients' session.
   std::unordered_set<uint32_t> _sessionObjects;
   // A map of objects that this client has ownership of.

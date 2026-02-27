@@ -43,6 +43,7 @@ public:
   [[nodiscard]] uint32_t GetHash() const;
   [[nodiscard]] unsigned long GetHeartbeatInterval() const;
   [[nodiscard]] unsigned long GetAuthTimeout() const;
+  [[nodiscard]] unsigned long GetHistoricalTTL() const;
   [[nodiscard]] std::unordered_map<uint32_t, Uberdog> Uberdogs() const;
   [[nodiscard]] bool GetRelocateAllowed() const;
   [[nodiscard]] InterestsPermission GetInterestsPermission() const;
@@ -68,6 +69,7 @@ private:
   uint32_t _dcHash;
   unsigned long _heartbeatInterval;
   unsigned long _authTimeout;
+  unsigned long _historicalTTL;
   bool _relocateAllowed;
   InterestsPermission _interestsPermission;
   unsigned long _interestTimeout;

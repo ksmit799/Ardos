@@ -107,6 +107,25 @@ client-agent:
   # NOTE: You must build Ardos with ARDOS_USE_LEGACY_CLIENT to use this option.
   ud-chat-shim: 4666
 
+  # Interval in MS of heartbeat messages expected from clients.
+  heartbeat-interval: 30000 # 30 seconds.
+
+  # Time in MS required for clients to authenticate within.
+  auth-timeout: 45000 # 45 seconds.
+
+  # Time in MS clients can attempt to send updates to once visible objects
+  # without being disconnected for a security violation.
+  historical-objects-ttl: 5000 # 5 seconds.
+
+  # Options are:
+  # enabled - Allows clients to set their own interests.
+  # visible - Only allowed to set interest in zones of a visible parent object.
+  # disabled - Clients aren't allowed to set their own interests.
+  interests: enabled
+
+  # Allow clients to set the location of their owned objects.
+  relocate-allowed: true
+
   # The range of channels this CA can allocate.
   channels:
     min: 1000000000

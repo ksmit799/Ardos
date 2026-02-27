@@ -48,6 +48,19 @@ ClientParticipant::ClientParticipant(
                       uvw::timer_handle::time{0});
   }
 
+  if (_clientAgent->GetHistoricalTTL()) {
+    // Set up the historical object TTL timer.
+    _historicalTimer = g_loop->resource<uvw::timer_handle>();
+    _historicalTimer->on<uvw::timer_event>(
+        [this](const uvw::timer_event &, uvw::timer_handle &) {
+          CleanupHistorical();
+        });
+
+    // Sweep at 2 second intervals.
+    _historicalTimer->start(uvw::timer_handle::time{2000},
+                      uvw::timer_handle::time{2000});
+  }
+
   _clientAgent->ParticipantJoined();
 }
 
@@ -81,6 +94,13 @@ void ClientParticipant::Shutdown() {
     _authTimer->stop();
     _authTimer->close();
     _authTimer.reset();
+  }
+
+  // Stop the historical timer (if we have one.)
+  if (_historicalTimer) {
+    _historicalTimer->stop();
+    _historicalTimer->close();
+    _historicalTimer.reset();
   }
 
   // Unsubscribe from all channels so DELETE messages aren't sent back to us.
@@ -426,7 +446,7 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
       _ownedObjects.erase(doId);
     }
 
-    _historicalObjects.insert(doId);
+    _historicalObjects[doId] = now_ms() + _clientAgent->GetHistoricalTTL();
     _visibleObjects.erase(doId);
     break;
   }
@@ -580,7 +600,7 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
 
       HandleRemoveObject(doId);
       _seenObjects.erase(doId);
-      _historicalObjects.insert(doId);
+      _historicalObjects[doId] = now_ms() + _clientAgent->GetHistoricalTTL();
       _visibleObjects.erase(doId);
     } else {
       HandleChangeLocation(doId, newParent, newZone);
@@ -694,6 +714,23 @@ void ClientParticipant::HandleAuthTimeout() {
   if (_authState != AUTH_STATE_ESTABLISHED) {
     SendDisconnect(CLIENT_DISCONNECT_GENERIC,
                    "Client did not authenticate in the required time");
+  }
+}
+
+/**
+ * Check to see if this client has authenticated within the required time.
+ */
+void ClientParticipant::CleanupHistorical() {
+  const uint64_t now = now_ms();
+
+  for (auto it = _historicalObjects.begin();
+       it != _historicalObjects.end(); )
+  {
+    if (it->second <= now) {
+      it = _historicalObjects.erase(it);
+    } else {
+      ++it;
+    }
   }
 }
 
@@ -1322,7 +1359,7 @@ void ClientParticipant::CloseZones(
       HandleRemoveObject(visibleObject.doId);
 
       _seenObjects.erase(visibleObject.doId);
-      _historicalObjects.insert(visibleObject.doId);
+      _historicalObjects[visibleObject.doId] = now_ms() + _clientAgent->GetHistoricalTTL();
       toRemove.push_back(visibleObject.doId);
     }
   }
