@@ -985,6 +985,15 @@ void ClientParticipant::HandleClientObjectUpdateField(DatagramIterator &dgi) {
   std::vector<uint8_t> data;
   dgi.UnpackField(field, data);
 
+  // Validate the field ranges (int16(0-200), etc.)
+  if (!field->validate_ranges(data)) {
+    SendDisconnect(CLIENT_DISCONNECT_FIELD_CONSTRAINT,
+                     std::format("Client violated field constraints for "
+                                 "field: {} of class: {} (DoId: {})",
+                                 field->get_name(), dcc->get_name(), doId));
+    return;
+  }
+
 #ifdef ARDOS_USE_LEGACY_CLIENT
   // Do we have a configured legacy chat shim?
   uint32_t chatShim = _clientAgent->GetChatShim();
