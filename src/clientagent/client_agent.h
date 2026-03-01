@@ -3,7 +3,9 @@
 
 #include <memory>
 #include <queue>
+#include <utility>
 #include <unordered_set>
+#include <vector>
 
 #include <dcClass.h>
 #include <nlohmann/json.hpp>
@@ -28,6 +30,13 @@ enum InterestsPermission {
   INTERESTS_DISABLED,
 };
 
+// Zone filter mode when interest.zones is configured (omitted = no filter).
+enum InterestMode {
+  INTEREST_MODE_NONE,
+  INTEREST_MODE_WHITELIST,
+  INTEREST_MODE_BLACKLIST,
+};
+
 class ClientParticipant;
 
 class ClientAgent {
@@ -47,6 +56,10 @@ public:
   [[nodiscard]] std::unordered_map<uint32_t, Uberdog> Uberdogs() const;
   [[nodiscard]] bool GetRelocateAllowed() const;
   [[nodiscard]] InterestsPermission GetInterestsPermission() const;
+  [[nodiscard]] InterestMode GetInterestMode() const;
+  [[nodiscard]] const std::unordered_set<uint32_t> &GetInterestZones() const;
+  [[nodiscard]] const std::vector<std::pair<uint32_t, uint32_t>> &
+  GetInterestZoneRanges() const;
   [[nodiscard]] unsigned long GetInterestTimeout() const;
 
   void ParticipantJoined();
@@ -72,6 +85,9 @@ private:
   unsigned long _historicalTTL;
   bool _relocateAllowed;
   InterestsPermission _interestsPermission;
+  InterestMode _interestMode;
+  std::unordered_set<uint32_t> _interestZones;
+  std::vector<std::pair<uint32_t, uint32_t>> _interestZoneRanges;
   unsigned long _interestTimeout;
 
   std::unordered_map<uint32_t, Uberdog> _uberdogs;

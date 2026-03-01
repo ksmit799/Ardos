@@ -1,5 +1,7 @@
 #include "client_agent.h"
 
+#include <string>
+
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include "../util/config.h"
@@ -96,16 +98,50 @@ ClientAgent::ClientAgent() {
     _relocateAllowed = relocateParam.as<bool>();
   }
 
-  // Interests permission level configuration.
+  // Interest configuration: interest.client, interest.mode, interest.zones
   _interestsPermission = INTERESTS_DISABLED;
-  if (auto interestParam = config["interests"]) {
-    auto level = interestParam.as<std::string>();
-    if (level == "enabled") {
-      _interestsPermission = INTERESTS_ENABLED;
-    } else if (level == "visible") {
-      _interestsPermission = INTERESTS_VISIBLE;
-    } else if (level == "disabled") {
-      _interestsPermission = INTERESTS_DISABLED;
+  _interestMode = INTEREST_MODE_NONE;
+  _interestZones.clear();
+  _interestZoneRanges.clear();
+
+  if (auto interestNode = config["interest"]) {
+    if (auto clientParam = interestNode["client"]) {
+      auto level = clientParam.as<std::string>();
+      if (level == "all") {
+        _interestsPermission = INTERESTS_ENABLED;
+      } else if (level == "visible") {
+        _interestsPermission = INTERESTS_VISIBLE;
+      } else if (level == "disabled") {
+        _interestsPermission = INTERESTS_DISABLED;
+      }
+    }
+    if (auto modeParam = interestNode["mode"]) {
+      auto mode = modeParam.as<std::string>();
+      if (mode == "whitelist") {
+        _interestMode = INTEREST_MODE_WHITELIST;
+      } else if (mode == "blacklist") {
+        _interestMode = INTEREST_MODE_BLACKLIST;
+      }
+    }
+    if (auto zonesParam = interestNode["zones"]) {
+      if (zonesParam.IsSequence()) {
+        for (const auto &zone : zonesParam) {
+          if (!zone.IsScalar()) {
+            continue;
+          }
+          std::string s = zone.as<std::string>();
+          size_t dash = s.find('-');
+          if (dash != std::string::npos) {
+            uint32_t lo = static_cast<uint32_t>(std::stoul(s.substr(0, dash)));
+            uint32_t hi =
+                static_cast<uint32_t>(std::stoul(s.substr(dash + 1)));
+            _interestZoneRanges.emplace_back(lo, hi);
+          } else {
+            _interestZones.insert(
+                static_cast<uint32_t>(std::stoul(s)));
+          }
+        }
+      }
     }
   }
 
@@ -264,6 +300,31 @@ bool ClientAgent::GetRelocateAllowed() const { return _relocateAllowed; }
  */
 InterestsPermission ClientAgent::GetInterestsPermission() const {
   return _interestsPermission;
+}
+
+/**
+ * Returns the interest zone filter mode (whitelist, blacklist, or none).
+ * @return
+ */
+InterestMode ClientAgent::GetInterestMode() const {
+  return _interestMode;
+}
+
+/**
+ * Returns the configured interest zones (used with whitelist/blacklist mode).
+ * @return
+ */
+const std::unordered_set<uint32_t> &ClientAgent::GetInterestZones() const {
+  return _interestZones;
+}
+
+/**
+ * Returns the configured interest zone ranges (each pair is low, high
+ * inclusive). Used with whitelist/blacklist mode.
+ */
+const std::vector<std::pair<uint32_t, uint32_t>> &
+ClientAgent::GetInterestZoneRanges() const {
+  return _interestZoneRanges;
 }
 
 /**

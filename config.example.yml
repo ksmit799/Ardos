@@ -117,11 +117,23 @@ client-agent:
   # without being disconnected for a security violation.
   historical-objects-ttl: 5000 # 5 seconds.
 
-  # Options are:
-  # enabled - Allows clients to set their own interests.
-  # visible - Only allowed to set interest in zones of a visible parent object.
-  # disabled - Clients aren't allowed to set their own interests.
-  interests: enabled
+  # Interest configuration.
+  # N.B. An AI server modifying a players interest will always bypass the below settings.
+  interest:
+    # all - Allows clients to set their own interests.
+    # visible - Only allowed to set interest in zones of a visible parent object.
+    # disabled - Clients aren't allowed to set their own interests (default.)
+    client: all
+    # whitelist - Clients will be disconnected if they attempt to add interest in a zone not listed below.
+    # blacklist - Clients will be disconnected if they attempt to add interest in a zone listed below.
+    # (mode can be omitted to disable this functionality)
+    mode: whitelist
+    # Optional array of zone IDs and/or ranges (e.g. 0, 5, "100-399")
+    zones:
+      - 0
+      - 5
+      - 10
+      - "100-399"
 
   # Allow clients to set the location of their owned objects.
   relocate-allowed: true

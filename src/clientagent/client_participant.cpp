@@ -8,6 +8,18 @@
 
 namespace Ardos {
 
+static bool ZoneInConfiguredSet(const ClientAgent *agent, uint32_t zoneId) {
+  if (agent->GetInterestZones().contains(zoneId)) {
+    return true;
+  }
+  for (const auto &[lo, hi] : agent->GetInterestZoneRanges()) {
+    if (zoneId >= lo && zoneId <= hi) {
+      return true;
+    }
+  }
+  return false;
+}
+
 ClientParticipant::ClientParticipant(
     ClientAgent *clientAgent, const std::shared_ptr<uvw::tcp_handle> &socket)
     : NetworkClient(socket), ChannelSubscriber(), _clientAgent(clientAgent) {
@@ -1124,6 +1136,35 @@ void ClientParticipant::HandleClientAddInterest(DatagramIterator &dgi,
                    true);
     return;
   }
+
+  // Enforce interest zone whitelist/blacklist from config.
+  const auto mode = _clientAgent->GetInterestMode();
+  const bool hasZoneFilter =
+      !_clientAgent->GetInterestZones().empty() ||
+      !_clientAgent->GetInterestZoneRanges().empty();
+
+  if (hasZoneFilter && mode != INTEREST_MODE_NONE) {
+    for (uint32_t zoneId : i.zones) {
+      const bool inSet = ZoneInConfiguredSet(_clientAgent, zoneId);
+      if (mode == INTEREST_MODE_WHITELIST && !inSet) {
+        SendDisconnect(CLIENT_DISCONNECT_FORBIDDEN_INTEREST,
+                       std::format("Zone {} is not allowed by interest "
+                                   "whitelist",
+                                   zoneId),
+                       true);
+        return;
+      }
+      if (mode == INTEREST_MODE_BLACKLIST && inSet) {
+        SendDisconnect(CLIENT_DISCONNECT_FORBIDDEN_INTEREST,
+                       std::format("Zone {} is disallowed by interest "
+                                   "blacklist",
+                                   zoneId),
+                       true);
+        return;
+      }
+    }
+  }
+
   AddInterest(i, context);
 }
 
