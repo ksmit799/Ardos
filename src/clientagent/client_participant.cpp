@@ -753,7 +753,11 @@ void ClientParticipant::HandlePreHello(DatagramIterator &dgi) {
   switch (msgType) {
   case CLIENT_LOGIN_FAIRIES:
   case CLIENT_LOGIN_TOONTOWN:
+  case CLIENT_LOGIN_3:
     HandleLoginLegacy(dgi);
+    break;
+  case CLIENT_HEARTBEAT:
+    HandleClientHeartbeat();
     break;
   default:
     SendDisconnect(CLIENT_DISCONNECT_NO_HELLO, "First packet is not LOGIN");
@@ -822,8 +826,9 @@ void ClientParticipant::HandleLoginLegacy(DatagramIterator &dgi) {
   std::string loginToken = dgi.GetString();
   std::string clientVersion = dgi.GetString();
   uint32_t hashVal = dgi.GetUint32();
-  dgi.GetUint32(); // Token type.
-  dgi.GetString(); // Unused.
+  // Skip remaining login data (this will be different per game.)
+  // It's not necessary and if we don't skip it, the client will get disconnected.
+  dgi.Skip(dgi.GetRemainingSize());
 
   if (clientVersion != _clientAgent->GetVersion()) {
     SendDisconnect(CLIENT_DISCONNECT_BAD_VERSION,
@@ -898,6 +903,12 @@ void ClientParticipant::HandleAuthenticated(DatagramIterator &dgi) {
   case CLIENT_HEARTBEAT:
     HandleClientHeartbeat();
     break;
+#ifdef ARDOS_USE_LEGACY_CLIENT
+  case CLIENT_SET_AVTYPE:
+    // Unneeded in legacy, each deployment should be game specific.
+    dgi.GetUint16(); // Avatar dclass id.
+    break;
+#endif
   default:
     SendDisconnect(CLIENT_DISCONNECT_INVALID_MSGTYPE,
                    std::format("Client sent invalid message: {}", msgType),
