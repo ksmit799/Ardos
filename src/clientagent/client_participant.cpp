@@ -20,6 +20,24 @@ static bool ZoneInConfiguredSet(const ClientAgent* agent, uint32_t zoneId) {
   return false;
 }
 
+static bool IsClassOrDerivedFrom(const DCClass *candidate, DCClass *baseClass) {
+  if (!candidate || !baseClass) {
+    return false;
+  }
+  if (candidate == baseClass) {
+    return true;
+  }
+
+  const int parentCount = candidate->get_num_parents();
+  for (int i = 0; i < parentCount; ++i) {
+    if (IsClassOrDerivedFrom(candidate->get_parent(i), baseClass)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 ClientParticipant::ClientParticipant(
     ClientAgent* clientAgent, const std::shared_ptr<uvw::tcp_handle>& socket)
     : NetworkClient(socket), ChannelSubscriber(), _clientAgent(clientAgent) {
@@ -1548,7 +1566,7 @@ void ClientParticipant::HandleAddOwnership(
     const uint16_t& dcId, DatagramIterator& dgi, const bool& other) {
   // Track location from the configured avatar class only.
   DCClass *avatarClass = _clientAgent->GetAvatarClass();
-  if (avatarClass && _ownedObjects[doId].dcc == avatarClass) {
+  if (IsClassOrDerivedFrom(_ownedObjects[doId].dcc, avatarClass)) {
     _avatarDoId = doId;
     _avatarParent = parent;
     _avatarZone = zone;
