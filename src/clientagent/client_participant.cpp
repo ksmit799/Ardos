@@ -323,7 +323,6 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
             _channel, doId);
         break;
       }
-
       _declaredObjects.erase(doId);
       break;
     }
@@ -1441,8 +1440,14 @@ void ClientParticipant::HandleRemoveObject(const uint32_t& doId) {
   dg->AddUint32(doId);
   SendDatagram(dg);
 }
-
+  
 void ClientParticipant::HandleRemoveOwnership(const uint32_t& doId) {
+  if (_avatarDoId == doId) {
+    _avatarDoId = 0;
+    _avatarParent = 0;
+    _avatarZone = 0;
+  }
+
   auto dg = std::make_shared<Datagram>();
   dg->AddUint16(CLIENT_OBJECT_LEAVING_OWNER);
   dg->AddUint32(doId);
@@ -1541,6 +1546,14 @@ void ClientParticipant::HandleSetFields(const uint32_t& doId,
 void ClientParticipant::HandleAddOwnership(
     const uint32_t& doId, const uint32_t& parentId, const uint32_t& zoneId,
     const uint16_t& dcId, DatagramIterator& dgi, const bool& other) {
+  // Track location from the configured avatar class only.
+  DCClass *avatarClass = _clientAgent->GetAvatarClass();
+  if (avatarClass && _ownedObjects[doId].dcc == avatarClass) {
+    _avatarDoId = doId;
+    _avatarParent = parent;
+    _avatarZone = zone;
+  }
+
   auto dg = std::make_shared<Datagram>();
   spdlog::get("ca")->debug("Sending owner entry of object: {} to client: {}",
                            doId, _channel);

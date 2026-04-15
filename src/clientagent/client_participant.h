@@ -59,6 +59,8 @@ class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
   [[nodiscard]] std::unordered_map<uint16_t, Interest> GetInterests() const {
     return _interests;
   }
+  [[nodiscard]] uint32_t GetAvatarParent() const { return _avatarParent; }
+  [[nodiscard]] uint32_t GetAvatarZone() const { return _avatarZone; }
 
  private:
   static uint64_t now_ms() { return uv_hrtime() / 1000000; }
@@ -167,6 +169,11 @@ class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
 
   // A map of DoId's to fields marked explicitly send-able.
   std::unordered_map<uint32_t, std::unordered_set<uint16_t>> _fieldsSendable;
+
+  // Tracked avatar ownership location from a configured avatar class.
+  uint32_t _avatarDoId = 0;
+  uint32_t _avatarParent = 0;
+  uint32_t _avatarZone = 0;
 
   // Context ID for handling interest responses from the state server.
   uint32_t _nextContext = 0;
