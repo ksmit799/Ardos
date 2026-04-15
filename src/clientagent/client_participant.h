@@ -6,6 +6,7 @@
 #include "../net/network_client.h"
 #include "client_agent.h"
 #include "interest_operation.h"
+#include "../net/message_types.h"
 
 namespace Ardos {
 
@@ -170,10 +171,12 @@ class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
   // A map of DoId's to fields marked explicitly send-able.
   std::unordered_map<uint32_t, std::unordered_set<uint16_t>> _fieldsSendable;
 
-  // Tracked avatar ownership location from a configured avatar class.
-  uint32_t _avatarDoId = 0;
-  uint32_t _avatarParent = 0;
-  uint32_t _avatarZone = 0;
+  // Track owned avatar location for a configured avatar class.
+  // This is used primarily for setParentingRules, but is also used in legacy mode for
+  // chat handling/shimming (it's helpful to know *where* a message was sent from/to.)
+  uint32_t _avatarDoId = INVALID_DO_ID;
+  uint32_t _avatarParent = INVALID_DO_ID;
+  uint32_t _avatarZone = INVALID_DO_ID;
 
   // Context ID for handling interest responses from the state server.
   uint32_t _nextContext = 0;
