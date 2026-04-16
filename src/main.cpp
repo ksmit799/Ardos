@@ -8,7 +8,7 @@
 
 using namespace Ardos;
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   // Parse CLI args.
   // We only have one for now, which is our config file name.
   std::string configName = "config.yml";

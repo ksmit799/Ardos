@@ -1,14 +1,14 @@
 #ifndef ARDOS_DATABASE_UTILS_H
 #define ARDOS_DATABASE_UTILS_H
 
-#include <cmath> /* modf */
-#include <list>
-
-#include <bsoncxx/builder/stream/document.hpp>
-#include <bsoncxx/types/bson_value/view.hpp>
 #include <dcClass.h>
 #include <dcClassParameter.h>
 #include <dcPacker.h>
+
+#include <bsoncxx/builder/stream/document.hpp>
+#include <bsoncxx/types/bson_value/view.hpp>
+#include <cmath> /* modf */
+#include <list>
 
 #include "../net/datagram_iterator.h"
 #include "../util/globals.h"
@@ -19,18 +19,18 @@ namespace Ardos {
  * Exception thrown by many database utility functions.
  */
 class ConversionException final : public std::exception {
-public:
-  explicit ConversionException(const char *msg) : _message(msg), _what(msg) {}
+ public:
+  explicit ConversionException(const char* msg) : _message(msg), _what(msg) {}
 
-  [[nodiscard]] const char *what() const noexcept override {
+  [[nodiscard]] const char* what() const noexcept override {
     return _what.c_str();
   }
 
-  void PushName(const std::string &name) {
+  void PushName(const std::string& name) {
     _names.push_front(name);
 
     _what = "";
-    for (const auto &it : _names) {
+    for (const auto& it : _names) {
       if (!_what.empty()) {
         _what += ".";
       }
@@ -40,14 +40,14 @@ public:
     _what += ": " + _message;
   }
 
-private:
+ private:
   std::string _message;
   std::string _what;
   std::list<std::string> _names;
 };
 
 class DatabaseUtils {
-public:
+ public:
   /**
    * Unpacks fields from an incoming datagram.
    * @param dgi
@@ -57,8 +57,8 @@ public:
    * default/empty.
    * @return
    */
-  static bool UnpackFields(DatagramIterator &dgi, const uint16_t &fieldCount,
-                           FieldMap &out, const bool &clearFields = false);
+  static bool UnpackFields(DatagramIterator& dgi, const uint16_t& fieldCount,
+                           FieldMap& out, const bool& clearFields = false);
   /**
    * A specialized version of UnpackFields that also unpacks 'expected' field
    * values. Used in _IF_EQUALS message handling.
@@ -68,24 +68,24 @@ public:
    * @param expectedOut
    * @return
    */
-  static bool UnpackFields(DatagramIterator &dgi, const uint16_t &fieldCount,
-                           FieldMap &out, FieldMap &expectedOut);
+  static bool UnpackFields(DatagramIterator& dgi, const uint16_t& fieldCount,
+                           FieldMap& out, FieldMap& expectedOut);
 
   static void FieldToBson(bsoncxx::builder::stream::single_context builder,
-                          DCPacker &packer);
+                          DCPacker& packer);
 
-  static void BsonToField(const DCSubatomicType &fieldType,
-                          const std::string &fieldName,
-                          const bsoncxx::types::bson_value::view &value,
-                          const int &divisor, Datagram &dg);
+  static void BsonToField(const DCSubatomicType& fieldType,
+                          const std::string& fieldName,
+                          const bsoncxx::types::bson_value::view& value,
+                          const int& divisor, Datagram& dg);
 
-  static void PackField(const DCField *field,
-                        const bsoncxx::types::bson_value::view &value,
-                        Datagram &dg);
+  static void PackField(const DCField* field,
+                        const bsoncxx::types::bson_value::view& value,
+                        Datagram& dg);
 
-  static void BsonToClass(const DCClassParameter *dclass,
-                          const bsoncxx::types::bson_value::view &value,
-                          Datagram &dg);
+  static void BsonToClass(const DCClassParameter* dclass,
+                          const bsoncxx::types::bson_value::view& value,
+                          Datagram& dg);
 
   /**
    * Verifies the supplied fields belong to the corresponding distributed class.
@@ -93,7 +93,7 @@ public:
    * @param fields
    * @return
    */
-  static bool VerifyFields(const DCClass *dclass, const FieldMap &fields);
+  static bool VerifyFields(const DCClass* dclass, const FieldMap& fields);
 
   /**
    * Converts a bson value to a number.
@@ -104,8 +104,8 @@ public:
    * @return
    */
   template <typename T>
-  static T BsonToNumber(const bsoncxx::types::bson_value::view &value,
-                        const int &divisor = 1) {
+  static T BsonToNumber(const bsoncxx::types::bson_value::view& value,
+                        const int& divisor = 1) {
     // TODO: Can we prevent a double alloc here?
     int64_t i;
     double d;
@@ -169,6 +169,6 @@ public:
   }
 };
 
-} // namespace Ardos
+}  // namespace Ardos
 
-#endif // ARDOS_DATABASE_UTILS_H
+#endif  // ARDOS_DATABASE_UTILS_H

@@ -8,9 +8,9 @@
 
 namespace Ardos {
 
-Metrics *Metrics::_instance = nullptr;
+Metrics* Metrics::_instance = nullptr;
 
-Metrics *Metrics::Instance() {
+Metrics* Metrics::Instance() {
   if (_instance == nullptr) {
     _instance = new Metrics();
   }
@@ -61,4 +61,4 @@ std::shared_ptr<prometheus::Registry> Metrics::GetRegistry() {
   return _registry;
 }
 
-} // namespace Ardos
+}  // namespace Ardos

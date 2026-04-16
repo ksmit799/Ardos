@@ -12,9 +12,36 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
         with:
           submodules: recursive
+
+      - name: Configure
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake tar git zip unzip curl pkg-config
+
+      - name: Build
+        run: |
+          cmake -B build \
+            -DCMAKE_TOOLCHAIN_FILE=/app/libs/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake --build build
+
+      - uses: cpp-linter/cpp-linter-action@v2
+        id: linter
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          style: 'file'  # Use .clang-format config file
+          tidy-checks: '' # Use .clang-tidy config file
+          # only 'update' a single comment in a pull request thread.
+          thread-comments: ${{ github.event_name == 'pull_request' && 'update' }}
+
+      - name: Fail fast
+        if: steps.linter.outputs.checks-failed > 0
+        run: exit 1
 
       - name: Build Docker image
         run: docker build .

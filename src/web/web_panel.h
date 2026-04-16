@@ -1,28 +1,27 @@
 #ifndef ARDOS_WEB_PANEL_H
 #define ARDOS_WEB_PANEL_H
 
-#include <string>
+#include <ws28/Server.h>
 
 #include <nlohmann/json.hpp>
-
-#include "../net/ws/Server.h"
+#include <string>
 
 namespace Ardos {
 
 class WebPanel {
-public:
+ public:
   WebPanel();
 
-  static void Send(ws28::Client *client, const nlohmann::json &data);
+  static void Send(ws28::Client* client, const nlohmann::json& data);
 
-  static WebPanel *Instance;
+  static WebPanel* Instance;
 
   typedef struct {
     bool authed;
   } ClientData;
 
-private:
-  void HandleData(ws28::Client *client, const std::string &data);
+ private:
+  void HandleData(ws28::Client* client, const std::string& data);
 
   std::string _name = "Ardos";
   int _port = 7781;
@@ -38,6 +37,6 @@ private:
   std::unique_ptr<ws28::Server> _server;
 };
 
-} // namespace Ardos
+}  // namespace Ardos
 
-#endif // ARDOS_WEB_PANEL_H
+#endif  // ARDOS_WEB_PANEL_H

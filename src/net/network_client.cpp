@@ -4,7 +4,7 @@
 
 namespace Ardos {
 
-NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle> &socket)
+NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle>& socket)
     : _socket(socket) {
   // Configure socket options.
   _socket->no_delay(true);
@@ -15,27 +15,25 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle> &socket)
 
   // Setup event listeners.
   _socket->on<uvw::error_event>(
-      [this](const uvw::error_event &event, uvw::tcp_handle &) {
+      [this](const uvw::error_event& event, uvw::tcp_handle&) {
         HandleClose((uv_errno_t)event.code());
       });
 
   _socket->on<uvw::end_event>(
-      [this](const uvw::end_event &, uvw::tcp_handle &) {
-        HandleClose(UV_EOF);
-      });
+      [this](const uvw::end_event&, uvw::tcp_handle&) { HandleClose(UV_EOF); });
 
   _socket->on<uvw::close_event>(
-      [this](const uvw::close_event &, uvw::tcp_handle &) {
+      [this](const uvw::close_event&, uvw::tcp_handle&) {
         HandleClose(UV_EOF);
       });
 
   _socket->on<uvw::data_event>(
-      [this](const uvw::data_event &event, uvw::tcp_handle &) {
+      [this](const uvw::data_event& event, uvw::tcp_handle&) {
         HandleData(event.data, event.length);
       });
 
   _socket->on<uvw::write_event>(
-      [this](const uvw::write_event &event, uvw::tcp_handle &) {
+      [this](const uvw::write_event& event, uvw::tcp_handle&) {
         if (_disconnected && !_socketClosed) {
           _socket->close();
 
@@ -97,7 +95,7 @@ void NetworkClient::HandleClose(uv_errno_t code) {
   HandleDisconnect(code);
 }
 
-void NetworkClient::HandleData(const std::unique_ptr<char[]> &data,
+void NetworkClient::HandleData(const std::unique_ptr<char[]>& data,
                                size_t size) {
   // We can't directly handle datagrams as it's possible that multiple have been
   // buffered together, or we've received a split message.
@@ -106,11 +104,11 @@ void NetworkClient::HandleData(const std::unique_ptr<char[]> &data,
   if (_data_buf.empty() && size >= sizeof(uint16_t)) {
     // Ok, we at least have a size header. Let's check if we have the full
     // datagram.
-    uint16_t datagramSize = *reinterpret_cast<uint16_t *>(data.get());
+    uint16_t datagramSize = *reinterpret_cast<uint16_t*>(data.get());
     if (datagramSize == size - sizeof(uint16_t)) {
       // We have a complete datagram, lets handle it.
       auto dg = std::make_shared<Datagram>(
-          reinterpret_cast<const uint8_t *>(data.get() + sizeof(uint16_t)),
+          reinterpret_cast<const uint8_t*>(data.get() + sizeof(uint16_t)),
           datagramSize);
       HandleClientDatagram(dg);
       return;
@@ -125,11 +123,11 @@ void NetworkClient::HandleData(const std::unique_ptr<char[]> &data,
 void NetworkClient::ProcessBuffer() {
   while (_data_buf.size() > sizeof(uint16_t)) {
     // We have enough data to know the expected length of the datagram.
-    uint16_t dataSize = *reinterpret_cast<uint16_t *>(&_data_buf[0]);
+    uint16_t dataSize = *reinterpret_cast<uint16_t*>(&_data_buf[0]);
     if (_data_buf.size() >= dataSize + sizeof(uint16_t)) {
       // We have a complete datagram!
       auto dg = std::make_shared<Datagram>(
-          reinterpret_cast<const uint8_t *>(&_data_buf[sizeof(uint16_t)]),
+          reinterpret_cast<const uint8_t*>(&_data_buf[sizeof(uint16_t)]),
           dataSize);
 
       // Remove the datagram data from the buffer.
@@ -147,7 +145,7 @@ void NetworkClient::ProcessBuffer() {
  * Sends a datagram to this network client.
  * @param dg
  */
-void NetworkClient::SendDatagram(const std::shared_ptr<Datagram> &dg) {
+void NetworkClient::SendDatagram(const std::shared_ptr<Datagram>& dg) {
   if (_socket == nullptr) {
     return;
   }
@@ -167,4 +165,4 @@ void NetworkClient::SendDatagram(const std::shared_ptr<Datagram> &dg) {
   _socket->write(std::move(sendBuffer), sendSize);
 }
 
-} // namespace Ardos
+}  // namespace Ardos

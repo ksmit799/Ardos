@@ -11,9 +11,9 @@
 
 namespace Ardos {
 
-bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
-                                 const uint16_t &fieldCount, FieldMap &out,
-                                 const bool &clearFields) {
+bool DatabaseUtils::UnpackFields(DatagramIterator& dgi,
+                                 const uint16_t& fieldCount, FieldMap& out,
+                                 const bool& clearFields) {
   for (uint16_t i = 0; i < fieldCount; ++i) {
     uint16_t fieldId = dgi.GetUint16();
     auto field = g_dc_file->get_field_by_index(fieldId);
@@ -38,7 +38,7 @@ bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
           // Set it to a blank vector.
           out[field] = std::vector<uint8_t>();
         }
-      } catch (const DatagramIteratorEOF &) {
+      } catch (const DatagramIteratorEOF&) {
         spdlog::get("db")->error(
             "Received truncated field in create/modify request: {}",
             field->get_name());
@@ -59,9 +59,9 @@ bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
   return true;
 }
 
-bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
-                                 const uint16_t &fieldCount, FieldMap &out,
-                                 FieldMap &expectedOut) {
+bool DatabaseUtils::UnpackFields(DatagramIterator& dgi,
+                                 const uint16_t& fieldCount, FieldMap& out,
+                                 FieldMap& expectedOut) {
   for (uint16_t i = 0; i < fieldCount; ++i) {
     uint16_t fieldId = dgi.GetUint16();
     auto field = g_dc_file->get_field_by_index(fieldId);
@@ -78,7 +78,7 @@ bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
         dgi.UnpackField(field, expectedOut[field]);
         // Unpack the updated field value.
         dgi.UnpackField(field, out[field]);
-      } catch (const DatagramIteratorEOF &) {
+      } catch (const DatagramIteratorEOF&) {
         spdlog::get("db")->error(
             "Received truncated field in modify request: {}",
             field->get_name());
@@ -98,7 +98,7 @@ bool DatabaseUtils::UnpackFields(DatagramIterator &dgi,
 }
 
 void DatabaseUtils::FieldToBson(
-    bsoncxx::builder::stream::single_context builder, DCPacker &packer) {
+    bsoncxx::builder::stream::single_context builder, DCPacker& packer) {
   // Check if we have an atomic field.
   // If we do, recursively unpack into an array.
   auto atomicField = packer.get_current_field()->as_field()->as_atomic_field();
@@ -119,83 +119,83 @@ void DatabaseUtils::FieldToBson(
   // Note that this function can be recursively called with certain pack types.
   DCPackType packType = packer.get_pack_type();
   switch (packType) {
-  case PT_double:
-    builder << bsoncxx::types::b_double{packer.unpack_double()};
-    break;
-  case PT_int:
-    builder << bsoncxx::types::b_int32{packer.unpack_int()};
-    break;
-  case PT_uint:
-    // bson doesn't support unsigned integers.
-    // We can get around this by storing all unsigned integers as an int-64.
-    // This supports up to 32-bit unsigned integers, see the 64-bit
-    // implementation below.
-    builder << bsoncxx::types::b_int64{packer.unpack_uint()};
-    break;
-  case PT_int64:
-    builder << bsoncxx::types::b_int64{packer.unpack_int64()};
-    break;
-  case PT_uint64:
-    // As above, bson doesn't support unsigned integers.
-    // When storing 64-bit unsigned integers, we need to cast it to a signed
-    // 64-bit and remember to cast it back when reading from the database.
-    builder << bsoncxx::types::b_int64{
-        static_cast<int64_t>(packer.unpack_uint64())};
-    break;
-  case PT_string:
-    builder << bsoncxx::types::b_string{packer.unpack_string()};
-    break;
-  case PT_blob: {
-    std::vector<unsigned char> blob = packer.unpack_blob();
-    if (blob.data() == nullptr) {
-      // bson gets upset if passed a nullptr here, but it's valid for
-      // vector.data() to return nullptr if it's empty, so we just insert
-      // nothing:
-      builder << bsoncxx::types::b_binary{bsoncxx::binary_sub_type::k_binary, 0,
-                                          (const uint8_t *)1};
-    } else {
-      builder << bsoncxx::types::b_binary{bsoncxx::binary_sub_type::k_binary,
-                                          static_cast<uint32_t>(blob.size()),
-                                          blob.data()};
+    case PT_double:
+      builder << bsoncxx::types::b_double{packer.unpack_double()};
+      break;
+    case PT_int:
+      builder << bsoncxx::types::b_int32{packer.unpack_int()};
+      break;
+    case PT_uint:
+      // bson doesn't support unsigned integers.
+      // We can get around this by storing all unsigned integers as an int-64.
+      // This supports up to 32-bit unsigned integers, see the 64-bit
+      // implementation below.
+      builder << bsoncxx::types::b_int64{packer.unpack_uint()};
+      break;
+    case PT_int64:
+      builder << bsoncxx::types::b_int64{packer.unpack_int64()};
+      break;
+    case PT_uint64:
+      // As above, bson doesn't support unsigned integers.
+      // When storing 64-bit unsigned integers, we need to cast it to a signed
+      // 64-bit and remember to cast it back when reading from the database.
+      builder << bsoncxx::types::b_int64{
+          static_cast<int64_t>(packer.unpack_uint64())};
+      break;
+    case PT_string:
+      builder << bsoncxx::types::b_string{packer.unpack_string()};
+      break;
+    case PT_blob: {
+      std::vector<unsigned char> blob = packer.unpack_blob();
+      if (blob.data() == nullptr) {
+        // bson gets upset if passed a nullptr here, but it's valid for
+        // vector.data() to return nullptr if it's empty, so we just insert
+        // nothing:
+        builder << bsoncxx::types::b_binary{bsoncxx::binary_sub_type::k_binary,
+                                            0, (const uint8_t*)1};
+      } else {
+        builder << bsoncxx::types::b_binary{bsoncxx::binary_sub_type::k_binary,
+                                            static_cast<uint32_t>(blob.size()),
+                                            blob.data()};
+      }
+      break;
     }
-    break;
-  }
-  case PT_array: {
-    auto arrayBuilder = builder << bsoncxx::builder::stream::open_array;
+    case PT_array: {
+      auto arrayBuilder = builder << bsoncxx::builder::stream::open_array;
 
-    packer.push();
-    while (packer.more_nested_fields() && !packer.had_pack_error()) {
-      FieldToBson(arrayBuilder, packer);
+      packer.push();
+      while (packer.more_nested_fields() && !packer.had_pack_error()) {
+        FieldToBson(arrayBuilder, packer);
+      }
+      packer.pop();
+
+      arrayBuilder << bsoncxx::builder::stream::close_array;
+      break;
     }
-    packer.pop();
-
-    arrayBuilder << bsoncxx::builder::stream::close_array;
-    break;
-  }
-  case PT_field: {
-    packer.push();
-    while (packer.more_nested_fields() && !packer.had_pack_error()) {
-      FieldToBson(builder, packer);
+    case PT_field: {
+      packer.push();
+      while (packer.more_nested_fields() && !packer.had_pack_error()) {
+        FieldToBson(builder, packer);
+      }
+      packer.pop();
+      break;
     }
-    packer.pop();
-    break;
-  }
-  case PT_class: {
-    auto documentBuilder = builder << bsoncxx::builder::stream::open_document;
+    case PT_class: {
+      auto documentBuilder = builder << bsoncxx::builder::stream::open_document;
 
-    packer.push();
-    while (packer.more_nested_fields() && !packer.had_pack_error()) {
-      FieldToBson(documentBuilder << packer.get_current_field()->get_name(),
-                  packer);
+      packer.push();
+      while (packer.more_nested_fields() && !packer.had_pack_error()) {
+        FieldToBson(documentBuilder << packer.get_current_field()->get_name(),
+                    packer);
+      }
+      packer.pop();
+
+      documentBuilder << bsoncxx::builder::stream::close_document;
+      break;
     }
-    packer.pop();
-
-    documentBuilder << bsoncxx::builder::stream::close_document;
-    break;
-  }
-  case PT_invalid:
-  default:
-    throw ConversionException("Got invalid field type");
+    case PT_invalid:
+    default:
+      throw ConversionException("Got invalid field type");
   }
 
   // Throw a conversion exception if we had a packing error.
@@ -204,167 +204,167 @@ void DatabaseUtils::FieldToBson(
   }
 }
 
-void DatabaseUtils::BsonToField(const DCSubatomicType &fieldType,
-                                const std::string &fieldName,
-                                const bsoncxx::types::bson_value::view &value,
-                                const int &divisor, Datagram &dg) {
+void DatabaseUtils::BsonToField(const DCSubatomicType& fieldType,
+                                const std::string& fieldName,
+                                const bsoncxx::types::bson_value::view& value,
+                                const int& divisor, Datagram& dg) {
   try {
     switch (fieldType) {
-    case ST_invalid:
-      throw ConversionException("Got invalid field type");
-    case ST_int8:
-      dg.AddInt8(BsonToNumber<int8_t>(value, divisor));
-      break;
-    case ST_int16:
-      dg.AddInt16(BsonToNumber<int16_t>(value, divisor));
-      break;
-    case ST_int32:
-      dg.AddInt32(BsonToNumber<int32_t>(value, divisor));
-      break;
-    case ST_int64:
-      dg.AddInt64(BsonToNumber<int64_t>(value, divisor));
-      break;
-    case ST_uint8:
-      dg.AddUint8(BsonToNumber<uint8_t>(value, divisor));
-      break;
-    case ST_uint16:
-      dg.AddUint16(BsonToNumber<uint16_t>(value, divisor));
-      break;
-    case ST_uint32:
-      dg.AddUint32(BsonToNumber<uint32_t>(value, divisor));
-      break;
-    case ST_uint64:
-      dg.AddUint64(BsonToNumber<uint64_t>(value, divisor));
-      break;
-    case ST_float64:
-      dg.AddFloat64(BsonToNumber<double>(value, divisor));
-      break;
-    case ST_string:
-      if (value.type() != bsoncxx::type::k_string) {
-        throw ConversionException("Expected string");
-      }
-      dg.AddString(std::string(value.get_string().value));
-      break;
-    case ST_blob:
-    case ST_blob32:
-      if (value.type() != bsoncxx::type::k_binary) {
-        throw ConversionException("Expected blob");
-      }
-      dg.AddData(value.get_binary().bytes, value.get_binary().size);
-      break;
-    case ST_int16array: {
-      if (value.type() != bsoncxx::type::k_array) {
-        throw ConversionException("Expected array");
-      }
+      case ST_invalid:
+        throw ConversionException("Got invalid field type");
+      case ST_int8:
+        dg.AddInt8(BsonToNumber<int8_t>(value, divisor));
+        break;
+      case ST_int16:
+        dg.AddInt16(BsonToNumber<int16_t>(value, divisor));
+        break;
+      case ST_int32:
+        dg.AddInt32(BsonToNumber<int32_t>(value, divisor));
+        break;
+      case ST_int64:
+        dg.AddInt64(BsonToNumber<int64_t>(value, divisor));
+        break;
+      case ST_uint8:
+        dg.AddUint8(BsonToNumber<uint8_t>(value, divisor));
+        break;
+      case ST_uint16:
+        dg.AddUint16(BsonToNumber<uint16_t>(value, divisor));
+        break;
+      case ST_uint32:
+        dg.AddUint32(BsonToNumber<uint32_t>(value, divisor));
+        break;
+      case ST_uint64:
+        dg.AddUint64(BsonToNumber<uint64_t>(value, divisor));
+        break;
+      case ST_float64:
+        dg.AddFloat64(BsonToNumber<double>(value, divisor));
+        break;
+      case ST_string:
+        if (value.type() != bsoncxx::type::k_string) {
+          throw ConversionException("Expected string");
+        }
+        dg.AddString(std::string(value.get_string().value));
+        break;
+      case ST_blob:
+      case ST_blob32:
+        if (value.type() != bsoncxx::type::k_binary) {
+          throw ConversionException("Expected blob");
+        }
+        dg.AddData(value.get_binary().bytes, value.get_binary().size);
+        break;
+      case ST_int16array: {
+        if (value.type() != bsoncxx::type::k_array) {
+          throw ConversionException("Expected array");
+        }
 
-      Datagram arrDg;
-      for (const auto &it : value.get_array().value) {
-        arrDg.AddInt16(BsonToNumber<int16_t>(it.get_value(), divisor));
-      }
+        Datagram arrDg;
+        for (const auto& it : value.get_array().value) {
+          arrDg.AddInt16(BsonToNumber<int16_t>(it.get_value(), divisor));
+        }
 
-      dg.AddBlob(arrDg.GetData(), arrDg.Size());
-      break;
+        dg.AddBlob(arrDg.GetData(), arrDg.Size());
+        break;
+      }
+      case ST_int32array: {
+        if (value.type() != bsoncxx::type::k_array) {
+          throw ConversionException("Expected array");
+        }
+
+        Datagram arrDg;
+        for (const auto& it : value.get_array().value) {
+          arrDg.AddInt32(BsonToNumber<int32_t>(it.get_value(), divisor));
+        }
+
+        dg.AddBlob(arrDg.GetData(), arrDg.Size());
+        break;
+      }
+      case ST_uint16array: {
+        if (value.type() != bsoncxx::type::k_array) {
+          throw ConversionException("Expected array");
+        }
+
+        Datagram arrDg;
+        for (const auto& it : value.get_array().value) {
+          arrDg.AddUint16(BsonToNumber<uint16_t>(it.get_value(), divisor));
+        }
+
+        dg.AddBlob(arrDg.GetData(), arrDg.Size());
+        break;
+      }
+      case ST_uint32array: {
+        if (value.type() != bsoncxx::type::k_array) {
+          throw ConversionException("Expected array");
+        }
+
+        Datagram arrDg;
+        for (const auto& it : value.get_array().value) {
+          arrDg.AddUint32(BsonToNumber<uint32_t>(it.get_value(), divisor));
+        }
+
+        dg.AddBlob(arrDg.GetData(), arrDg.Size());
+        break;
+      }
+      case ST_int8array: {
+        if (value.type() != bsoncxx::type::k_array) {
+          throw ConversionException("Expected array");
+        }
+
+        Datagram arrDg;
+        for (const auto& it : value.get_array().value) {
+          arrDg.AddInt8(BsonToNumber<int8_t>(it.get_value(), divisor));
+        }
+
+        dg.AddBlob(arrDg.GetData(), arrDg.Size());
+        break;
+      }
+      case ST_uint8array: {
+        if (value.type() != bsoncxx::type::k_array) {
+          throw ConversionException("Expected array");
+        }
+
+        Datagram arrDg;
+        for (const auto& it : value.get_array().value) {
+          arrDg.AddUint8(BsonToNumber<uint8_t>(it.get_value(), divisor));
+        }
+
+        dg.AddBlob(arrDg.GetData(), arrDg.Size());
+        break;
+      }
+      case ST_uint32uint8array: {
+        if (value.type() != bsoncxx::type::k_array) {
+          throw ConversionException("Expected array");
+        }
+
+        auto arr = value.get_array().value;
+        auto arrLength = std::distance(arr.begin(), arr.end());
+
+        dg.AddUint16(arrLength);
+        for (size_t i = 0; i < arrLength;) {
+          dg.AddUint32(BsonToNumber<uint32_t>(
+              value.get_array().value[i].get_value(), divisor));
+          dg.AddUint8(BsonToNumber<uint8_t>(
+              value.get_array().value[i + 1].get_value(), divisor));
+          i += 2;
+        }
+        break;
+      }
+      case ST_char:
+        if (value.type() != bsoncxx::type::k_string &&
+            value.get_string().value.length() != 1) {
+          throw ConversionException("Expected char");
+        }
+        dg.AddUint8(value.get_string().value[0]);
+        break;
     }
-    case ST_int32array: {
-      if (value.type() != bsoncxx::type::k_array) {
-        throw ConversionException("Expected array");
-      }
-
-      Datagram arrDg;
-      for (const auto &it : value.get_array().value) {
-        arrDg.AddInt32(BsonToNumber<int32_t>(it.get_value(), divisor));
-      }
-
-      dg.AddBlob(arrDg.GetData(), arrDg.Size());
-      break;
-    }
-    case ST_uint16array: {
-      if (value.type() != bsoncxx::type::k_array) {
-        throw ConversionException("Expected array");
-      }
-
-      Datagram arrDg;
-      for (const auto &it : value.get_array().value) {
-        arrDg.AddUint16(BsonToNumber<uint16_t>(it.get_value(), divisor));
-      }
-
-      dg.AddBlob(arrDg.GetData(), arrDg.Size());
-      break;
-    }
-    case ST_uint32array: {
-      if (value.type() != bsoncxx::type::k_array) {
-        throw ConversionException("Expected array");
-      }
-
-      Datagram arrDg;
-      for (const auto &it : value.get_array().value) {
-        arrDg.AddUint32(BsonToNumber<uint32_t>(it.get_value(), divisor));
-      }
-
-      dg.AddBlob(arrDg.GetData(), arrDg.Size());
-      break;
-    }
-    case ST_int8array: {
-      if (value.type() != bsoncxx::type::k_array) {
-        throw ConversionException("Expected array");
-      }
-
-      Datagram arrDg;
-      for (const auto &it : value.get_array().value) {
-        arrDg.AddInt8(BsonToNumber<int8_t>(it.get_value(), divisor));
-      }
-
-      dg.AddBlob(arrDg.GetData(), arrDg.Size());
-      break;
-    }
-    case ST_uint8array: {
-      if (value.type() != bsoncxx::type::k_array) {
-        throw ConversionException("Expected array");
-      }
-
-      Datagram arrDg;
-      for (const auto &it : value.get_array().value) {
-        arrDg.AddUint8(BsonToNumber<uint8_t>(it.get_value(), divisor));
-      }
-
-      dg.AddBlob(arrDg.GetData(), arrDg.Size());
-      break;
-    }
-    case ST_uint32uint8array: {
-      if (value.type() != bsoncxx::type::k_array) {
-        throw ConversionException("Expected array");
-      }
-
-      auto arr = value.get_array().value;
-      auto arrLength = std::distance(arr.begin(), arr.end());
-
-      dg.AddUint16(arrLength);
-      for (size_t i = 0; i < arrLength;) {
-        dg.AddUint32(BsonToNumber<uint32_t>(
-            value.get_array().value[i].get_value(), divisor));
-        dg.AddUint8(BsonToNumber<uint8_t>(
-            value.get_array().value[i + 1].get_value(), divisor));
-        i += 2;
-      }
-      break;
-    }
-    case ST_char:
-      if (value.type() != bsoncxx::type::k_string &&
-          value.get_string().value.length() != 1) {
-        throw ConversionException("Expected char");
-      }
-      dg.AddUint8(value.get_string().value[0]);
-      break;
-    }
-  } catch (ConversionException &e) {
+  } catch (ConversionException& e) {
     e.PushName(fieldName);
     throw;
   }
 }
 
-void DatabaseUtils::PackField(const DCField *field,
-                              const bsoncxx::types::bson_value::view &value,
-                              Datagram &dg) {
+void DatabaseUtils::PackField(const DCField* field,
+                              const bsoncxx::types::bson_value::view& value,
+                              Datagram& dg) {
   auto atomicField = field->as_atomic_field();
   if (atomicField != nullptr) {
     // We have an atomic field.
@@ -406,7 +406,7 @@ void DatabaseUtils::PackField(const DCField *field,
       auto fieldType = elemParamSimple->get_type();
 
       Datagram arrDg;
-      for (const auto &arrVal : value.get_array().value) {
+      for (const auto& arrVal : value.get_array().value) {
         DatabaseUtils::BsonToField(fieldType, field->get_name(),
                                    arrVal.get_value(),
                                    elemParamSimple->get_divisor(), arrDg);
@@ -420,7 +420,7 @@ void DatabaseUtils::PackField(const DCField *field,
     if (elemParamClass) {
       Datagram arrDg;
 
-      for (const auto &arrVal : value.get_array().value) {
+      for (const auto& arrVal : value.get_array().value) {
         DatabaseUtils::BsonToClass(elemParamClass, arrVal.get_value(), arrDg);
       }
 
@@ -429,9 +429,9 @@ void DatabaseUtils::PackField(const DCField *field,
   }
 }
 
-void DatabaseUtils::BsonToClass(const DCClassParameter *dclass,
-                                const bsoncxx::types::bson_value::view &value,
-                                Datagram &dg) {
+void DatabaseUtils::BsonToClass(const DCClassParameter* dclass,
+                                const bsoncxx::types::bson_value::view& value,
+                                Datagram& dg) {
   auto numFields = dclass->get_num_nested_fields();
   for (int i = 0; i < numFields; i++) {
     auto field = dclass->get_nested_field(i)->as_field();
@@ -440,16 +440,17 @@ void DatabaseUtils::BsonToClass(const DCClassParameter *dclass,
   }
 }
 
-bool DatabaseUtils::VerifyFields(const DCClass *dclass,
-                                 const FieldMap &fields) {
+bool DatabaseUtils::VerifyFields(const DCClass* dclass,
+                                 const FieldMap& fields) {
   bool errors = false;
-  for (const auto &field : fields) {
+  for (const auto& field : fields) {
     if (!dclass->get_field_by_index(field.first->get_number())) {
       // We don't immediately break out here in case we have multiple
       // non-belonging fields.
-      spdlog::get("db")->error("Failed to verify field on class: {} "
-                               "with non-belonging field: {}",
-                               dclass->get_name(), field.first->get_name());
+      spdlog::get("db")->error(
+          "Failed to verify field on class: {} "
+          "with non-belonging field: {}",
+          dclass->get_name(), field.first->get_name());
       errors = true;
     }
   }
@@ -457,4 +458,4 @@ bool DatabaseUtils::VerifyFields(const DCClass *dclass,
   return !errors;
 }
 
-} // namespace Ardos
+}  // namespace Ardos

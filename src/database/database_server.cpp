@@ -1,14 +1,15 @@
 #include "database_server.h"
 
+#include <dcClass.h>
+#include <dcPacker.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/json.hpp>
 #include <bsoncxx/stdx/optional.hpp>
-#include <dcClass.h>
-#include <dcPacker.h>
 #include <mongocxx/exception/operation_exception.hpp>
 #include <mongocxx/options/find.hpp>
-#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include "../util/config.h"
 #include "../util/globals.h"
@@ -59,7 +60,7 @@ DatabaseServer::DatabaseServer() : ChannelSubscriber() {
     const auto pingCommand = bsoncxx::builder::basic::make_document(
         bsoncxx::builder::basic::kvp("ping", 1));
     _db.run_command(pingCommand.view());
-  } catch (const std::exception &e) {
+  } catch (const std::exception& e) {
     spdlog::get("db")->error("Failed to connect to MongoDB: {}", e.what());
     exit(1);
   }
@@ -91,7 +92,7 @@ DatabaseServer::DatabaseServer() : ChannelSubscriber() {
   spdlog::get("db")->info("Connected to MongoDB: {}", _uri.to_string());
 }
 
-void DatabaseServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
+void DatabaseServer::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
   DatagramIterator dgi(dg);
 
   // Skip MD routing headers.
@@ -101,41 +102,41 @@ void DatabaseServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     uint64_t sender = dgi.GetUint64();
     uint16_t msgType = dgi.GetUint16();
     switch (msgType) {
-    case DBSERVER_CREATE_OBJECT:
-      HandleCreate(dgi, sender);
-      break;
-    case DBSERVER_OBJECT_DELETE:
-      HandleDelete(dgi);
-      break;
-    case DBSERVER_OBJECT_GET_ALL:
-      HandleGetAll(dgi, sender);
-      break;
-    case DBSERVER_OBJECT_GET_FIELD:
-    case DBSERVER_OBJECT_GET_FIELDS:
-      HandleGetField(dgi, sender, msgType == DBSERVER_OBJECT_GET_FIELDS);
-      break;
-    case DBSERVER_OBJECT_SET_FIELD:
-    case DBSERVER_OBJECT_SET_FIELDS:
-      HandleSetField(dgi, msgType == DBSERVER_OBJECT_SET_FIELDS);
-      break;
-    case DBSERVER_OBJECT_DELETE_FIELD:
-    case DBSERVER_OBJECT_DELETE_FIELDS:
-      HandleDeleteField(dgi, msgType == DBSERVER_OBJECT_DELETE_FIELDS);
-      break;
-    case DBSERVER_OBJECT_SET_FIELD_IF_EMPTY:
-      HandleSetFieldIfEmpty(dgi);
-      break;
-    case DBSERVER_OBJECT_SET_FIELD_IF_EQUALS:
-    case DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS:
-      HandleSetFieldEquals(dgi, sender,
-                           msgType == DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS);
-      break;
-    default:
-      // Hopefully we managed to unpack the sender...
-      spdlog::get("db")->warn("Received unknown message: {} from sender: {}",
-                              msgType, sender);
+      case DBSERVER_CREATE_OBJECT:
+        HandleCreate(dgi, sender);
+        break;
+      case DBSERVER_OBJECT_DELETE:
+        HandleDelete(dgi);
+        break;
+      case DBSERVER_OBJECT_GET_ALL:
+        HandleGetAll(dgi, sender);
+        break;
+      case DBSERVER_OBJECT_GET_FIELD:
+      case DBSERVER_OBJECT_GET_FIELDS:
+        HandleGetField(dgi, sender, msgType == DBSERVER_OBJECT_GET_FIELDS);
+        break;
+      case DBSERVER_OBJECT_SET_FIELD:
+      case DBSERVER_OBJECT_SET_FIELDS:
+        HandleSetField(dgi, msgType == DBSERVER_OBJECT_SET_FIELDS);
+        break;
+      case DBSERVER_OBJECT_DELETE_FIELD:
+      case DBSERVER_OBJECT_DELETE_FIELDS:
+        HandleDeleteField(dgi, msgType == DBSERVER_OBJECT_DELETE_FIELDS);
+        break;
+      case DBSERVER_OBJECT_SET_FIELD_IF_EMPTY:
+        HandleSetFieldIfEmpty(dgi);
+        break;
+      case DBSERVER_OBJECT_SET_FIELD_IF_EQUALS:
+      case DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS:
+        HandleSetFieldEquals(dgi, sender,
+                             msgType == DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS);
+        break;
+      default:
+        // Hopefully we managed to unpack the sender...
+        spdlog::get("db")->warn("Received unknown message: {} from sender: {}",
+                                msgType, sender);
     }
-  } catch (const DatagramIteratorEOF &) {
+  } catch (const DatagramIteratorEOF&) {
     spdlog::get("db")->error("Received a truncated datagram!");
   }
 }
@@ -185,18 +186,18 @@ uint32_t DatabaseServer::AllocateDoId() {
 
     // We've got none left, return an invalid DoId.
     return INVALID_DO_ID;
-  } catch (const ConversionException &e) {
+  } catch (const ConversionException& e) {
     spdlog::get("db")->error(
         "Conversion error occurred while allocating DoId: {}", e.what());
     return INVALID_DO_ID;
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error("MongoDB error occurred while allocating DoId: {}",
                              e.what());
     return INVALID_DO_ID;
   }
 }
 
-void DatabaseServer::FreeDoId(const uint32_t &doId) {
+void DatabaseServer::FreeDoId(const uint32_t& doId) {
   spdlog::get("db")->debug("Freeing DoId: {}", doId);
 
   try {
@@ -209,13 +210,13 @@ void DatabaseServer::FreeDoId(const uint32_t &doId) {
     if (_freeChannelsGauge) {
       _freeChannelsGauge->Increment();
     }
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error("Failed to free DoId: {}: {}", doId, e.what());
   }
 }
 
-void DatabaseServer::HandleCreate(DatagramIterator &dgi,
-                                  const uint64_t &sender) {
+void DatabaseServer::HandleCreate(DatagramIterator& dgi,
+                                  const uint64_t& sender) {
   auto startTime = g_loop->now();
 
   uint32_t context = dgi.GetUint32();
@@ -224,7 +225,7 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
   uint16_t fieldCount = dgi.GetUint16();
 
   // Make sure we have a valid distributed class.
-  DCClass *dcClass = g_dc_file->get_class(dcId);
+  DCClass* dcClass = g_dc_file->get_class(dcId);
   if (!dcClass) {
     spdlog::get("db")->error(
         "Received create for unknown distributed class: {}", dcId);
@@ -269,7 +270,7 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
   // This is essentially the same thing as handling a client/server update.
   auto builder = document{};
   try {
-    for (const auto &field : objectFields) {
+    for (const auto& field : objectFields) {
       packer.set_unpack_data(field.second);
       // Tell the packer we're starting to unpack the field.
       packer.begin_unpack(field.first);
@@ -279,7 +280,7 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
       // We've finished unpacking the field.
       packer.end_unpack();
     }
-  } catch (const ConversionException &e) {
+  } catch (const ConversionException& e) {
     spdlog::get("db")->error("Failed to unpack object fields for create: {}",
                              e.what());
 
@@ -304,7 +305,7 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
     _db["objects"].insert_one(document{} << "_id" << static_cast<int64_t>(doId)
                                          << "dclass" << dcClass->get_name()
                                          << "fields" << fields << finalize);
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error("Failed to insert new {} ({}): {}",
                              dcClass->get_name(), doId, e.what());
 
@@ -321,9 +322,9 @@ void DatabaseServer::HandleCreate(DatagramIterator &dgi,
   ReportCompleted(CREATE_OBJECT, startTime);
 }
 
-void DatabaseServer::HandleCreateDone(const uint64_t &channel,
-                                      const uint32_t &context,
-                                      const uint32_t &doId) {
+void DatabaseServer::HandleCreateDone(const uint64_t& channel,
+                                      const uint32_t& context,
+                                      const uint32_t& doId) {
   auto dg = std::make_shared<Datagram>(channel, _channel,
                                        DBSERVER_CREATE_OBJECT_RESP);
   dg->AddUint32(context);
@@ -331,7 +332,7 @@ void DatabaseServer::HandleCreateDone(const uint64_t &channel,
   PublishDatagram(dg);
 }
 
-void DatabaseServer::HandleDelete(DatagramIterator &dgi) {
+void DatabaseServer::HandleDelete(DatagramIterator& dgi) {
   auto startTime = g_loop->now();
 
   uint32_t doId = dgi.GetUint32();
@@ -352,15 +353,15 @@ void DatabaseServer::HandleDelete(DatagramIterator &dgi) {
 
     spdlog::get("db")->debug("Deleted object: {}", doId);
     ReportCompleted(DELETE_OBJECT, startTime);
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error("Unexpected error while deleting object {}: {}",
                              doId, e.what());
     ReportFailed(DELETE_OBJECT);
   }
 }
 
-void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
-                                  const uint64_t &sender) {
+void DatabaseServer::HandleGetAll(DatagramIterator& dgi,
+                                  const uint64_t& sender) {
   auto startTime = g_loop->now();
 
   uint32_t context = dgi.GetUint32();
@@ -370,7 +371,7 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
   try {
     obj = _db["objects"].find_one(
         document{} << "_id" << static_cast<int64_t>(doId) << finalize);
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error("Unexpected error while fetching object {}: {}",
                              doId, e.what());
 
@@ -390,7 +391,7 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
   auto dclassName = std::string(obj->view()["dclass"].get_string().value);
 
   // Make sure we have a valid distributed class.
-  DCClass *dcClass = g_dc_file->get_class_by_name(dclassName);
+  DCClass* dcClass = g_dc_file->get_class_by_name(dclassName);
   if (!dcClass) {
     spdlog::get("db")->error(
         "Encountered unknown dclass while fetching object {}: {}", doId,
@@ -407,14 +408,15 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
   FieldMap objectFields;
   Datagram objectDg;
   try {
-    for (const auto &it : fields) {
+    for (const auto& it : fields) {
       auto fieldName = std::string(it.key());
 
-      DCField *field = dcClass->get_field_by_name(fieldName);
+      DCField* field = dcClass->get_field_by_name(fieldName);
       if (!field) {
-        spdlog::get("db")->warn("Encountered unexpected field while "
-                                "fetching object {}: {} - {}",
-                                doId, dclassName, fieldName);
+        spdlog::get("db")->warn(
+            "Encountered unexpected field while "
+            "fetching object {}: {} - {}",
+            doId, dclassName, fieldName);
         continue;
       }
 
@@ -426,7 +428,7 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
       objectFields[field] = objectDg.GetBytes();
       objectDg.Clear();
     }
-  } catch (const ConversionException &e) {
+  } catch (const ConversionException& e) {
     spdlog::get("db")->error(
         "Failed to unpack field fetching object {}: {} - {}", doId, dclassName,
         e.what());
@@ -441,8 +443,8 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
   dg->AddUint32(context);
   dg->AddBool(true);
   dg->AddUint16(dcClass->get_number());
-  dg->AddUint16(objectFields.size()); // Field count.
-  for (const auto &it : objectFields) {
+  dg->AddUint16(objectFields.size());  // Field count.
+  for (const auto& it : objectFields) {
     dg->AddUint16(it.first->get_number());
     dg->AddData(it.second);
   }
@@ -451,9 +453,9 @@ void DatabaseServer::HandleGetAll(DatagramIterator &dgi,
   ReportCompleted(GET_OBJECT, startTime);
 }
 
-void DatabaseServer::HandleGetField(DatagramIterator &dgi,
-                                    const uint64_t &sender,
-                                    const bool &multiple) {
+void DatabaseServer::HandleGetField(DatagramIterator& dgi,
+                                    const uint64_t& sender,
+                                    const bool& multiple) {
   auto startTime = g_loop->now();
 
   auto ctx = dgi.GetUint32();
@@ -463,21 +465,20 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
   auto responseType = multiple ? DBSERVER_OBJECT_GET_FIELDS_RESP
                                : DBSERVER_OBJECT_GET_FIELD_RESP;
 
-  const auto filter =
-      document{} << "_id" << static_cast<int64_t>(doId) << finalize;
+  const auto filter = document{} << "_id" << static_cast<int64_t>(doId)
+                                 << finalize;
 
-  // First, fetch only the dclass id so we can resolve field numbers to names and build
-  // a projection. This avoids loading the full document when only a few fields
-  // are requested.
+  // First, fetch only the dclass id so we can resolve field numbers to names
+  // and build a projection. This avoids loading the full document when only a
+  // few fields are requested.
   mongocxx::options::find dclassOnlyOpts;
-  dclassOnlyOpts.projection(
-      bsoncxx::builder::basic::make_document(
-          bsoncxx::builder::basic::kvp("dclass", 1)));
+  dclassOnlyOpts.projection(bsoncxx::builder::basic::make_document(
+      bsoncxx::builder::basic::kvp("dclass", 1)));
 
   bsoncxx::stdx::optional<bsoncxx::document::value> dclassDoc;
   try {
     dclassDoc = _db["objects"].find_one(filter.view(), dclassOnlyOpts);
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error(
         "Unexpected error while getting field(s) on object {}: {}", doId,
         e.what());
@@ -496,11 +497,10 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
     return;
   }
 
-  auto dclassName =
-      std::string(dclassDoc->view()["dclass"].get_string().value);
+  auto dclassName = std::string(dclassDoc->view()["dclass"].get_string().value);
 
   // Make sure we have a valid distributed class.
-  DCClass *dcClass = g_dc_file->get_class_by_name(dclassName);
+  DCClass* dcClass = g_dc_file->get_class_by_name(dclassName);
   if (!dcClass) {
     spdlog::get("db")->error(
         "Received get field(s) for unknown distributed class {}: {}", doId,
@@ -513,16 +513,17 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
 
   // Read requested field numbers and resolve to DCField* and names for
   // projection.
-  std::vector<DCField *> requestedFields;
+  std::vector<DCField*> requestedFields;
   requestedFields.reserve(fieldCount);
   for (size_t i = 0; i < fieldCount; i++) {
     // Fetch the field by number.
     auto fieldNum = dgi.GetUint16();
     auto field = dcClass->get_field_by_index(fieldNum);
     if (!field) {
-      spdlog::get("db")->error("[DB] Encountered unexpected field while "
-                               "fetching object {}: {} - {}",
-                               doId, dclassName, fieldNum);
+      spdlog::get("db")->error(
+          "[DB] Encountered unexpected field while "
+          "fetching object {}: {} - {}",
+          doId, dclassName, fieldNum);
 
       HandleContextFailure(responseType, sender, ctx);
       ReportFailed(GET_OBJECT_FIELDS);
@@ -534,7 +535,7 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
   // Fetch only the requested fields from MongoDB (projection).
   bsoncxx::builder::basic::document projectionBuilder;
   projectionBuilder.append(bsoncxx::builder::basic::kvp("dclass", 1));
-  for (DCField *field : requestedFields) {
+  for (DCField* field : requestedFields) {
     projectionBuilder.append(
         bsoncxx::builder::basic::kvp("fields." + field->get_name(), 1));
   }
@@ -546,7 +547,7 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
   bsoncxx::stdx::optional<bsoncxx::document::value> obj;
   try {
     obj = _db["objects"].find_one(filter.view(), findOpts);
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error(
         "Unexpected error while getting field(s) on object {}: {}", doId,
         e.what());
@@ -567,7 +568,7 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
   FieldMap objectFields;
   try {
     Datagram objectDg;
-    for (DCField *field : requestedFields) {
+    for (DCField* field : requestedFields) {
       // The field may not yet exist in the db for this object.
       // E.g. It was only recently made 'required' in the dc schema.
       // In that case, pack a default value instead.
@@ -584,7 +585,7 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
       objectFields[field] = objectDg.GetBytes();
       objectDg.Clear();
     }
-  } catch (const ConversionException &e) {
+  } catch (const ConversionException& e) {
     spdlog::get("db")->error(
         "Failed to unpack field fetching object {}: {} - {}", doId, dclassName,
         e.what());
@@ -600,7 +601,7 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
   if (multiple) {
     dg->AddUint16(objectFields.size());
   }
-  for (const auto &it : objectFields) {
+  for (const auto& it : objectFields) {
     dg->AddUint16(it.first->get_number());
     dg->AddData(it.second);
   }
@@ -609,8 +610,8 @@ void DatabaseServer::HandleGetField(DatagramIterator &dgi,
   ReportCompleted(GET_OBJECT_FIELDS, startTime);
 }
 
-void DatabaseServer::HandleSetField(DatagramIterator &dgi,
-                                    const bool &multiple) {
+void DatabaseServer::HandleSetField(DatagramIterator& dgi,
+                                    const bool& multiple) {
   auto startTime = g_loop->now();
 
   auto doId = dgi.GetUint32();
@@ -620,7 +621,7 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
   try {
     obj = _db["objects"].find_one(
         document{} << "_id" << static_cast<int64_t>(doId) << finalize);
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error(
         "Unexpected error while setting field(s) on object {}: {}", doId,
         e.what());
@@ -640,7 +641,7 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
   auto dclassName = std::string(obj->view()["dclass"].get_string().value);
 
   // Make sure we have a valid distributed class.
-  DCClass *dcClass = g_dc_file->get_class_by_name(dclassName);
+  DCClass* dcClass = g_dc_file->get_class_by_name(dclassName);
   if (!dcClass) {
     spdlog::get("db")->error(
         "Received set field(s) for unknown distributed class {}: {}", doId,
@@ -675,7 +676,7 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
   // Start unpacking fields into a bson document.
   auto builder = document{};
   try {
-    for (const auto &field : objectFields) {
+    for (const auto& field : objectFields) {
       packer.set_unpack_data(field.second);
       // Tell the packer we're starting to unpack the field.
       packer.begin_unpack(field.first);
@@ -687,7 +688,7 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
       // We've finished unpacking the field.
       packer.end_unpack();
     }
-  } catch (const ConversionException &e) {
+  } catch (const ConversionException& e) {
     spdlog::get("db")->error(
         "Failed to unpack object fields for set field(s) {}: {}", doId,
         e.what());
@@ -716,7 +717,7 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
                              bsoncxx::to_json(fieldBuilder.view()));
 
     ReportCompleted(SET_OBJECT_FIELDS, startTime);
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error(
         "Unexpected error while setting field(s) on object {}: {}", doId,
         e.what());
@@ -725,8 +726,8 @@ void DatabaseServer::HandleSetField(DatagramIterator &dgi,
   }
 }
 
-void DatabaseServer::HandleDeleteField(DatagramIterator &dgi,
-                                       const bool &multiple) {
+void DatabaseServer::HandleDeleteField(DatagramIterator& dgi,
+                                       const bool& multiple) {
   auto startTime = g_loop->now();
 
   auto doId = dgi.GetUint32();
@@ -735,10 +736,9 @@ void DatabaseServer::HandleDeleteField(DatagramIterator &dgi,
   // Unpack just the field IDs we want to delete. We don't need the current
   // object from MongoDB, only the field metadata to build the update.
   FieldMap fieldsToClear;
-  if (!DatabaseUtils::UnpackFields(dgi, fieldCount, fieldsToClear,
-                                   true)) {
-    spdlog::get("db")
-        ->error("Failed to unpack delete field(s) for object: {}", doId);
+  if (!DatabaseUtils::UnpackFields(dgi, fieldCount, fieldsToClear, true)) {
+    spdlog::get("db")->error("Failed to unpack delete field(s) for object: {}",
+                             doId);
 
     ReportFailed(UPDATE_OBJECT_FIELDS);
     return;
@@ -746,7 +746,7 @@ void DatabaseServer::HandleDeleteField(DatagramIterator &dgi,
 
   // Build an $unset update for each requested field path.
   auto builder = document{};
-  for (const auto &field : fieldsToClear) {
+  for (const auto& field : fieldsToClear) {
     builder << std::string_view("fields." + field.first->get_name()) << 1;
   }
   auto unsetDoc = builder << finalize;
@@ -769,7 +769,7 @@ void DatabaseServer::HandleDeleteField(DatagramIterator &dgi,
                              bsoncxx::to_json(unsetDoc.view()));
 
     ReportCompleted(UPDATE_OBJECT_FIELDS, startTime);
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error(
         "Unexpected error while deleting field(s) on object {}: {}", doId,
         e.what());
@@ -778,7 +778,7 @@ void DatabaseServer::HandleDeleteField(DatagramIterator &dgi,
   }
 }
 
-void DatabaseServer::HandleSetFieldIfEmpty(DatagramIterator &dgi) {
+void DatabaseServer::HandleSetFieldIfEmpty(DatagramIterator& dgi) {
   auto startTime = g_loop->now();
 
   auto doId = dgi.GetUint32();
@@ -803,8 +803,8 @@ void DatabaseServer::HandleSetFieldIfEmpty(DatagramIterator &dgi) {
 
   // Build a projection to fetch just this field from MongoDB.
   bsoncxx::builder::basic::document projectionBuilder;
-  projectionBuilder.append(bsoncxx::builder::basic::kvp(
-      "fields." + field->get_name(), 1));
+  projectionBuilder.append(
+      bsoncxx::builder::basic::kvp("fields." + field->get_name(), 1));
   auto projection = projectionBuilder.extract();
 
   mongocxx::options::find findOpts;
@@ -815,7 +815,7 @@ void DatabaseServer::HandleSetFieldIfEmpty(DatagramIterator &dgi) {
     obj = _db["objects"].find_one(
         document{} << "_id" << static_cast<int64_t>(doId) << finalize,
         findOpts);
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error(
         "Unexpected error while setting field if empty on object {}: {}", doId,
         e.what());
@@ -862,7 +862,7 @@ void DatabaseServer::HandleSetFieldIfEmpty(DatagramIterator &dgi) {
         builder << std::string_view("fields." + field->get_name()), packer);
 
     packer.end_unpack();
-  } catch (const ConversionException &e) {
+  } catch (const ConversionException& e) {
     spdlog::get("db")->error(
         "Failed to unpack object fields for set field if empty {}: {}", doId,
         e.what());
@@ -891,7 +891,7 @@ void DatabaseServer::HandleSetFieldIfEmpty(DatagramIterator &dgi) {
                              bsoncxx::to_json(fieldBuilder.view()));
 
     ReportCompleted(UPDATE_OBJECT_FIELDS, startTime);
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error(
         "Unexpected error while setting field if empty on object {}: {}", doId,
         e.what());
@@ -900,9 +900,9 @@ void DatabaseServer::HandleSetFieldIfEmpty(DatagramIterator &dgi) {
   }
 }
 
-void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
-                                          const uint64_t &sender,
-                                          const bool &multiple) {
+void DatabaseServer::HandleSetFieldEquals(DatagramIterator& dgi,
+                                          const uint64_t& sender,
+                                          const bool& multiple) {
   auto startTime = g_loop->now();
 
   auto ctx = dgi.GetUint32();
@@ -916,7 +916,7 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
   try {
     obj = _db["objects"].find_one(
         document{} << "_id" << static_cast<int64_t>(doId) << finalize);
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error(
         "Unexpected error while setting field(s) equals on object {}: {}", doId,
         e.what());
@@ -938,11 +938,12 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
   auto dclassName = std::string(obj->view()["dclass"].get_string().value);
 
   // Make sure we have a valid distributed class.
-  DCClass *dcClass = g_dc_file->get_class_by_name(dclassName);
+  DCClass* dcClass = g_dc_file->get_class_by_name(dclassName);
   if (!dcClass) {
-    spdlog::get("db")->error("Received set field(s) equals for unknown "
-                             "distributed class {}: {}",
-                             doId, dclassName);
+    spdlog::get("db")->error(
+        "Received set field(s) equals for unknown "
+        "distributed class {}: {}",
+        doId, dclassName);
 
     HandleContextFailure(responseType, sender, ctx);
     ReportFailed(UPDATE_OBJECT_FIELDS);
@@ -987,15 +988,16 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
   // First, make sure our expected fields match.
   FieldMap failedFields;
   Datagram objectDg;
-  for (const auto &it : expectedFields) {
+  for (const auto& it : expectedFields) {
     auto fieldValue = fields[it.first->get_name()];
     if (!fieldValue) {
       // Hmm, the field doesn't exist at all.
       // Just insert an empty vector as its data.
       failedFields[it.first] = std::vector<uint8_t>();
-      spdlog::get("db")->debug("Missing expected field {} in set "
-                               "field(s) equals for object {}: {}",
-                               it.first->get_name(), doId, dclassName);
+      spdlog::get("db")->debug(
+          "Missing expected field {} in set "
+          "field(s) equals for object {}: {}",
+          it.first->get_name(), doId, dclassName);
       continue;
     }
 
@@ -1006,9 +1008,10 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
     if (it.second != objectDg.GetBytes()) {
       // The field exists but the actual/expected data is mismatched.
       failedFields[it.first] = objectDg.GetBytes();
-      spdlog::get("db")->debug("Mismatched expected field {} in set "
-                               "field(s) equals for object {}: {}",
-                               it.first->get_name(), doId, dclassName);
+      spdlog::get("db")->debug(
+          "Mismatched expected field {} in set "
+          "field(s) equals for object {}: {}",
+          it.first->get_name(), doId, dclassName);
       continue;
     }
 
@@ -1024,7 +1027,7 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
     if (multiple) {
       dg->AddUint16(failedFields.size());
     }
-    for (const auto &it : failedFields) {
+    for (const auto& it : failedFields) {
       dg->AddUint16(it.first->get_number());
       dg->AddData(it.second);
     }
@@ -1040,7 +1043,7 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
   // Start unpacking fields into a bson document.
   auto builder = document{};
   try {
-    for (const auto &field : objectFields) {
+    for (const auto& field : objectFields) {
       packer.set_unpack_data(field.second);
       // Tell the packer we're starting to unpack the field.
       packer.begin_unpack(field.first);
@@ -1052,7 +1055,7 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
       // We've finished unpacking the field.
       packer.end_unpack();
     }
-  } catch (const ConversionException &e) {
+  } catch (const ConversionException& e) {
     spdlog::get("db")->error(
         "Failed to unpack object fields for set field(s) equals {}: {}", doId,
         e.what());
@@ -1089,7 +1092,7 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
     PublishDatagram(dg);
 
     ReportCompleted(UPDATE_OBJECT_FIELDS, startTime);
-  } catch (const mongocxx::operation_exception &e) {
+  } catch (const mongocxx::operation_exception& e) {
     spdlog::get("db")->error(
         "Unexpected error while setting field(s) equals on object {}: {}", doId,
         e.what());
@@ -1099,9 +1102,9 @@ void DatabaseServer::HandleSetFieldEquals(DatagramIterator &dgi,
   }
 }
 
-void DatabaseServer::HandleContextFailure(const MessageTypes &type,
-                                          const uint64_t &channel,
-                                          const uint32_t &context) {
+void DatabaseServer::HandleContextFailure(const MessageTypes& type,
+                                          const uint64_t& channel,
+                                          const uint32_t& context) {
   auto dg = std::make_shared<Datagram>(channel, _channel, type);
   dg->AddUint32(context);
   dg->AddBool(false);
@@ -1116,23 +1119,23 @@ void DatabaseServer::InitMetrics() {
 
   auto registry = Metrics::Instance()->GetRegistry();
 
-  auto &freeChannelsBuilder = prometheus::BuildGauge()
+  auto& freeChannelsBuilder = prometheus::BuildGauge()
                                   .Name("db_free_channels_size")
                                   .Help("Number of free channels")
                                   .Register(*registry);
 
-  auto &opsCompletedBuilder =
+  auto& opsCompletedBuilder =
       prometheus::BuildCounter()
           .Name("db_ops_completed")
           .Help("Number of successful database operations")
           .Register(*registry);
 
-  auto &opsFailedBuilder = prometheus::BuildCounter()
+  auto& opsFailedBuilder = prometheus::BuildCounter()
                                .Name("db_ops_failed")
                                .Help("Number of failed database operations")
                                .Register(*registry);
 
-  auto &opsTimeBuilder =
+  auto& opsTimeBuilder =
       prometheus::BuildHistogram()
           .Name("db_ops_time")
           .Help("Time taken for a successful database operation to complete")
@@ -1151,7 +1154,7 @@ void DatabaseServer::InitMetrics() {
       {OperationType::UPDATE_OBJECT_FIELDS, "update_fields"}};
 
   // Populate operation maps.
-  for (const auto &opType : OPERATIONS) {
+  for (const auto& opType : OPERATIONS) {
     _opsCompleted[opType.first] =
         &opsCompletedBuilder.Add({{"op_type", opType.second}});
     _opsFailed[opType.first] =
@@ -1190,21 +1193,23 @@ void DatabaseServer::InitFreeChannelsMetric() {
     auto freeDoIds = std::distance(freeDoIdArr.begin(), freeDoIdArr.end());
 
     _freeChannelsGauge->Set((double)(_maxDoId - currDoId + freeDoIds));
-  } catch (const ConversionException &e) {
-    spdlog::get("db")->error("Conversion error occurred while "
-                             "calculating free channel metrics: {}",
-                             e.what());
+  } catch (const ConversionException& e) {
+    spdlog::get("db")->error(
+        "Conversion error occurred while "
+        "calculating free channel metrics: {}",
+        e.what());
     _freeChannelsGauge->Set(0);
-  } catch (const mongocxx::operation_exception &e) {
-    spdlog::get("db")->error("MongoDB error occurred while calculating "
-                             "free channel metrics: {}",
-                             e.what());
+  } catch (const mongocxx::operation_exception& e) {
+    spdlog::get("db")->error(
+        "MongoDB error occurred while calculating "
+        "free channel metrics: {}",
+        e.what());
     _freeChannelsGauge->Set(0);
   }
 }
 
-void DatabaseServer::ReportCompleted(const DatabaseServer::OperationType &type,
-                                     const uvw::timer_handle::time &startTime) {
+void DatabaseServer::ReportCompleted(const DatabaseServer::OperationType& type,
+                                     const uvw::timer_handle::time& startTime) {
   auto counter = _opsCompleted[type];
   if (counter) {
     counter->Increment();
@@ -1216,14 +1221,14 @@ void DatabaseServer::ReportCompleted(const DatabaseServer::OperationType &type,
   }
 }
 
-void DatabaseServer::ReportFailed(const DatabaseServer::OperationType &type) {
+void DatabaseServer::ReportFailed(const DatabaseServer::OperationType& type) {
   auto counter = _opsFailed[type];
   if (counter) {
     counter->Increment();
   }
 }
 
-void DatabaseServer::HandleWeb(ws28::Client *client, nlohmann::json &data) {
+void DatabaseServer::HandleWeb(ws28::Client* client, nlohmann::json& data) {
   WebPanel::Send(client, {
                              {"type", "db"},
                              {"success", true},
@@ -1234,4 +1239,4 @@ void DatabaseServer::HandleWeb(ws28::Client *client, nlohmann::json &data) {
                          });
 }
 
-} // namespace Ardos
+}  // namespace Ardos

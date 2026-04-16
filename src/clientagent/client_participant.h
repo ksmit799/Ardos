@@ -17,7 +17,7 @@ enum AuthState {
 
 struct DeclaredObject {
   uint32_t doId;
-  DCClass *dcc;
+  DCClass* dcc;
 };
 
 struct OwnedObject : DeclaredObject {
@@ -37,9 +37,9 @@ struct Interest {
 };
 
 class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
-public:
-  ClientParticipant(ClientAgent *clientAgent,
-                    const std::shared_ptr<uvw::tcp_handle> &socket);
+ public:
+  ClientParticipant(ClientAgent* clientAgent,
+                    const std::shared_ptr<uvw::tcp_handle>& socket);
   ~ClientParticipant() override;
 
   friend class InterestOperation;
@@ -49,8 +49,8 @@ public:
   [[nodiscard]] std::vector<std::shared_ptr<Datagram>> GetPostRemoves() const {
     return _postRemoves;
   }
-  [[nodiscard]] std::unordered_map<uint32_t, OwnedObject>
-  GetOwnedObjects() const {
+  [[nodiscard]] std::unordered_map<uint32_t, OwnedObject> GetOwnedObjects()
+      const {
     return _ownedObjects;
   }
   [[nodiscard]] std::unordered_set<uint32_t> GetSessionObjects() const {
@@ -60,87 +60,85 @@ public:
     return _interests;
   }
 
-private:
-  static uint64_t now_ms() {
-    return uv_hrtime() / 1000000;
-  }
+ private:
+  static uint64_t now_ms() { return uv_hrtime() / 1000000; }
 
   void Shutdown() override;
 
   void HandleDisconnect(uv_errno_t code) override;
 
-  void HandleClientDatagram(const std::shared_ptr<Datagram> &dg) override;
-  void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;
+  void HandleClientDatagram(const std::shared_ptr<Datagram>& dg) override;
+  void HandleDatagram(const std::shared_ptr<Datagram>& dg) override;
 
-  void SendDisconnect(const uint16_t &reason, const std::string &message,
-                      const bool &security = false);
+  void SendDisconnect(const uint16_t& reason, const std::string& message,
+                      const bool& security = false);
 
   void HandleClientHeartbeat();
   void HandleHeartbeatTimeout();
   void HandleAuthTimeout();
   void CleanupHistorical();
 
-  void HandlePreHello(DatagramIterator &dgi);
-  void HandlePreAuth(DatagramIterator &dgi);
-  void HandleAuthenticated(DatagramIterator &dgi);
+  void HandlePreHello(DatagramIterator& dgi);
+  void HandlePreAuth(DatagramIterator& dgi);
+  void HandleAuthenticated(DatagramIterator& dgi);
 
 #ifdef ARDOS_USE_LEGACY_CLIENT
-  void HandleLoginLegacy(DatagramIterator &dgi);
+  void HandleLoginLegacy(DatagramIterator& dgi);
 #endif
 
-  DCClass *LookupObject(const uint32_t &doId);
+  DCClass* LookupObject(const uint32_t& doId);
 
-  void HandleClientObjectUpdateField(DatagramIterator &dgi);
-  void HandleClientObjectLocation(DatagramIterator &dgi);
-  void HandleClientAddInterest(DatagramIterator &dgi, const bool &multiple);
-  void HandleClientRemoveInterest(DatagramIterator &dgi);
+  void HandleClientObjectUpdateField(DatagramIterator& dgi);
+  void HandleClientObjectLocation(DatagramIterator& dgi);
+  void HandleClientAddInterest(DatagramIterator& dgi, const bool& multiple);
+  void HandleClientRemoveInterest(DatagramIterator& dgi);
 
-  void BuildInterest(DatagramIterator &dgi, const bool &multiple, Interest &out,
-                     const uint16_t &handleId = 0);
-  void AddInterest(Interest &i, const uint32_t &context,
-                   const uint64_t &caller = 0);
+  void BuildInterest(DatagramIterator& dgi, const bool& multiple, Interest& out,
+                     const uint16_t& handleId = 0);
+  void AddInterest(Interest& i, const uint32_t& context,
+                   const uint64_t& caller = 0);
 
-  std::vector<Interest> LookupInterests(const uint32_t &parentId,
-                                        const uint32_t &zoneId);
+  std::vector<Interest> LookupInterests(const uint32_t& parentId,
+                                        const uint32_t& zoneId);
 
-  void NotifyInterestDone(const uint16_t &interestId, const uint64_t &caller);
-  void NotifyInterestDone(const InterestOperation *iop);
-  void HandleInterestDone(const uint16_t &interestId, const uint32_t &context);
-  void HandleAddInterest(const Interest &i, const uint32_t &context);
+  void NotifyInterestDone(const uint16_t& interestId, const uint64_t& caller);
+  void NotifyInterestDone(const InterestOperation* iop);
+  void HandleInterestDone(const uint16_t& interestId, const uint32_t& context);
+  void HandleAddInterest(const Interest& i, const uint32_t& context);
 
-  void HandleRemoveInterest(const uint16_t &interestId,
-                            const uint32_t &context);
-  void RemoveInterest(Interest &i, const uint32_t &context,
-                      const uint64_t &caller = 0);
+  void HandleRemoveInterest(const uint16_t& interestId,
+                            const uint32_t& context);
+  void RemoveInterest(Interest& i, const uint32_t& context,
+                      const uint64_t& caller = 0);
 
-  void CloseZones(const uint32_t &parent,
-                  const std::unordered_set<uint32_t> &killedZones);
+  void CloseZones(const uint32_t& parent,
+                  const std::unordered_set<uint32_t>& killedZones);
 
-  void HandleRemoveObject(const uint32_t &doId);
-  void HandleRemoveOwnership(const uint32_t &doId);
+  void HandleRemoveObject(const uint32_t& doId);
+  void HandleRemoveOwnership(const uint32_t& doId);
 
-  void HandleObjectEntrance(DatagramIterator &dgi, const bool &other);
+  void HandleObjectEntrance(DatagramIterator& dgi, const bool& other);
 
-  void HandleAddObject(const uint32_t &doId, const uint32_t &parentId,
-                       const uint32_t &zoneId, const uint16_t &dcId,
-                       DatagramIterator &dgi, const bool &other = false);
+  void HandleAddObject(const uint32_t& doId, const uint32_t& parentId,
+                       const uint32_t& zoneId, const uint16_t& dcId,
+                       DatagramIterator& dgi, const bool& other = false);
 
-  bool TryQueuePending(const uint32_t &doId,
-                       const std::shared_ptr<Datagram> &dg);
+  bool TryQueuePending(const uint32_t& doId,
+                       const std::shared_ptr<Datagram>& dg);
 
-  void HandleSetField(const uint32_t &doId, const uint16_t &fieldId,
-                      DatagramIterator &dgi);
-  void HandleSetFields(const uint32_t &doId, const uint16_t &numFields,
-                       DatagramIterator &dgi);
+  void HandleSetField(const uint32_t& doId, const uint16_t& fieldId,
+                      DatagramIterator& dgi);
+  void HandleSetFields(const uint32_t& doId, const uint16_t& numFields,
+                       DatagramIterator& dgi);
 
-  void HandleAddOwnership(const uint32_t &doId, const uint32_t &parentId,
-                          const uint32_t &zoneId, const uint16_t &dcId,
-                          DatagramIterator &dgi, const bool &other = false);
+  void HandleAddOwnership(const uint32_t& doId, const uint32_t& parentId,
+                          const uint32_t& zoneId, const uint16_t& dcId,
+                          DatagramIterator& dgi, const bool& other = false);
 
-  void HandleChangeLocation(const uint32_t &doId, const uint32_t &newParent,
-                            const uint32_t &newZone);
+  void HandleChangeLocation(const uint32_t& doId, const uint32_t& newParent,
+                            const uint32_t& newZone);
 
-  ClientAgent *_clientAgent;
+  ClientAgent* _clientAgent;
 
   uint64_t _channel;
   uint64_t _allocatedChannel;
@@ -175,12 +173,12 @@ private:
   // A map of interest id's to interest handles.
   std::unordered_map<uint16_t, Interest> _interests;
   // A map of interest contexts to their in-progress operations.
-  std::unordered_map<uint32_t, InterestOperation *> _pendingInterests;
+  std::unordered_map<uint32_t, InterestOperation*> _pendingInterests;
 
   // A list of datagrams to be routed when this client disconnects.
   std::vector<std::shared_ptr<Datagram>> _postRemoves;
 };
 
-} // namespace Ardos
+}  // namespace Ardos
 
-#endif // ARDOS_CLIENT_PARTICIPANT_H
+#endif  // ARDOS_CLIENT_PARTICIPANT_H

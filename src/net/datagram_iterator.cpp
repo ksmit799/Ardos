@@ -4,8 +4,8 @@
 
 namespace Ardos {
 
-DatagramIterator::DatagramIterator(const std::shared_ptr<Datagram> &dg,
-                                   const size_t &offset)
+DatagramIterator::DatagramIterator(const std::shared_ptr<Datagram>& dg,
+                                   const size_t& offset)
     : _dg(dg), _offset(offset) {}
 
 /**
@@ -20,7 +20,7 @@ bool DatagramIterator::GetBool() { return GetUint8(); }
  */
 int8_t DatagramIterator::GetInt8() {
   EnsureLength(1);
-  const int8_t v = *(int8_t *)(_dg->GetData() + _offset);
+  const int8_t v = *(int8_t*)(_dg->GetData() + _offset);
   _offset += 1;
   return v;
 }
@@ -31,7 +31,7 @@ int8_t DatagramIterator::GetInt8() {
  */
 uint8_t DatagramIterator::GetUint8() {
   EnsureLength(1);
-  const uint8_t v = *(uint8_t *)(_dg->GetData() + _offset);
+  const uint8_t v = *(uint8_t*)(_dg->GetData() + _offset);
   _offset += 1;
   return v;
 }
@@ -42,7 +42,7 @@ uint8_t DatagramIterator::GetUint8() {
  */
 int16_t DatagramIterator::GetInt16() {
   EnsureLength(2);
-  const int16_t v = *(int16_t *)(_dg->GetData() + _offset);
+  const int16_t v = *(int16_t*)(_dg->GetData() + _offset);
   _offset += 2;
   return v;
 }
@@ -53,7 +53,7 @@ int16_t DatagramIterator::GetInt16() {
  */
 uint16_t DatagramIterator::GetUint16() {
   EnsureLength(2);
-  const uint16_t v = *(uint16_t *)(_dg->GetData() + _offset);
+  const uint16_t v = *(uint16_t*)(_dg->GetData() + _offset);
   _offset += 2;
   return v;
 }
@@ -64,7 +64,7 @@ uint16_t DatagramIterator::GetUint16() {
  */
 int32_t DatagramIterator::GetInt32() {
   EnsureLength(4);
-  const int32_t v = *(int32_t *)(_dg->GetData() + _offset);
+  const int32_t v = *(int32_t*)(_dg->GetData() + _offset);
   _offset += 4;
   return v;
 }
@@ -75,7 +75,7 @@ int32_t DatagramIterator::GetInt32() {
  */
 uint32_t DatagramIterator::GetUint32() {
   EnsureLength(4);
-  const uint32_t v = *(uint32_t *)(_dg->GetData() + _offset);
+  const uint32_t v = *(uint32_t*)(_dg->GetData() + _offset);
   _offset += 4;
   return v;
 }
@@ -86,7 +86,7 @@ uint32_t DatagramIterator::GetUint32() {
  */
 int64_t DatagramIterator::GetInt64() {
   EnsureLength(8);
-  const int64_t v = *(int64_t *)(_dg->GetData() + _offset);
+  const int64_t v = *(int64_t*)(_dg->GetData() + _offset);
   _offset += 8;
   return v;
 }
@@ -97,7 +97,7 @@ int64_t DatagramIterator::GetInt64() {
  */
 uint64_t DatagramIterator::GetUint64() {
   EnsureLength(8);
-  const uint64_t v = *(uint64_t *)(_dg->GetData() + _offset);
+  const uint64_t v = *(uint64_t*)(_dg->GetData() + _offset);
   _offset += 8;
   return v;
 }
@@ -108,7 +108,7 @@ uint64_t DatagramIterator::GetUint64() {
  */
 float DatagramIterator::GetFloat32() {
   EnsureLength(4);
-  const float v = *(float *)(_dg->GetData() + _offset);
+  const float v = *(float*)(_dg->GetData() + _offset);
   _offset += 4;
   return v;
 }
@@ -119,7 +119,7 @@ float DatagramIterator::GetFloat32() {
  */
 double DatagramIterator::GetFloat64() {
   EnsureLength(8);
-  const double v = *(double *)(_dg->GetData() + _offset);
+  const double v = *(double*)(_dg->GetData() + _offset);
   _offset += 8;
   return v;
 }
@@ -131,7 +131,7 @@ double DatagramIterator::GetFloat64() {
 std::string DatagramIterator::GetString() {
   const uint16_t length = GetUint16();
   EnsureLength(length);
-  std::string str((char *)(_dg->GetData() + _offset), length);
+  std::string str((char*)(_dg->GetData() + _offset), length);
   _offset += length;
   return str;
 }
@@ -154,7 +154,7 @@ std::vector<uint8_t> DatagramIterator::GetBlob() {
  * @param size
  * @return
  */
-std::vector<uint8_t> DatagramIterator::GetData(const size_t &size) {
+std::vector<uint8_t> DatagramIterator::GetData(const size_t& size) {
   EnsureLength(size);
   std::vector<uint8_t> data(_dg->GetData() + _offset,
                             _dg->GetData() + _offset + size);
@@ -186,8 +186,8 @@ std::shared_ptr<Datagram> DatagramIterator::GetUnderlyingDatagram() {
  * @param field
  * @param buffer
  */
-void DatagramIterator::UnpackField(const DCPackerInterface *field,
-                                   std::vector<uint8_t> &buffer) {
+void DatagramIterator::UnpackField(const DCPackerInterface* field,
+                                   std::vector<uint8_t>& buffer) {
   // If the field has a fixed size in bytes (int, uint, float, etc.)
   // we can unpack data directly using that size.
   if (field->has_fixed_byte_size()) {
@@ -201,23 +201,23 @@ void DatagramIterator::UnpackField(const DCPackerInterface *field,
   size_t length = field->get_num_length_bytes();
   if (length) {
     switch (length) {
-    case 2: {
-      uint16_t lengthTag = GetUint16();
-      buffer.insert(buffer.end(), (uint8_t *)&lengthTag,
-                    (uint8_t *)&lengthTag + 2);
-      length = lengthTag;
-      break;
-    }
-    case 4: {
-      uint32_t lengthTag = GetUint32();
-      buffer.insert(buffer.end(), (uint8_t *)&lengthTag,
-                    (uint8_t *)&lengthTag + 4);
-      length = lengthTag;
-      break;
-    }
-    default:
-      spdlog::error("[DGI] Unhandled field unpack for variable length: {}",
-                    length);
+      case 2: {
+        uint16_t lengthTag = GetUint16();
+        buffer.insert(buffer.end(), (uint8_t*)&lengthTag,
+                      (uint8_t*)&lengthTag + 2);
+        length = lengthTag;
+        break;
+      }
+      case 4: {
+        uint32_t lengthTag = GetUint32();
+        buffer.insert(buffer.end(), (uint8_t*)&lengthTag,
+                      (uint8_t*)&lengthTag + 4);
+        length = lengthTag;
+        break;
+      }
+      default:
+        spdlog::error("[DGI] Unhandled field unpack for variable length: {}",
+                      length);
     }
 
     // Unpack field data into the buffer.
@@ -243,13 +243,13 @@ uint16_t DatagramIterator::Tell() const { return _offset; }
  * Increases the read offset by the number of bytes.
  * @param bytes
  */
-void DatagramIterator::Skip(const size_t &bytes) { _offset += bytes; }
+void DatagramIterator::Skip(const size_t& bytes) { _offset += bytes; }
 
 /**
  * Sets the current read offset (in bytes).
  * @param offset
  */
-void DatagramIterator::Seek(const size_t &offset) { _offset = offset; }
+void DatagramIterator::Seek(const size_t& offset) { _offset = offset; }
 
 /**
  * Seeks to the beginning of this datagrams payload (sender).
@@ -267,7 +267,7 @@ void DatagramIterator::SeekPayload() {
  * Skips reading past a packed field.
  * @param field
  */
-void DatagramIterator::SkipField(const DCPackerInterface *field) {
+void DatagramIterator::SkipField(const DCPackerInterface* field) {
   // If the field has a fixed size in bytes (int, uint, float, etc.)
   // we can use that as our offset.
   if (field->has_fixed_byte_size()) {
@@ -282,17 +282,17 @@ void DatagramIterator::SkipField(const DCPackerInterface *field) {
   size_t length = field->get_num_length_bytes();
   if (length) {
     switch (length) {
-    case 2: {
-      length = GetUint16();
-      break;
-    }
-    case 4: {
-      length = GetUint32();
-      break;
-    }
-    default:
-      spdlog::error("[DGI] Unhandled field unpack for variable length: {}",
-                    length);
+      case 2: {
+        length = GetUint16();
+        break;
+      }
+      case 4: {
+        length = GetUint32();
+        break;
+      }
+      default:
+        spdlog::error("[DGI] Unhandled field unpack for variable length: {}",
+                      length);
     }
 
     // Skip the field data.
@@ -328,7 +328,7 @@ std::vector<uint8_t> DatagramIterator::GetRemainingBytes() {
   return data;
 }
 
-void DatagramIterator::EnsureLength(const size_t &length) const {
+void DatagramIterator::EnsureLength(const size_t& length) const {
   // Make sure we don't overflow reading.
   const size_t newOffset = _offset + length;
   if (newOffset > _dg->Size()) {
@@ -339,4 +339,4 @@ void DatagramIterator::EnsureLength(const size_t &length) const {
   }
 }
 
-} // namespace Ardos
+}  // namespace Ardos
