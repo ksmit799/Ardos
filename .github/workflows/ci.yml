@@ -24,7 +24,7 @@ jobs:
       - name: Build
         run: |
           cmake -B build \
-            -DCMAKE_TOOLCHAIN_FILE=/app/libs/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           cmake --build build
