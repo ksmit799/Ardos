@@ -251,6 +251,7 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
       BuildInterest(dgi, false, i);
       HandleAddInterest(i, context);
       AddInterest(i, context, sender);
+      break;
     }
     case CLIENTAGENT_ADD_INTEREST_MULTIPLE: {
       uint32_t context = _nextContext++;
