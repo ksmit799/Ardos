@@ -1600,6 +1600,12 @@ void ClientParticipant::HandleAddOwnership(
 void ClientParticipant::HandleChangeLocation(const uint32_t& doId,
                                              const uint32_t& newParent,
                                              const uint32_t& newZone) {
+  // If the players avatar is changing location, make sure we keep track of it.
+  if (_avatarDoId == doId) {
+    _avatarParent = newParent;
+    _avatarZone = newZone;
+  }
+
   auto dg = std::make_shared<Datagram>();
   dg->AddUint16(CLIENT_OBJECT_LOCATION);
   dg->AddUint32(doId);
