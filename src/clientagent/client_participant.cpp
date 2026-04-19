@@ -20,7 +20,7 @@ static bool ZoneInConfiguredSet(const ClientAgent* agent, uint32_t zoneId) {
   return false;
 }
 
-static bool IsClassOrDerivedFrom(const DCClass *candidate, DCClass *baseClass) {
+static bool IsClassOrDerivedFrom(const DCClass* candidate, DCClass* baseClass) {
   if (!candidate || !baseClass) {
     return false;
   }
@@ -1069,6 +1069,9 @@ void ClientParticipant::HandleClientObjectUpdateField(DatagramIterator& dgi) {
                                            STATESERVER_OBJECT_SET_FIELD);
       dg->AddUint32(chatShim);
       dg->AddUint16(chatField->get_number());
+      // Send the clients avatar parentId/zoneId.
+      dg->AddUint32(_avatarParent);
+      dg->AddUint32(_avatarZone);
       // For whisper messages, add the target DoId (receiver.)
       if (field->get_name() == "setTalkWhisper") {
         dg->AddUint32(doId);
@@ -1458,12 +1461,12 @@ void ClientParticipant::HandleRemoveObject(const uint32_t& doId) {
   dg->AddUint32(doId);
   SendDatagram(dg);
 }
-  
+
 void ClientParticipant::HandleRemoveOwnership(const uint32_t& doId) {
   if (_avatarDoId == doId) {
-    _avatarDoId = 0;
-    _avatarParent = 0;
-    _avatarZone = 0;
+    _avatarDoId = INVALID_DO_ID;
+    _avatarParent = INVALID_DO_ID;
+    _avatarZone = INVALID_DO_ID;
   }
 
   auto dg = std::make_shared<Datagram>();
@@ -1565,11 +1568,11 @@ void ClientParticipant::HandleAddOwnership(
     const uint32_t& doId, const uint32_t& parentId, const uint32_t& zoneId,
     const uint16_t& dcId, DatagramIterator& dgi, const bool& other) {
   // Track location from the configured avatar class only.
-  DCClass *avatarClass = _clientAgent->GetAvatarClass();
+  DCClass* avatarClass = _clientAgent->GetAvatarClass();
   if (IsClassOrDerivedFrom(_ownedObjects[doId].dcc, avatarClass)) {
     _avatarDoId = doId;
-    _avatarParent = parent;
-    _avatarZone = zone;
+    _avatarParent = parentId;
+    _avatarZone = zoneId;
   }
 
   auto dg = std::make_shared<Datagram>();

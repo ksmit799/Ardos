@@ -3,10 +3,10 @@
 
 #include "../messagedirector/channel_subscriber.h"
 #include "../net/datagram_iterator.h"
+#include "../net/message_types.h"
 #include "../net/network_client.h"
 #include "client_agent.h"
 #include "interest_operation.h"
-#include "../net/message_types.h"
 
 namespace Ardos {
 
@@ -172,8 +172,9 @@ class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
   std::unordered_map<uint32_t, std::unordered_set<uint16_t>> _fieldsSendable;
 
   // Track owned avatar location for a configured avatar class.
-  // This is used primarily for setParentingRules, but is also used in legacy mode for
-  // chat handling/shimming (it's helpful to know *where* a message was sent from/to.)
+  // This is used primarily for setParentingRules, but is also used in legacy
+  // mode for chat handling/shimming (it's helpful to know *where* a message was
+  // sent from/to.)
   uint32_t _avatarDoId = INVALID_DO_ID;
   uint32_t _avatarParent = INVALID_DO_ID;
   uint32_t _avatarZone = INVALID_DO_ID;

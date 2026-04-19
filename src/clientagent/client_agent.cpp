@@ -344,7 +344,7 @@ unsigned long ClientAgent::GetInterestTimeout() const {
  * Returns the configured avatar class (or nullptr if unset).
  * @return
  */
-DCClass *ClientAgent::GetAvatarClass() const { return _avatarClass; }
+DCClass* ClientAgent::GetAvatarClass() const { return _avatarClass; }
 
 /**
  * Called when a participant connects.

@@ -60,7 +60,7 @@ class ClientAgent {
   [[nodiscard]] const std::vector<std::pair<uint32_t, uint32_t>>&
   GetInterestZoneRanges() const;
   [[nodiscard]] unsigned long GetInterestTimeout() const;
-  [[nodiscard]] DCClass *GetAvatarClass() const;
+  [[nodiscard]] DCClass* GetAvatarClass() const;
 
   void ParticipantJoined();
   void ParticipantLeft(ClientParticipant* client);
@@ -91,7 +91,7 @@ class ClientAgent {
   unsigned long _interestTimeout;
 
   std::unordered_map<uint32_t, Uberdog> _uberdogs;
-  DCClass *_avatarClass = nullptr;
+  DCClass* _avatarClass = nullptr;
 
   std::unordered_set<ClientParticipant*> _participants;
 
