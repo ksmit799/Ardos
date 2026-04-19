@@ -20,6 +20,24 @@ static bool ZoneInConfiguredSet(const ClientAgent* agent, uint32_t zoneId) {
   return false;
 }
 
+static bool IsClassOrDerivedFrom(const DCClass* candidate, DCClass* baseClass) {
+  if (!candidate || !baseClass) {
+    return false;
+  }
+  if (candidate == baseClass) {
+    return true;
+  }
+
+  const int parentCount = candidate->get_num_parents();
+  for (int i = 0; i < parentCount; ++i) {
+    if (IsClassOrDerivedFrom(candidate->get_parent(i), baseClass)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 ClientParticipant::ClientParticipant(
     ClientAgent* clientAgent, const std::shared_ptr<uvw::tcp_handle>& socket)
     : NetworkClient(socket), ChannelSubscriber(), _clientAgent(clientAgent) {
@@ -323,7 +341,6 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
             _channel, doId);
         break;
       }
-
       _declaredObjects.erase(doId);
       break;
     }
@@ -1052,6 +1069,9 @@ void ClientParticipant::HandleClientObjectUpdateField(DatagramIterator& dgi) {
                                            STATESERVER_OBJECT_SET_FIELD);
       dg->AddUint32(chatShim);
       dg->AddUint16(chatField->get_number());
+      // Send the clients avatar parentId/zoneId.
+      dg->AddUint32(_avatarParent);
+      dg->AddUint32(_avatarZone);
       // For whisper messages, add the target DoId (receiver.)
       if (field->get_name() == "setTalkWhisper") {
         dg->AddUint32(doId);
@@ -1443,6 +1463,12 @@ void ClientParticipant::HandleRemoveObject(const uint32_t& doId) {
 }
 
 void ClientParticipant::HandleRemoveOwnership(const uint32_t& doId) {
+  if (_avatarDoId == doId) {
+    _avatarDoId = INVALID_DO_ID;
+    _avatarParent = INVALID_DO_ID;
+    _avatarZone = INVALID_DO_ID;
+  }
+
   auto dg = std::make_shared<Datagram>();
   dg->AddUint16(CLIENT_OBJECT_LEAVING_OWNER);
   dg->AddUint32(doId);
@@ -1541,6 +1567,14 @@ void ClientParticipant::HandleSetFields(const uint32_t& doId,
 void ClientParticipant::HandleAddOwnership(
     const uint32_t& doId, const uint32_t& parentId, const uint32_t& zoneId,
     const uint16_t& dcId, DatagramIterator& dgi, const bool& other) {
+  // Track location from the configured avatar class only.
+  DCClass* avatarClass = _clientAgent->GetAvatarClass();
+  if (IsClassOrDerivedFrom(_ownedObjects[doId].dcc, avatarClass)) {
+    _avatarDoId = doId;
+    _avatarParent = parentId;
+    _avatarZone = zoneId;
+  }
+
   auto dg = std::make_shared<Datagram>();
   spdlog::get("ca")->debug("Sending owner entry of object: {} to client: {}",
                            doId, _channel);
@@ -1566,6 +1600,12 @@ void ClientParticipant::HandleAddOwnership(
 void ClientParticipant::HandleChangeLocation(const uint32_t& doId,
                                              const uint32_t& newParent,
                                              const uint32_t& newZone) {
+  // If the players avatar is changing location, make sure we keep track of it.
+  if (_avatarDoId == doId) {
+    _avatarParent = newParent;
+    _avatarZone = newZone;
+  }
+
   auto dg = std::make_shared<Datagram>();
   dg->AddUint16(CLIENT_OBJECT_LOCATION);
   dg->AddUint32(doId);

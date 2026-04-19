@@ -95,6 +95,11 @@ client-agent:
   # This should rarely need to be used.
   manual-dc-hash: 0xABCD1234
 
+  # The name of the "avatar" class that clients can own.
+  # This is only necessary if you want to take advantage of `setParentingRules`,
+  # and/or legacy shim chatting. Otherwise, this can be omitted.
+  avatar-class: DistributedPlayer
+
   # Shim's logins from Disney specific clients to an UberDOG.
   # (DoId matches AuthManager defined above.)
   # NOTE: You must build Ardos with ARDOS_USE_LEGACY_CLIENT to use this option.

@@ -2,8 +2,6 @@
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 
-#include <cstring>
-
 #include "../clientagent/client_agent.h"
 #ifdef ARDOS_WANT_DB_SERVER
 #include "../database/database_server.h"

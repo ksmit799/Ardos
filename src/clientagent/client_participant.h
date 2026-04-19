@@ -3,6 +3,7 @@
 
 #include "../messagedirector/channel_subscriber.h"
 #include "../net/datagram_iterator.h"
+#include "../net/message_types.h"
 #include "../net/network_client.h"
 #include "client_agent.h"
 #include "interest_operation.h"
@@ -59,6 +60,8 @@ class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
   [[nodiscard]] std::unordered_map<uint16_t, Interest> GetInterests() const {
     return _interests;
   }
+  [[nodiscard]] uint32_t GetAvatarParent() const { return _avatarParent; }
+  [[nodiscard]] uint32_t GetAvatarZone() const { return _avatarZone; }
 
  private:
   static uint64_t now_ms() { return uv_hrtime() / 1000000; }
@@ -167,6 +170,14 @@ class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
 
   // A map of DoId's to fields marked explicitly send-able.
   std::unordered_map<uint32_t, std::unordered_set<uint16_t>> _fieldsSendable;
+
+  // Track owned avatar location for a configured avatar class.
+  // This is used primarily for setParentingRules, but is also used in legacy
+  // mode for chat handling/shimming (it's helpful to know *where* a message was
+  // sent from/to.)
+  uint32_t _avatarDoId = INVALID_DO_ID;
+  uint32_t _avatarParent = INVALID_DO_ID;
+  uint32_t _avatarZone = INVALID_DO_ID;
 
   // Context ID for handling interest responses from the state server.
   uint32_t _nextContext = 0;

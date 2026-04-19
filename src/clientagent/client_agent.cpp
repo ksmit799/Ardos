@@ -149,6 +149,17 @@ ClientAgent::ClientAgent() {
     _interestTimeout = timeoutParam.as<unsigned long>();
   }
 
+  // Optional player avatar class configuration.
+  if (auto avatarClassParam = config["avatar-class"]) {
+    _avatarClass =
+        g_dc_file->get_class_by_name(avatarClassParam.as<std::string>());
+    if (!_avatarClass) {
+      spdlog::get("ca")->error("Configured avatar class: {} does not exist!",
+                               avatarClassParam.as<std::string>());
+      exit(1);
+    }
+  }
+
   // Channel allocation configuration.
   auto channelsParam = config["channels"];
   _nextChannel = channelsParam["min"].as<uint64_t>();
@@ -328,6 +339,12 @@ ClientAgent::GetInterestZoneRanges() const {
 unsigned long ClientAgent::GetInterestTimeout() const {
   return _interestTimeout;
 }
+
+/**
+ * Returns the configured avatar class (or nullptr if unset).
+ * @return
+ */
+DCClass* ClientAgent::GetAvatarClass() const { return _avatarClass; }
 
 /**
  * Called when a participant connects.
