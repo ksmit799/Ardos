@@ -2,6 +2,8 @@
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <cstring>
+
 #include "../clientagent/client_agent.h"
 #ifdef ARDOS_WANT_DB_SERVER
 #include "../database/database_server.h"
@@ -16,9 +18,9 @@
 
 namespace Ardos {
 
-MessageDirector *MessageDirector::_instance = nullptr;
+MessageDirector* MessageDirector::_instance = nullptr;
 
-MessageDirector *MessageDirector::Instance() {
+MessageDirector* MessageDirector::Instance() {
   if (_instance == nullptr) {
     _instance = new MessageDirector();
   }
@@ -67,7 +69,7 @@ MessageDirector::MessageDirector() {
 
   // Socket events.
   _listenHandle->on<uvw::listen_event>(
-      [this](const uvw::listen_event &, uvw::tcp_handle &srv) {
+      [this](const uvw::listen_event&, uvw::tcp_handle& srv) {
         std::shared_ptr<uvw::tcp_handle> client =
             srv.parent().resource<uvw::tcp_handle>();
         srv.accept(*client);
@@ -77,7 +79,7 @@ MessageDirector::MessageDirector() {
       });
 
   _connectHandle->on<uvw::error_event>(
-      [](const uvw::error_event &event, uvw::tcp_handle &) {
+      [](const uvw::error_event& event, uvw::tcp_handle&) {
         // Just die on error, the message director always needs a connection to
         // RabbitMQ.
         spdlog::get("md")->error("Socket error: {}", event.what());
@@ -85,7 +87,7 @@ MessageDirector::MessageDirector() {
       });
 
   _connectHandle->on<uvw::connect_event>(
-      [this, user, password](const uvw::connect_event &, uvw::tcp_handle &tcp) {
+      [this, user, password](const uvw::connect_event&, uvw::tcp_handle& tcp) {
         // Authenticate with the RabbitMQ cluster.
         _connection =
             new AMQP::Connection(this, AMQP::Login(user, password), "/");
@@ -93,8 +95,8 @@ MessageDirector::MessageDirector() {
         _connectHandle->read();
       });
 
-  _connectHandle->on<uvw::data_event>([this](const uvw::data_event &event,
-                                             uvw::tcp_handle &) {
+  _connectHandle->on<uvw::data_event>([this](const uvw::data_event& event,
+                                             uvw::tcp_handle&) {
     // We've received a frame from RabbitMQ.
     // It may be a partial frame, so we need to do buffering ourselves.
     // See:
@@ -125,7 +127,7 @@ MessageDirector::MessageDirector() {
  * Returns the "global" channel used for routing messages.
  * @return
  */
-AMQP::Channel *MessageDirector::GetGlobalChannel() { return _globalChannel; }
+AMQP::Channel* MessageDirector::GetGlobalChannel() { return _globalChannel; }
 
 /**
  * Returns the local messaging queue for this message director.
@@ -146,9 +148,13 @@ std::string MessageDirector::GetLocalQueue() { return _localQueue; }
  *  @param  buffer          Data to send
  *  @param  size            Size of the buffer
  */
-void MessageDirector::onData(AMQP::Connection *connection, const char *buffer,
-                             size_t size) {
-  _connectHandle->write((char *)buffer, size);
+void MessageDirector::onData(AMQP::Connection* connection, const char* buffer,
+                             const size_t size) {
+  auto sendBuffer = std::unique_ptr<char[]>(new char[size]);
+  if (size != 0) {
+    std::memcpy(sendBuffer.get(), buffer, size);
+  }
+  _connectHandle->write(std::move(sendBuffer), size);
 }
 
 /**
@@ -158,7 +164,7 @@ void MessageDirector::onData(AMQP::Connection *connection, const char *buffer,
  *
  *  @param  connection      The connection that can now be used
  */
-void MessageDirector::onReady(AMQP::Connection *connection) {
+void MessageDirector::onReady(AMQP::Connection* connection) {
   // Resize our frame buffer to the max frame length.
   // This prevents buffer re-sizing at runtime.
   _frameBuffer.reserve(connection->maxFrame());
@@ -171,7 +177,7 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
         // This queue is specific to this process, and will be automatically
         // deleted once it goes offline.
         _globalChannel->declareQueue(AMQP::exclusive)
-            .onSuccess([this](const std::string &name, int msgCount,
+            .onSuccess([this](const std::string& name, int msgCount,
                               int consumerCount) {
               _localQueue = name;
 
@@ -214,13 +220,13 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
               spdlog::get("md")->debug("Local Queue: {}", _localQueue);
               spdlog::get("md")->info("Listening on {}:{}", _host, _port);
             })
-            .onError([](const char *message) {
+            .onError([](const char* message) {
               spdlog::get("md")->error("Failed to declare local queue: {}",
                                        message);
               exit(1);
             });
       })
-      .onError([](const char *message) {
+      .onError([](const char* message) {
         spdlog::get("md")->error("Failed to declare global exchange: {}",
                                  message);
         exit(1);
@@ -238,8 +244,8 @@ void MessageDirector::onReady(AMQP::Connection *connection) {
  *  @param  connection      The connection that entered the error state
  *  @param  message         Error message
  */
-void MessageDirector::onError(AMQP::Connection *connection,
-                              const char *message) {
+void MessageDirector::onError(AMQP::Connection* connection,
+                              const char* message) {
   // The connection is dead at this point.
   // Log out an exception and shut everything down.
   spdlog::get("md")->error("RabbitMQ error: {}", message);
@@ -257,7 +263,7 @@ void MessageDirector::onError(AMQP::Connection *connection,
  *  @param  connection      The connection that was closed and that is now
  * unusable
  */
-void MessageDirector::onClosed(AMQP::Connection *connection) {
+void MessageDirector::onClosed(AMQP::Connection* connection) {
   _connectHandle->close();
   _listenHandle->close();
 }
@@ -266,7 +272,7 @@ void MessageDirector::onClosed(AMQP::Connection *connection) {
  * Adds a channel subscriber to start receiving consume messages.
  * @param subscriber
  */
-void MessageDirector::AddSubscriber(ChannelSubscriber *subscriber) {
+void MessageDirector::AddSubscriber(ChannelSubscriber* subscriber) {
   _subscribers.insert(subscriber);
 
   // Increment subscribers metric.
@@ -279,7 +285,7 @@ void MessageDirector::AddSubscriber(ChannelSubscriber *subscriber) {
  * Removes a channel subscriber (no longer receives consume messages.)
  * @param subscriber
  */
-void MessageDirector::RemoveSubscriber(ChannelSubscriber *subscriber) {
+void MessageDirector::RemoveSubscriber(ChannelSubscriber* subscriber) {
   _leavingSubscribers.insert(subscriber);
 
   // Decrement subscribers metric.
@@ -300,7 +306,7 @@ void MessageDirector::ParticipantJoined() {
 /**
  * Called when a participant disconnects.
  */
-void MessageDirector::ParticipantLeft(MDParticipant *participant) {
+void MessageDirector::ParticipantLeft(MDParticipant* participant) {
   if (_participantsGauge) {
     _participantsGauge->Decrement();
   }
@@ -319,27 +325,27 @@ void MessageDirector::InitMetrics() {
 
   auto registry = Metrics::Instance()->GetRegistry();
 
-  auto &packetsBuilder = prometheus::BuildCounter()
+  auto& packetsBuilder = prometheus::BuildCounter()
                              .Name("md_observed_datagrams_total")
                              .Help("Number of datagrams observed")
                              .Register(*registry);
 
-  auto &datagramsBuilder = prometheus::BuildCounter()
+  auto& datagramsBuilder = prometheus::BuildCounter()
                                .Name("md_handled_datagrams_total")
                                .Help("Number of datagrams handled")
                                .Register(*registry);
 
-  auto &datagramsSizeBuilder = prometheus::BuildHistogram()
+  auto& datagramsSizeBuilder = prometheus::BuildHistogram()
                                    .Name("md_datagrams_bytes_size")
                                    .Help("Bytes size of handled datagrams")
                                    .Register(*registry);
 
-  auto &subscribersBuilder = prometheus::BuildGauge()
+  auto& subscribersBuilder = prometheus::BuildGauge()
                                  .Name("md_subscribers_size")
                                  .Help("Number of registered subscribers")
                                  .Register(*registry);
 
-  auto &participantsBuilder = prometheus::BuildGauge()
+  auto& participantsBuilder = prometheus::BuildGauge()
                                   .Name("md_participants_size")
                                   .Help("Number of connected participants")
                                   .Register(*registry);
@@ -359,8 +365,8 @@ void MessageDirector::InitMetrics() {
  */
 void MessageDirector::StartConsuming() {
   _globalChannel->consume(_localQueue)
-      .onSuccess([this](const std::string &tag) { _consumeTag = tag; })
-      .onReceived([this](const AMQP::Message &message, uint64_t deliveryTag,
+      .onSuccess([this](const std::string& tag) { _consumeTag = tag; })
+      .onReceived([this](const AMQP::Message& message, uint64_t deliveryTag,
                          bool redelivered) {
         // Acknowledge the message.
         _globalChannel->ack(deliveryTag);
@@ -391,33 +397,33 @@ void MessageDirector::StartConsuming() {
         // We should only need to create one shared datagram for all
         // subscribers.
         auto dg = std::make_shared<Datagram>(
-            reinterpret_cast<const uint8_t *>(message.body()),
+            reinterpret_cast<const uint8_t*>(message.body()),
             message.bodySize());
 
         // Forward the message to channel subscribers.
         // If they're not subscribed to the channel, they'll ignore it.
-        for (const auto &subscriber : _subscribers) {
+        for (const auto& subscriber : _subscribers) {
           subscriber->HandleUpdate(message.routingkey(), dg);
         }
 
         // Delete any subscribers that were annihilated while handling the
         // message.
-        for (const auto &it : _leavingSubscribers) {
+        for (const auto& it : _leavingSubscribers) {
           _subscribers.erase(it);
           delete it;
         }
 
         _leavingSubscribers.clear();
       })
-      .onCancelled([](const std::string &consumerTag) {
+      .onCancelled([](const std::string& consumerTag) {
         spdlog::get("md")->error("Channel consuming cancelled unexpectedly.");
       })
-      .onError([](const char *message) {
+      .onError([](const char* message) {
         spdlog::get("md")->error("Received error: {}", message);
       });
 }
 
-bool MessageDirector::WithinGlobalRange(const std::string &routingKey) {
+bool MessageDirector::WithinGlobalRange(const std::string& routingKey) {
   auto channel = std::stoull(routingKey);
   return std::any_of(ChannelSubscriber::_globalRanges.begin(),
                      ChannelSubscriber::_globalRanges.end(), [channel](auto i) {
@@ -426,10 +432,10 @@ bool MessageDirector::WithinGlobalRange(const std::string &routingKey) {
                      });
 }
 
-void MessageDirector::HandleWeb(ws28::Client *client, nlohmann::json &data) {
+void MessageDirector::HandleWeb(ws28::Client* client, nlohmann::json& data) {
   // Build up an array of connected participants.
   nlohmann::json participantInfo = nlohmann::json::array();
-  for (const auto &participant : _participants) {
+  for (const auto& participant : _participants) {
     participantInfo.push_back({
         {"name", participant->GetName()},
         {"ip", participant->GetRemoteAddress().ip},
@@ -450,4 +456,4 @@ void MessageDirector::HandleWeb(ws28::Client *client, nlohmann::json &data) {
                          });
 }
 
-} // namespace Ardos
+}  // namespace Ardos

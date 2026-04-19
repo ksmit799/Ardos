@@ -11,30 +11,30 @@
 namespace Ardos {
 
 class LoadingObject final : public ChannelSubscriber {
-public:
+ public:
   friend class DatabaseStateServer;
 
-  LoadingObject(DatabaseStateServer *stateServer, const uint32_t &doId,
-                const uint32_t &parentId, const uint32_t &zoneId,
-                const std::unordered_set<uint32_t> &contexts =
+  LoadingObject(DatabaseStateServer* stateServer, const uint32_t& doId,
+                const uint32_t& parentId, const uint32_t& zoneId,
+                const std::unordered_set<uint32_t>& contexts =
                     std::unordered_set<uint32_t>());
-  LoadingObject(DatabaseStateServer *stateServer, const uint32_t &doId,
-                const uint32_t &parentId, const uint32_t &zoneId,
-                DCClass *dclass, DatagramIterator &dgi,
-                const std::unordered_set<uint32_t> &contexts =
+  LoadingObject(DatabaseStateServer* stateServer, const uint32_t& doId,
+                const uint32_t& parentId, const uint32_t& zoneId,
+                DCClass* dclass, DatagramIterator& dgi,
+                const std::unordered_set<uint32_t>& contexts =
                     std::unordered_set<uint32_t>());
 
   void Start();
 
-private:
-  void HandleDatagram(const std::shared_ptr<Datagram> &dg) override;
+ private:
+  void HandleDatagram(const std::shared_ptr<Datagram>& dg) override;
 
   void Finalize();
 
-  void ReplayDatagrams(DistributedObject *distObj);
+  void ReplayDatagrams(DistributedObject* distObj);
   void ForwardDatagrams();
 
-  DatabaseStateServer *_stateServer;
+  DatabaseStateServer* _stateServer;
 
   uint32_t _doId;
   uint32_t _parentId;
@@ -43,7 +43,7 @@ private:
   uint32_t _context;
   std::unordered_set<uint32_t> _validContexts;
 
-  DCClass *_dclass = nullptr;
+  DCClass* _dclass = nullptr;
 
   bool _isLoaded = false;
 
@@ -56,6 +56,6 @@ private:
   uvw::timer_handle::time _startTime;
 };
 
-} // namespace Ardos
+}  // namespace Ardos
 
-#endif // ARDOS_LOADING_OBJECT_H
+#endif  // ARDOS_LOADING_OBJECT_H

@@ -11,7 +11,7 @@
 
 namespace Ardos {
 
-WebPanel *WebPanel::Instance = nullptr;
+WebPanel* WebPanel::Instance = nullptr;
 
 WebPanel::WebPanel() {
   spdlog::info("Starting Web Panel component...");
@@ -58,9 +58,9 @@ WebPanel::WebPanel() {
     ws28::TLS::InitSSL();
     _secure = true;
 
-    const SSL_METHOD *method = TLS_server_method();
+    const SSL_METHOD* method = TLS_server_method();
 
-    SSL_CTX *ctx = SSL_CTX_new(method);
+    SSL_CTX* ctx = SSL_CTX_new(method);
     if (!ctx) {
       spdlog::get("web")->error("Unable to create SSL context");
     }
@@ -88,19 +88,19 @@ WebPanel::WebPanel() {
 
   // Disable Origin checks.
   _server->SetCheckConnectionCallback(
-      [](ws28::Client *client, ws28::HTTPRequest &) { return true; });
+      [](ws28::Client* client, ws28::HTTPRequest&) { return true; });
 
   _server->SetClientConnectedCallback(
-      [](ws28::Client *client, ws28::HTTPRequest &) {
+      [](ws28::Client* client, ws28::HTTPRequest&) {
         spdlog::get("web")->debug("Client connected from {}", client->GetIP());
 
-        auto *data = (ClientData *)malloc(sizeof(ClientData));
+        auto* data = (ClientData*)malloc(sizeof(ClientData));
         data->authed = false;
 
         client->SetUserData(data);
       });
 
-  _server->SetClientDisconnectedCallback([](ws28::Client *client) {
+  _server->SetClientDisconnectedCallback([](ws28::Client* client) {
     spdlog::get("web")->debug("Client '{}' disconnected", client->GetIP());
 
     // Free alloc'd user data.
@@ -111,7 +111,7 @@ WebPanel::WebPanel() {
   });
 
   _server->SetClientDataCallback(
-      [](ws28::Client *client, char *data, size_t len, int opcode) {
+      [](ws28::Client* client, char* data, size_t len, int opcode) {
         Instance->HandleData(client, {data, len});
       });
 
@@ -122,12 +122,12 @@ WebPanel::WebPanel() {
                            _secure ? "SECURE" : "UNSECURE");
 }
 
-void WebPanel::Send(ws28::Client *client, const nlohmann::json &data) {
+void WebPanel::Send(ws28::Client* client, const nlohmann::json& data) {
   auto res = data.dump();
   client->Send(res.c_str(), res.length(), 1);
 }
 
-void WebPanel::HandleData(ws28::Client *client, const std::string &data) {
+void WebPanel::HandleData(ws28::Client* client, const std::string& data) {
   // Make sure we have a valid JSON request.
   if (!nlohmann::json::accept(data)) {
     client->Close(400, "Improperly formatted request");
@@ -136,7 +136,7 @@ void WebPanel::HandleData(ws28::Client *client, const std::string &data) {
 
   // Parse the request data and client data.
   nlohmann::json message = nlohmann::json::parse(data);
-  auto clientData = (ClientData *)client->GetUserData();
+  auto clientData = (ClientData*)client->GetUserData();
 
   // Make sure the request is valid.
   if (!message.contains("type") || !message["type"].is_string()) {
@@ -232,4 +232,4 @@ void WebPanel::HandleData(ws28::Client *client, const std::string &data) {
   }
 }
 
-} // namespace Ardos
+}  // namespace Ardos

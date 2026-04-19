@@ -8,7 +8,7 @@
 
 namespace Ardos {
 
-MDParticipant::MDParticipant(const std::shared_ptr<uvw::tcp_handle> &socket)
+MDParticipant::MDParticipant(const std::shared_ptr<uvw::tcp_handle>& socket)
     : NetworkClient(socket), ChannelSubscriber() {
   auto address = GetRemoteAddress();
   spdlog::get("md")->info("Participant connected from {}:{}", address.ip,
@@ -43,7 +43,7 @@ void MDParticipant::Shutdown() {
                            _postRemoves.size(), _connName);
 
   // Route any post remove datagrams we might have stored.
-  for (const auto &dg : _postRemoves) {
+  for (const auto& dg : _postRemoves) {
     PublishDatagram(dg);
   }
 }
@@ -62,7 +62,7 @@ void MDParticipant::HandleDisconnect(uv_errno_t code) {
   Shutdown();
 }
 
-void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram> &dg) {
+void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram>& dg) {
   DatagramIterator dgi(dg);
   try {
     // Is this a control message?
@@ -70,32 +70,32 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram> &dg) {
     if (channels == 1 && dgi.GetUint64() == CONTROL_MESSAGE) {
       uint16_t msgType = dgi.GetUint16();
       switch (msgType) {
-      case CONTROL_ADD_CHANNEL:
-        SubscribeChannel(dgi.GetUint64());
-        break;
-      case CONTROL_REMOVE_CHANNEL:
-        UnsubscribeChannel(dgi.GetUint64());
-        break;
-      case CONTROL_ADD_RANGE:
-        SubscribeRange(dgi.GetUint64(), dgi.GetUint64());
-        break;
-      case CONTROL_REMOVE_RANGE:
-        UnsubscribeRange(dgi.GetUint64(), dgi.GetUint64());
-        break;
-      case CONTROL_ADD_POST_REMOVE:
-        dgi.GetUint64(); // Sender channel.
-        _postRemoves.emplace_back(dgi.GetDatagram());
-        break;
-      case CONTROL_CLEAR_POST_REMOVES:
-        _postRemoves.clear();
-        break;
-      case CONTROL_SET_CON_NAME:
-        _connName = dgi.GetString();
-        break;
-      default:
-        spdlog::get("md")->error(
-            "Participant '{}' received unknown control message: {}", _connName,
-            msgType);
+        case CONTROL_ADD_CHANNEL:
+          SubscribeChannel(dgi.GetUint64());
+          break;
+        case CONTROL_REMOVE_CHANNEL:
+          UnsubscribeChannel(dgi.GetUint64());
+          break;
+        case CONTROL_ADD_RANGE:
+          SubscribeRange(dgi.GetUint64(), dgi.GetUint64());
+          break;
+        case CONTROL_REMOVE_RANGE:
+          UnsubscribeRange(dgi.GetUint64(), dgi.GetUint64());
+          break;
+        case CONTROL_ADD_POST_REMOVE:
+          dgi.GetUint64();  // Sender channel.
+          _postRemoves.emplace_back(dgi.GetDatagram());
+          break;
+        case CONTROL_CLEAR_POST_REMOVES:
+          _postRemoves.clear();
+          break;
+        case CONTROL_SET_CON_NAME:
+          _connName = dgi.GetString();
+          break;
+        default:
+          spdlog::get("md")->error(
+              "Participant '{}' received unknown control message: {}",
+              _connName, msgType);
       }
 
       // We've handled their control message, no need to route through MD.
@@ -104,16 +104,16 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram> &dg) {
 
     // This wasn't a control message, route it through the message director.
     PublishDatagram(dg);
-  } catch (const DatagramIteratorEOF &) {
+  } catch (const DatagramIteratorEOF&) {
     spdlog::get("md")->error("Participant '{}' received a truncated datagram!",
                              _connName);
     Shutdown();
   }
 }
 
-void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
+void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
   // Forward messages from the MD to the connected participant.
   SendDatagram(dg);
 }
 
-} // namespace Ardos
+}  // namespace Ardos

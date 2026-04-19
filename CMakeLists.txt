@@ -51,6 +51,10 @@ add_executable(ardos ${ARDOS_SOURCES} ${ARDOS_HEADERS})
 add_subdirectory(libs/dclass)
 include_directories(libs/dclass)
 
+# Include websockets.
+add_subdirectory(libs/ws28)
+target_include_directories(ardos PRIVATE "${PROJECT_SOURCE_DIR}/libs/ws28")
+
 target_link_libraries(ardos PRIVATE
     OpenSSL::SSL
     $<IF:$<TARGET_EXISTS:libuv::uv_a>,libuv::uv_a,libuv::uv>

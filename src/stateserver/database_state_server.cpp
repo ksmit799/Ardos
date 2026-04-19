@@ -55,7 +55,7 @@ DatabaseStateServer::DatabaseStateServer() : ChannelSubscriber() {
   InitMetrics();
 }
 
-void DatabaseStateServer::ReceiveObject(DistributedObject *distObj) {
+void DatabaseStateServer::ReceiveObject(DistributedObject* distObj) {
   _distObjs[distObj->GetDoId()] = distObj;
 
   if (_objectsGauge) {
@@ -67,7 +67,7 @@ void DatabaseStateServer::ReceiveObject(DistributedObject *distObj) {
   }
 }
 
-void DatabaseStateServer::RemoveDistributedObject(const uint32_t &doId) {
+void DatabaseStateServer::RemoveDistributedObject(const uint32_t& doId) {
   _distObjs.erase(doId);
 
   if (_objectsGauge) {
@@ -75,7 +75,7 @@ void DatabaseStateServer::RemoveDistributedObject(const uint32_t &doId) {
   }
 }
 
-void DatabaseStateServer::DiscardLoader(const uint32_t &doId) {
+void DatabaseStateServer::DiscardLoader(const uint32_t& doId) {
   _loadObjs.erase(doId);
 
   if (_loadingGauge) {
@@ -83,7 +83,7 @@ void DatabaseStateServer::DiscardLoader(const uint32_t &doId) {
   }
 }
 
-void DatabaseStateServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
+void DatabaseStateServer::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
   DatagramIterator dgi(dg);
 
   // Skip MD routing headers.
@@ -93,48 +93,48 @@ void DatabaseStateServer::HandleDatagram(const std::shared_ptr<Datagram> &dg) {
     uint64_t sender = dgi.GetUint64();
     uint16_t msgType = dgi.GetUint16();
     switch (msgType) {
-    case DBSS_OBJECT_ACTIVATE_WITH_DEFAULTS:
-      HandleActivate(dgi, false);
-      break;
-    case DBSS_OBJECT_ACTIVATE_WITH_DEFAULTS_OTHER:
-      HandleActivate(dgi, true);
-      break;
-    case DBSS_OBJECT_DELETE_DISK:
-      HandleDeleteDisk(dgi, sender);
-      break;
-    case STATESERVER_OBJECT_SET_FIELD:
-    case STATESERVER_OBJECT_SET_FIELDS:
-      HandleSetField(dgi, msgType == STATESERVER_OBJECT_SET_FIELDS);
-      break;
-    case STATESERVER_OBJECT_GET_FIELD:
-    case STATESERVER_OBJECT_GET_FIELDS:
-      HandleGetField(dgi, sender, msgType == STATESERVER_OBJECT_GET_FIELDS);
-      break;
-    case DBSERVER_OBJECT_GET_FIELD_RESP:
-    case DBSERVER_OBJECT_GET_FIELDS_RESP:
-      HandleGetFieldResp(dgi, msgType == DBSERVER_OBJECT_GET_FIELDS_RESP);
-      break;
-    case STATESERVER_OBJECT_GET_ALL:
-      HandleGetAll(dgi, sender);
-      break;
-    case DBSERVER_OBJECT_GET_ALL_RESP:
-      HandleGetAllResp(dgi);
-      break;
-    case DBSS_OBJECT_GET_ACTIVATED:
-      HandleGetActivated(dgi, sender);
-      break;
-    default:
-      // Hopefully we managed to unpack the sender...
-      spdlog::get("dbss")->debug("Ignoring message: {} from sender: {}",
-                                 msgType, sender);
+      case DBSS_OBJECT_ACTIVATE_WITH_DEFAULTS:
+        HandleActivate(dgi, false);
+        break;
+      case DBSS_OBJECT_ACTIVATE_WITH_DEFAULTS_OTHER:
+        HandleActivate(dgi, true);
+        break;
+      case DBSS_OBJECT_DELETE_DISK:
+        HandleDeleteDisk(dgi, sender);
+        break;
+      case STATESERVER_OBJECT_SET_FIELD:
+      case STATESERVER_OBJECT_SET_FIELDS:
+        HandleSetField(dgi, msgType == STATESERVER_OBJECT_SET_FIELDS);
+        break;
+      case STATESERVER_OBJECT_GET_FIELD:
+      case STATESERVER_OBJECT_GET_FIELDS:
+        HandleGetField(dgi, sender, msgType == STATESERVER_OBJECT_GET_FIELDS);
+        break;
+      case DBSERVER_OBJECT_GET_FIELD_RESP:
+      case DBSERVER_OBJECT_GET_FIELDS_RESP:
+        HandleGetFieldResp(dgi, msgType == DBSERVER_OBJECT_GET_FIELDS_RESP);
+        break;
+      case STATESERVER_OBJECT_GET_ALL:
+        HandleGetAll(dgi, sender);
+        break;
+      case DBSERVER_OBJECT_GET_ALL_RESP:
+        HandleGetAllResp(dgi);
+        break;
+      case DBSS_OBJECT_GET_ACTIVATED:
+        HandleGetActivated(dgi, sender);
+        break;
+      default:
+        // Hopefully we managed to unpack the sender...
+        spdlog::get("dbss")->debug("Ignoring message: {} from sender: {}",
+                                   msgType, sender);
     }
-  } catch (const DatagramIteratorEOF &) {
+  } catch (const DatagramIteratorEOF&) {
     spdlog::get("dbss")->error("Received a truncated datagram!");
   }
 }
 
-void DatabaseStateServer::HandleActivate(DatagramIterator &dgi,
-                                         const bool &other) {
+void DatabaseStateServer::HandleActivate(DatagramIterator& dgi,
+                                         const bool& other) {
   uint32_t doId = dgi.GetUint32();
   uint32_t parentId = dgi.GetUint32();
   uint32_t zoneId = dgi.GetUint32();
@@ -162,7 +162,7 @@ void DatabaseStateServer::HandleActivate(DatagramIterator &dgi,
   uint16_t dcId = dgi.GetUint16();
 
   // Make sure we have a valid distributed class.
-  DCClass *dcClass = g_dc_file->get_class(dcId);
+  DCClass* dcClass = g_dc_file->get_class(dcId);
   if (!dcClass) {
     spdlog::get("dbss")->error(
         "Received ACTIVATE_OTHER with unknown distributed class {}: {}", doId,
@@ -180,8 +180,8 @@ void DatabaseStateServer::HandleActivate(DatagramIterator &dgi,
   }
 }
 
-void DatabaseStateServer::HandleDeleteDisk(DatagramIterator &dgi,
-                                           const uint64_t &sender) {
+void DatabaseStateServer::HandleDeleteDisk(DatagramIterator& dgi,
+                                           const uint64_t& sender) {
   auto doId = dgi.GetUint32();
   if (_loadObjs.contains(doId)) {
     // Ignore this message for now, it'll be bounced back to us
@@ -223,8 +223,8 @@ void DatabaseStateServer::HandleDeleteDisk(DatagramIterator &dgi,
   PublishDatagram(dg);
 }
 
-void DatabaseStateServer::HandleSetField(DatagramIterator &dgi,
-                                         const bool &multiple) {
+void DatabaseStateServer::HandleSetField(DatagramIterator& dgi,
+                                         const bool& multiple) {
   auto doId = dgi.GetUint32();
   if (_loadObjs.contains(doId)) {
     // Ignore this message for now, it'll be bounced back to us
@@ -243,9 +243,10 @@ void DatabaseStateServer::HandleSetField(DatagramIterator &dgi,
 
     auto field = g_dc_file->get_field_by_index(fieldId);
     if (!field) {
-      spdlog::get("dbss")->warn("Distributed object: {} received set "
-                                "field(s) with invalid field id: {}",
-                                doId, fieldId);
+      spdlog::get("dbss")->warn(
+          "Distributed object: {} received set "
+          "field(s) with invalid field id: {}",
+          doId, fieldId);
       continue;
     }
 
@@ -266,16 +267,16 @@ void DatabaseStateServer::HandleSetField(DatagramIterator &dgi,
   if (multiple) {
     dg->AddUint16(objectFields.size());
   }
-  for (const auto &it : objectFields) {
+  for (const auto& it : objectFields) {
     dg->AddUint16(it.first->get_number());
     dg->AddData(it.second);
   }
   PublishDatagram(dg);
 }
 
-void DatabaseStateServer::HandleGetField(DatagramIterator &dgi,
-                                         const uint64_t &sender,
-                                         const bool &multiple) {
+void DatabaseStateServer::HandleGetField(DatagramIterator& dgi,
+                                         const uint64_t& sender,
+                                         const bool& multiple) {
   auto ctx = dgi.GetUint32();
   auto doId = dgi.GetUint32();
 
@@ -288,8 +289,8 @@ void DatabaseStateServer::HandleGetField(DatagramIterator &dgi,
   auto responseType = multiple ? STATESERVER_OBJECT_GET_FIELDS_RESP
                                : STATESERVER_OBJECT_GET_FIELD_RESP;
 
-  std::vector<DCField *> dbFields;
-  std::vector<DCField *> ramFields;
+  std::vector<DCField*> dbFields;
+  std::vector<DCField*> ramFields;
   for (size_t i = 0; i < fieldCount; ++i) {
     auto fieldId = dgi.GetUint16();
 
@@ -322,7 +323,7 @@ void DatabaseStateServer::HandleGetField(DatagramIterator &dgi,
     if (multiple) {
       dg->AddUint16(ramFields.size() + dbFields.size());
     }
-    for (const auto &field : ramFields) {
+    for (const auto& field : ramFields) {
       dg->AddUint16(field->get_number());
       dg->AddData(field->get_default_value());
     }
@@ -338,7 +339,7 @@ void DatabaseStateServer::HandleGetField(DatagramIterator &dgi,
     if (multiple) {
       dbDg->AddUint16(dbFields.size());
     }
-    for (const auto &field : dbFields) {
+    for (const auto& field : dbFields) {
       dg->AddUint16(field->get_number());
     }
     PublishDatagram(dbDg);
@@ -351,7 +352,7 @@ void DatabaseStateServer::HandleGetField(DatagramIterator &dgi,
     if (multiple) {
       dg->AddUint16(ramFields.size());
     }
-    for (const auto &field : ramFields) {
+    for (const auto& field : ramFields) {
       dg->AddUint16(field->get_number());
       dg->AddData(field->get_default_value());
     }
@@ -365,16 +366,16 @@ void DatabaseStateServer::HandleGetField(DatagramIterator &dgi,
   }
 }
 
-void DatabaseStateServer::HandleGetFieldResp(DatagramIterator &dgi,
-                                             const bool &multiple) {}
+void DatabaseStateServer::HandleGetFieldResp(DatagramIterator& dgi,
+                                             const bool& multiple) {}
 
-void DatabaseStateServer::HandleGetAll(DatagramIterator &dgi,
-                                       const uint64_t &sender) {}
+void DatabaseStateServer::HandleGetAll(DatagramIterator& dgi,
+                                       const uint64_t& sender) {}
 
-void DatabaseStateServer::HandleGetAllResp(DatagramIterator &dgi) {}
+void DatabaseStateServer::HandleGetAllResp(DatagramIterator& dgi) {}
 
-void DatabaseStateServer::HandleGetActivated(DatagramIterator &dgi,
-                                             const uint64_t &sender) {
+void DatabaseStateServer::HandleGetActivated(DatagramIterator& dgi,
+                                             const uint64_t& sender) {
   auto ctx = dgi.GetUint32();
   auto doId = dgi.GetUint32();
 
@@ -396,23 +397,23 @@ void DatabaseStateServer::InitMetrics() {
 
   auto registry = Metrics::Instance()->GetRegistry();
 
-  auto &objectsBuilder = prometheus::BuildGauge()
+  auto& objectsBuilder = prometheus::BuildGauge()
                              .Name("dbss_objects_size")
                              .Help("Number of loaded distributed objects")
                              .Register(*registry);
 
-  auto &loadingBuilder = prometheus::BuildGauge()
+  auto& loadingBuilder = prometheus::BuildGauge()
                              .Name("dbss_loading_size")
                              .Help("Number of objects currently loading")
                              .Register(*registry);
 
-  auto &activateTimeBuilder =
+  auto& activateTimeBuilder =
       prometheus::BuildHistogram()
           .Name("dbss_activate_time")
           .Help("Time taken for an object to load/activate")
           .Register(*registry);
 
-  auto &objectsSizeBuilder =
+  auto& objectsSizeBuilder =
       prometheus::BuildHistogram()
           .Name("dbss_objects_bytes_size")
           .Help("Byte-size of loaded distributed objects")
@@ -430,14 +431,14 @@ void DatabaseStateServer::InitMetrics() {
 }
 
 void DatabaseStateServer::ReportActivateTime(
-    const uvw::timer_handle::time &startTime) {
+    const uvw::timer_handle::time& startTime) {
   if (_activateTime) {
     _activateTime->Observe((double)(g_loop->now() - startTime).count());
   }
 }
 
-bool UnpackDBFields(DatagramIterator &dgi, DCClass *dclass, FieldMap &required,
-                    FieldMap &ram) {
+bool UnpackDBFields(DatagramIterator& dgi, DCClass* dclass, FieldMap& required,
+                    FieldMap& ram) {
   // Unload RAM and REQUIRED fields from database response.
   auto fieldCount = dgi.GetUint16();
   for (size_t i = 0; i < fieldCount; ++i) {
@@ -460,12 +461,12 @@ bool UnpackDBFields(DatagramIterator &dgi, DCClass *dclass, FieldMap &required,
   return true;
 }
 
-void DatabaseStateServer::HandleWeb(ws28::Client *client,
-                                    nlohmann::json &data) {
+void DatabaseStateServer::HandleWeb(ws28::Client* client,
+                                    nlohmann::json& data) {
   if (data["msg"] == "init") {
     // Build up an array of distributed objects.
     nlohmann::json distObjInfo = nlohmann::json::array();
-    for (const auto &distObj : _distObjs) {
+    for (const auto& distObj : _distObjs) {
       distObjInfo.push_back({
           {"doId", distObj.first},
           {"clsName", distObj.second->GetDClass()->get_name()},
@@ -498,14 +499,14 @@ void DatabaseStateServer::HandleWeb(ws28::Client *client,
 
     // Build an array of explicitly set RAM fields.
     nlohmann::json ramFields = nlohmann::json::array();
-    for (const auto &field : distObj->GetRamFields()) {
+    for (const auto& field : distObj->GetRamFields()) {
       ramFields.push_back({{"fieldName", field.first->get_name()}});
     }
 
     // Build a dictionary of zone objects under this Distributed Object.
     nlohmann::json zoneObjs = nlohmann::json::object();
-    for (const auto &zoneData : distObj->GetZoneObjects()) {
-      for (const auto &zoneDoId : zoneData.second) {
+    for (const auto& zoneData : distObj->GetZoneObjects()) {
+      for (const auto& zoneDoId : zoneData.second) {
         // Try to get the DClass name for the zone object.
         auto clsName = _distObjs.contains(zoneDoId)
                            ? _distObjs[zoneDoId]->GetDClass()->get_name()
@@ -530,4 +531,4 @@ void DatabaseStateServer::HandleWeb(ws28::Client *client,
   }
 }
 
-} // namespace Ardos
+}  // namespace Ardos

@@ -1,25 +1,25 @@
 #ifndef ARDOS_METRICS_H
 #define ARDOS_METRICS_H
 
-#include <memory>
-#include <string>
-
 #include <prometheus/exposer.h>
 #include <prometheus/registry.h>
+
+#include <memory>
+#include <string>
 
 namespace Ardos {
 
 class Metrics {
-public:
-  static Metrics *Instance();
+ public:
+  static Metrics* Instance();
 
   [[nodiscard]] bool WantMetrics() const;
   std::shared_ptr<prometheus::Registry> GetRegistry();
 
-private:
+ private:
   Metrics();
 
-  static Metrics *_instance;
+  static Metrics* _instance;
 
   bool _wantMetrics = true;
   std::string _host = "127.0.0.1";
@@ -29,6 +29,6 @@ private:
   std::shared_ptr<prometheus::Registry> _registry;
 };
 
-} // namespace Ardos
+}  // namespace Ardos
 
-#endif // ARDOS_METRICS_H
+#endif  // ARDOS_METRICS_H

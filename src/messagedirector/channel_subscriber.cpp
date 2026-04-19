@@ -42,7 +42,7 @@ void ChannelSubscriber::Shutdown() {
   }
 }
 
-void ChannelSubscriber::SubscribeChannel(const uint64_t &channel) {
+void ChannelSubscriber::SubscribeChannel(const uint64_t& channel) {
   std::string channelStr = std::to_string(channel);
 
   // Don't add duplicate channels.
@@ -67,7 +67,7 @@ void ChannelSubscriber::SubscribeChannel(const uint64_t &channel) {
   _globalChannels[channelStr] = 1;
 }
 
-void ChannelSubscriber::UnsubscribeChannel(const uint64_t &channel) {
+void ChannelSubscriber::UnsubscribeChannel(const uint64_t& channel) {
   std::string channelStr = std::to_string(channel);
 
   // Make sure we've subscribed to this channel.
@@ -90,8 +90,8 @@ void ChannelSubscriber::UnsubscribeChannel(const uint64_t &channel) {
   }
 }
 
-void ChannelSubscriber::SubscribeRange(const uint64_t &min,
-                                       const uint64_t &max) {
+void ChannelSubscriber::SubscribeRange(const uint64_t& min,
+                                       const uint64_t& max) {
   // Make sure we're not adding a duplicate range.
   auto range = std::make_pair(min, max);
   if (std::find(_localRanges.begin(), _localRanges.end(), range) !=
@@ -112,8 +112,8 @@ void ChannelSubscriber::SubscribeRange(const uint64_t &min,
   _globalRanges[range] = 1;
 }
 
-void ChannelSubscriber::UnsubscribeRange(const uint64_t &min,
-                                         const uint64_t &max) {
+void ChannelSubscriber::UnsubscribeRange(const uint64_t& min,
+                                         const uint64_t& max) {
   auto range = std::make_pair(min, max);
 
   auto position = std::find(_localRanges.begin(), _localRanges.end(), range);
@@ -133,20 +133,20 @@ void ChannelSubscriber::UnsubscribeRange(const uint64_t &min,
   }
 }
 
-void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram> &dg) {
+void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram>& dg) {
   DatagramIterator dgi(dg);
 
   uint8_t channels = dgi.GetUint8();
   for (uint8_t i = 0; i < channels; ++i) {
     uint64_t channel = dgi.GetUint64();
     _globalChannel->publish(kGlobalExchange, std::to_string(channel),
-                            reinterpret_cast<const char *>(dg->GetData()),
+                            reinterpret_cast<const char*>(dg->GetData()),
                             (size_t)dg->Size());
   }
 }
 
-void ChannelSubscriber::HandleUpdate(const std::string &channel,
-                                     const std::shared_ptr<Datagram> &dg) {
+void ChannelSubscriber::HandleUpdate(const std::string& channel,
+                                     const std::shared_ptr<Datagram>& dg) {
   // First, check if this ChannelSubscriber cares about the message.
   if (std::find(_localChannels.begin(), _localChannels.end(), channel) ==
           _localChannels.end() &&
@@ -158,11 +158,11 @@ void ChannelSubscriber::HandleUpdate(const std::string &channel,
   HandleDatagram(dg);
 }
 
-bool ChannelSubscriber::WithinLocalRange(const std::string &routingKey) {
+bool ChannelSubscriber::WithinLocalRange(const std::string& routingKey) {
   auto channel = std::stoull(routingKey);
   return std::any_of(
       _localRanges.begin(), _localRanges.end(),
       [channel](auto i) { return channel >= i.first && channel <= i.second; });
 }
 
-} // namespace Ardos
+}  // namespace Ardos

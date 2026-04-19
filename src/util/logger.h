@@ -6,8 +6,8 @@
 namespace Ardos {
 
 class Logger {
-public:
-  static spdlog::level::level_enum LevelFromString(const std::string &level) {
+ public:
+  static spdlog::level::level_enum LevelFromString(const std::string& level) {
     if (level == "debug" || level == "verbose") {
       return spdlog::level::debug;
     } else if (level == "info") {
@@ -26,6 +26,6 @@ public:
   }
 };
 
-} // namespace Ardos
+}  // namespace Ardos
 
-#endif // ARDOS_LOGGER_H
+#endif  // ARDOS_LOGGER_H

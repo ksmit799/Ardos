@@ -4,8 +4,8 @@
 
 namespace Ardos {
 
-std::string AddressUtils::resolve_host(const std::shared_ptr<uvw::loop> &loop,
-                                       const std::string &host,
+std::string AddressUtils::resolve_host(const std::shared_ptr<uvw::loop>& loop,
+                                       const std::string& host,
                                        unsigned int port) {
   // First, test if we have a valid IPv4 address.
   sockaddr_in sockaddr{};
@@ -38,12 +38,12 @@ std::string AddressUtils::resolve_host(const std::shared_ptr<uvw::loop> &loop,
   exit(1);
 }
 
-void *AddressUtils::get_in_addr(struct sockaddr *sa) {
+void* AddressUtils::get_in_addr(struct sockaddr* sa) {
   if (sa->sa_family == AF_INET) {
-    return &(((struct sockaddr_in *)sa)->sin_addr);
+    return &(((struct sockaddr_in*)sa)->sin_addr);
   }
 
-  return &(((struct sockaddr_in6 *)sa)->sin6_addr);
+  return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-} // namespace Ardos
+}  // namespace Ardos

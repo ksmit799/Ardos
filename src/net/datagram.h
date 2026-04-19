@@ -22,8 +22,8 @@ constexpr size_t kMinDgSize = 0x80;
  * (preventing integer and buffer overflow).
  */
 class DatagramOverflow final : public std::runtime_error {
-public:
-  explicit DatagramOverflow(const std::string &what)
+ public:
+  explicit DatagramOverflow(const std::string& what)
       : std::runtime_error(what) {}
 };
 
@@ -41,55 +41,55 @@ public:
  * elements.
  */
 class Datagram {
-public:
+ public:
   Datagram();
-  Datagram(const uint8_t *data, const size_t &size);
-  Datagram(const uint64_t &toChannel, const uint64_t &fromChannel,
-           const uint16_t &msgType);
-  Datagram(const std::unordered_set<uint64_t> &toChannels,
-           const uint64_t &fromChannel, const uint16_t &msgType);
+  Datagram(const uint8_t* data, const size_t& size);
+  Datagram(const uint64_t& toChannel, const uint64_t& fromChannel,
+           const uint16_t& msgType);
+  Datagram(const std::unordered_set<uint64_t>& toChannels,
+           const uint64_t& fromChannel, const uint16_t& msgType);
   ~Datagram();
 
   void Clear();
 
   [[nodiscard]] uint16_t Size() const;
-  [[nodiscard]] const uint8_t *GetData() const;
+  [[nodiscard]] const uint8_t* GetData() const;
   [[nodiscard]] std::vector<uint8_t> GetBytes() const;
 
-  void AddBool(const bool &v);
-  void AddInt8(const int8_t &v);
-  void AddUint8(const uint8_t &v);
+  void AddBool(const bool& v);
+  void AddInt8(const int8_t& v);
+  void AddUint8(const uint8_t& v);
 
-  void AddInt16(const int16_t &v);
-  void AddUint16(const uint16_t &v);
+  void AddInt16(const int16_t& v);
+  void AddUint16(const uint16_t& v);
 
-  void AddInt32(const int32_t &v);
-  void AddUint32(const uint32_t &v);
+  void AddInt32(const int32_t& v);
+  void AddUint32(const uint32_t& v);
 
-  void AddInt64(const int64_t &v);
-  void AddUint64(const uint64_t &v);
+  void AddInt64(const int64_t& v);
+  void AddUint64(const uint64_t& v);
 
-  void AddFloat32(const float &v);
-  void AddFloat64(const double &v);
+  void AddFloat32(const float& v);
+  void AddFloat64(const double& v);
 
-  void AddString(const std::string &v);
-  void AddBlob(const std::vector<uint8_t> &v);
-  void AddBlob(const uint8_t *data, const size_t &length);
+  void AddString(const std::string& v);
+  void AddBlob(const std::vector<uint8_t>& v);
+  void AddBlob(const uint8_t* data, const size_t& length);
 
-  void AddData(const std::vector<uint8_t> &v);
-  void AddData(const std::shared_ptr<Datagram> &v);
-  void AddData(const uint8_t *data, const uint32_t &length);
+  void AddData(const std::vector<uint8_t>& v);
+  void AddData(const std::shared_ptr<Datagram>& v);
+  void AddData(const uint8_t* data, const uint32_t& length);
 
-  void AddLocation(const uint32_t &parentId, const uint32_t &zoneId);
+  void AddLocation(const uint32_t& parentId, const uint32_t& zoneId);
 
-private:
-  void EnsureLength(const size_t &length);
+ private:
+  void EnsureLength(const size_t& length);
 
-  uint8_t *_buf;
+  uint8_t* _buf;
   size_t _bufOffset;
   size_t _bufLength;
 };
 
-} // namespace Ardos
+}  // namespace Ardos
 
-#endif // ARDOS_DATAGRAM_H
+#endif  // ARDOS_DATAGRAM_H

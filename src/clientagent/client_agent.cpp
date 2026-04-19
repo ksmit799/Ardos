@@ -1,8 +1,8 @@
 #include "client_agent.h"
 
-#include <string>
-
 #include <spdlog/sinks/stdout_color_sinks.h>
+
+#include <string>
 
 #include "../util/config.h"
 #include "../util/globals.h"
@@ -69,7 +69,7 @@ ClientAgent::ClientAgent() {
   // UberDOG's configuration.
   auto uberdogs = Config::Instance()->GetNode("uberdogs");
   for (auto uberdog : uberdogs) {
-    DCClass *dcc =
+    DCClass* dcc =
         g_dc_file->get_class_by_name(uberdog["class"].as<std::string>());
     if (!dcc) {
       spdlog::get("ca")->error(
@@ -82,8 +82,8 @@ ClientAgent::ClientAgent() {
     ud.doId = uberdog["id"].as<uint32_t>();
     ud.dcc = dcc;
 
-    // UberDOG's aren't anonymous by default (non-authed CA's can't update fields
-    // on them.)
+    // UberDOG's aren't anonymous by default (non-authed CA's can't update
+    // fields on them.)
     ud.anonymous = false;
     if (auto anonParam = uberdog["anonymous"]) {
       ud.anonymous = anonParam.as<bool>();
@@ -125,7 +125,7 @@ ClientAgent::ClientAgent() {
     }
     if (auto zonesParam = interestNode["zones"]) {
       if (zonesParam.IsSequence()) {
-        for (const auto &zone : zonesParam) {
+        for (const auto& zone : zonesParam) {
           if (!zone.IsScalar()) {
             continue;
           }
@@ -133,12 +133,10 @@ ClientAgent::ClientAgent() {
           size_t dash = s.find('-');
           if (dash != std::string::npos) {
             uint32_t lo = static_cast<uint32_t>(std::stoul(s.substr(0, dash)));
-            uint32_t hi =
-                static_cast<uint32_t>(std::stoul(s.substr(dash + 1)));
+            uint32_t hi = static_cast<uint32_t>(std::stoul(s.substr(dash + 1)));
             _interestZoneRanges.emplace_back(lo, hi);
           } else {
-            _interestZones.insert(
-                static_cast<uint32_t>(std::stoul(s)));
+            _interestZones.insert(static_cast<uint32_t>(std::stoul(s)));
           }
         }
       }
@@ -172,7 +170,7 @@ ClientAgent::ClientAgent() {
 
   // Socket events.
   _listenHandle->on<uvw::listen_event>(
-      [this](const uvw::listen_event &, uvw::tcp_handle &srv) {
+      [this](const uvw::listen_event&, uvw::tcp_handle& srv) {
         std::shared_ptr<uvw::tcp_handle> client =
             srv.parent().resource<uvw::tcp_handle>();
         srv.accept(*client);
@@ -220,7 +218,7 @@ uint64_t ClientAgent::AllocateChannel() {
  * Free's a previously allocated channel to be re-used.
  * @param channel
  */
-void ClientAgent::FreeChannel(const uint64_t &channel) {
+void ClientAgent::FreeChannel(const uint64_t& channel) {
   _freedChannels.push(channel);
 
   if (_freeChannelsGauge) {
@@ -269,13 +267,11 @@ unsigned long ClientAgent::GetHeartbeatInterval() const {
 unsigned long ClientAgent::GetAuthTimeout() const { return _authTimeout; }
 
 /**
- * Returns the number of MS a previously visible object to a client can receive updates before the
- * client is ejected for a security violation.
+ * Returns the number of MS a previously visible object to a client can receive
+ * updates before the client is ejected for a security violation.
  * @return
  */
-unsigned long ClientAgent::GetHistoricalTTL() const {
-  return _historicalTTL;
-}
+unsigned long ClientAgent::GetHistoricalTTL() const { return _historicalTTL; }
 
 /**
  * Returns the configured UberDOG's.
@@ -306,15 +302,13 @@ InterestsPermission ClientAgent::GetInterestsPermission() const {
  * Returns the interest zone filter mode (whitelist, blacklist, or none).
  * @return
  */
-InterestMode ClientAgent::GetInterestMode() const {
-  return _interestMode;
-}
+InterestMode ClientAgent::GetInterestMode() const { return _interestMode; }
 
 /**
  * Returns the configured interest zones (used with whitelist/blacklist mode).
  * @return
  */
-const std::unordered_set<uint32_t> &ClientAgent::GetInterestZones() const {
+const std::unordered_set<uint32_t>& ClientAgent::GetInterestZones() const {
   return _interestZones;
 }
 
@@ -322,7 +316,7 @@ const std::unordered_set<uint32_t> &ClientAgent::GetInterestZones() const {
  * Returns the configured interest zone ranges (each pair is low, high
  * inclusive). Used with whitelist/blacklist mode.
  */
-const std::vector<std::pair<uint32_t, uint32_t>> &
+const std::vector<std::pair<uint32_t, uint32_t>>&
 ClientAgent::GetInterestZoneRanges() const {
   return _interestZoneRanges;
 }
@@ -347,7 +341,7 @@ void ClientAgent::ParticipantJoined() {
 /**
  * Called when a participant disconnects.
  */
-void ClientAgent::ParticipantLeft(ClientParticipant *client) {
+void ClientAgent::ParticipantLeft(ClientParticipant* client) {
   if (_participantsGauge) {
     _participantsGauge->Decrement();
   }
@@ -358,7 +352,7 @@ void ClientAgent::ParticipantLeft(ClientParticipant *client) {
 /**
  * Records a handled datagram by a connected client.
  */
-void ClientAgent::RecordDatagram(const uint16_t &size) {
+void ClientAgent::RecordDatagram(const uint16_t& size) {
   if (_datagramsProcessedCounter) {
     _datagramsProcessedCounter->Increment();
   }
@@ -381,7 +375,7 @@ void ClientAgent::RecordInterestTimeout() {
  * Records the time taken for an interest operation to complete.
  * @param seconds
  */
-void ClientAgent::RecordInterestTime(const double &seconds) {
+void ClientAgent::RecordInterestTime(const double& seconds) {
   if (_interestsTimeHistogram) {
     _interestsTimeHistogram->Observe(seconds);
   }
@@ -398,32 +392,32 @@ void ClientAgent::InitMetrics() {
 
   auto registry = Metrics::Instance()->GetRegistry();
 
-  auto &datagramsBuilder = prometheus::BuildCounter()
+  auto& datagramsBuilder = prometheus::BuildCounter()
                                .Name("ca_handled_datagrams_total")
                                .Help("Number of datagrams handled")
                                .Register(*registry);
 
-  auto &datagramsSizeBuilder = prometheus::BuildHistogram()
+  auto& datagramsSizeBuilder = prometheus::BuildHistogram()
                                    .Name("ca_datagrams_bytes_size")
                                    .Help("Bytes size of handled datagrams")
                                    .Register(*registry);
 
-  auto &participantsBuilder = prometheus::BuildGauge()
+  auto& participantsBuilder = prometheus::BuildGauge()
                                   .Name("ca_participants_size")
                                   .Help("Number of connected participants")
                                   .Register(*registry);
 
-  auto &freeChannelsBuilder = prometheus::BuildGauge()
+  auto& freeChannelsBuilder = prometheus::BuildGauge()
                                   .Name("ca_free_channels_size")
                                   .Help("Number of free channels")
                                   .Register(*registry);
 
-  auto &timeoutsBuilder = prometheus::BuildCounter()
+  auto& timeoutsBuilder = prometheus::BuildCounter()
                               .Name("ca_interests_timeout_total")
                               .Help("Number of interest timeouts")
                               .Register(*registry);
 
-  auto &interestsTimeBuilder =
+  auto& interestsTimeBuilder =
       prometheus::BuildHistogram()
           .Name("ca_interests_time_seconds")
           .Help("Time to complete an interest operation")
@@ -444,11 +438,11 @@ void ClientAgent::InitMetrics() {
   _freeChannelsGauge->Set((double)(_channelsMax - _nextChannel));
 }
 
-void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
+void ClientAgent::HandleWeb(ws28::Client* client, nlohmann::json& data) {
   if (data["msg"] == "init") {
     // Build up an array of connected clients.
     nlohmann::json clientInfo = nlohmann::json::array();
-    for (const auto &participant : _participants) {
+    for (const auto& participant : _participants) {
       clientInfo.push_back({
           {"channel", std::to_string(participant->GetChannel())},
           {"ip", participant->GetRemoteAddress().ip},
@@ -479,7 +473,7 @@ void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
     // Try to find a matching client for the provided channel.
     auto participant =
         std::find_if(_participants.begin(), _participants.end(),
-                     [&channel](ClientParticipant *participant) {
+                     [&channel](ClientParticipant* participant) {
                        return participant->GetChannel() == channel;
                      });
     if (participant == _participants.end()) {
@@ -492,7 +486,7 @@ void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
 
     // Build an owned object array.
     nlohmann::json ownedObjs = nlohmann::json::array();
-    for (const auto &obj : (*participant)->GetOwnedObjects()) {
+    for (const auto& obj : (*participant)->GetOwnedObjects()) {
       ownedObjs.push_back({{"doId", obj.first},
                            {"clsName", obj.second.dcc->get_name()},
                            {"parent", obj.second.parent},
@@ -501,13 +495,13 @@ void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
 
     // Build a session object array.
     nlohmann::json sessionObjs = nlohmann::json::array();
-    for (const auto &doId : (*participant)->GetSessionObjects()) {
+    for (const auto& doId : (*participant)->GetSessionObjects()) {
       sessionObjs.push_back({{"doId", doId}});
     }
 
     // Build an active interests array.
     nlohmann::json interests = nlohmann::json::array();
-    for (const auto &interest : (*participant)->GetInterests()) {
+    for (const auto& interest : (*participant)->GetInterests()) {
       interests.push_back({{"id", interest.first},
                            {"parent", interest.second.parent},
                            {"zones", interest.second.zones}});
@@ -532,4 +526,4 @@ void ClientAgent::HandleWeb(ws28::Client *client, nlohmann::json &data) {
   }
 }
 
-} // namespace Ardos
+}  // namespace Ardos

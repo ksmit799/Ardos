@@ -14,16 +14,16 @@ constexpr size_t ZONE_BITS = sizeof(uint32_t) * 8;
 constexpr uint64_t PARENT_PREFIX = (uint64_t(1) << ZONE_BITS);
 constexpr uint64_t DATABASE_PREFIX = (uint64_t(2) << ZONE_BITS);
 
-inline uint64_t LocationAsChannel(const uint32_t &parent,
-                                  const uint32_t &zone) {
+inline uint64_t LocationAsChannel(const uint32_t& parent,
+                                  const uint32_t& zone) {
   return (uint64_t(parent) << ZONE_BITS) | uint64_t(zone);
 }
 
-inline uint64_t ParentToChildren(const uint32_t &parent) {
+inline uint64_t ParentToChildren(const uint32_t& parent) {
   return PARENT_PREFIX | uint64_t(parent);
 }
 
-inline uint64_t DatabaseToObject(const uint32_t &object) {
+inline uint64_t DatabaseToObject(const uint32_t& object) {
   return DATABASE_PREFIX | uint64_t(object);
 }
 
@@ -172,20 +172,20 @@ enum ClientMessages {
   CLIENT_SET_AVTYPE = 80,
 
   CLIENT_OBJECT_SET_FIELD = 24,
-  CLIENT_OBJECT_SET_FIELDS = 121, // Unused.
+  CLIENT_OBJECT_SET_FIELDS = 121,  // Unused.
 
   CLIENT_OBJECT_LEAVING = 25,
   CLIENT_OBJECT_LEAVING_OWNER = 26,
 
   CLIENT_ENTER_OBJECT_REQUIRED = 34,
   CLIENT_ENTER_OBJECT_REQUIRED_OTHER = 35,
-  CLIENT_ENTER_OBJECT_REQUIRED_OWNER = 172, // Unused.
+  CLIENT_ENTER_OBJECT_REQUIRED_OWNER = 172,  // Unused.
   CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER = 36,
 
   CLIENT_DONE_INTEREST_RESP = 48,
 
   CLIENT_ADD_INTEREST = 97,
-  CLIENT_ADD_INTEREST_MULTIPLE = 201, // Unused.
+  CLIENT_ADD_INTEREST_MULTIPLE = 201,  // Unused.
   CLIENT_REMOVE_INTEREST = 99,
   CLIENT_OBJECT_LOCATION = 102,
 };
@@ -215,7 +215,7 @@ enum ClientMessages {
   CLIENT_REMOVE_INTEREST = 203,
   CLIENT_OBJECT_LOCATION = 140,
 };
-#endif // ARDOS_USE_LEGACY_CLIENT
+#endif  // ARDOS_USE_LEGACY_CLIENT
 
 enum ClientDisconnects {
   CLIENT_DISCONNECT_GENERIC = 1,
@@ -235,4 +235,4 @@ enum ClientDisconnects {
   CLIENT_DISCONNECT_SESSION_OBJECT_DELETED = 153,
 };
 
-#endif // ARDOS_MESSAGE_TYPES_H
+#endif  // ARDOS_MESSAGE_TYPES_H

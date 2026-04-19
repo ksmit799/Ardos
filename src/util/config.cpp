@@ -1,13 +1,14 @@
 #include "config.h"
-#include "logger.h"
 
 #include <fstream>
 
+#include "logger.h"
+
 namespace Ardos {
 
-Config *Config::_instance = nullptr;
+Config* Config::_instance = nullptr;
 
-Config *Config::Instance() {
+Config* Config::Instance() {
   if (_instance == nullptr) {
     _instance = new Config();
   }
@@ -15,7 +16,7 @@ Config *Config::Instance() {
   return _instance;
 }
 
-void Config::LoadConfig(const std::string &name) {
+void Config::LoadConfig(const std::string& name) {
   std::ifstream file(name.c_str());
   if (!file.is_open()) {
     spdlog::error("Failed to open config file `{}`. Does it exist?", name);
@@ -25,15 +26,15 @@ void Config::LoadConfig(const std::string &name) {
   _config = YAML::Load(file);
 }
 
-std::string Config::GetString(const std::string &key,
-                              const std::string &defVal) {
+std::string Config::GetString(const std::string& key,
+                              const std::string& defVal) {
   auto val = _config[key].as<std::string>();
   return !val.empty() ? val : defVal;
 }
 
-YAML::Node Config::GetNode(const std::string &key) { return _config[key]; }
+YAML::Node Config::GetNode(const std::string& key) { return _config[key]; }
 
-bool Config::GetBool(const std::string &key, const bool &defVal) {
+bool Config::GetBool(const std::string& key, const bool& defVal) {
   if (auto param = _config[key]) {
     return param.as<bool>();
   }
@@ -41,4 +42,4 @@ bool Config::GetBool(const std::string &key, const bool &defVal) {
   return defVal;
 }
 
-} // namespace Ardos
+}  // namespace Ardos

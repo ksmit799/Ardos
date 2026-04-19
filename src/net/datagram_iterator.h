@@ -1,10 +1,10 @@
 #ifndef ARDOS_DATAGRAM_ITERATOR_H
 #define ARDOS_DATAGRAM_ITERATOR_H
 
+#include <dcPackerInterface.h>
+
 #include <memory>
 #include <stdexcept>
-
-#include <dcPackerInterface.h>
 
 #include "datagram.h"
 
@@ -15,8 +15,8 @@ namespace Ardos {
  * past the end of a datagram.
  */
 class DatagramIteratorEOF final : public std::runtime_error {
-public:
-  explicit DatagramIteratorEOF(const std::string &what)
+ public:
+  explicit DatagramIteratorEOF(const std::string& what)
       : std::runtime_error(what) {}
 };
 
@@ -29,9 +29,9 @@ public:
  * object is not destructed while this DatagramIterator is in use.
  */
 class DatagramIterator {
-public:
-  explicit DatagramIterator(const std::shared_ptr<Datagram> &dg,
-                            const size_t &offset = 0);
+ public:
+  explicit DatagramIterator(const std::shared_ptr<Datagram>& dg,
+                            const size_t& offset = 0);
 
   bool GetBool();
   int8_t GetInt8();
@@ -51,29 +51,30 @@ public:
 
   std::string GetString();
   std::vector<uint8_t> GetBlob();
-  std::vector<uint8_t> GetData(const size_t &size);
+  std::vector<uint8_t> GetData(const size_t& size);
   std::shared_ptr<Datagram> GetDatagram();
   std::shared_ptr<Datagram> GetUnderlyingDatagram();
 
-  void UnpackField(const DCPackerInterface *field, std::vector<uint8_t> &buffer);
+  void UnpackField(const DCPackerInterface* field,
+                   std::vector<uint8_t>& buffer);
 
   [[nodiscard]] uint16_t Tell() const;
-  void Skip(const size_t &bytes);
-  void Seek(const size_t &offset);
+  void Skip(const size_t& bytes);
+  void Seek(const size_t& offset);
   void SeekPayload();
 
-  void SkipField(const DCPackerInterface *field);
+  void SkipField(const DCPackerInterface* field);
 
   [[nodiscard]] size_t GetRemainingSize() const;
   std::vector<uint8_t> GetRemainingBytes();
 
-private:
-  void EnsureLength(const size_t &length) const;
+ private:
+  void EnsureLength(const size_t& length) const;
 
   std::shared_ptr<Datagram> _dg;
   size_t _offset;
 };
 
-} // namespace Ardos
+}  // namespace Ardos
 
-#endif // ARDOS_DATAGRAM_ITERATOR_H
+#endif  // ARDOS_DATAGRAM_ITERATOR_H

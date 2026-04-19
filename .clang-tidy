@@ -1,5 +1,16 @@
 ---
-Checks: 'clang-diagnostic-*,clang-analyzer-*,performance-*,portability-*,modernize-use-nullptr'
+Checks: >
+  bugprone-*,
+  performance-*,
+  concurrency-*,
+  modernize-*,
+  readability-*,
+  
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -modernize-use-trailing-return-type,
+
 WarningsAsErrors: ''
-HeaderFilterRegex: ''
-...
+
+HeaderFilterRegex: '.*'
+FormatStyle: file

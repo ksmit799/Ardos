@@ -1,5 +1,5 @@
-#include "Client.h"
-#include "Server.h"
+#include "ws28/Client.h"
+#include "ws28/Server.h"
 
 #include <openssl/evp.h>
 #include <openssl/sha.h>

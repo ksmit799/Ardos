@@ -8,18 +8,22 @@
 namespace Ardos {
 
 InterestOperation::InterestOperation(
-    ClientParticipant *client, const unsigned long &timeout,
-    const uint16_t &interestId, const uint32_t &clientContext,
-    const uint32_t &requestContext, const uint32_t &parent,
-    const std::unordered_set<uint32_t> &zones, const uint64_t &caller)
-    : _client(client), _interestId(interestId), _clientContext(clientContext),
-      _requestContext(requestContext), _parent(parent), _zones(zones) {
+    ClientParticipant* client, const unsigned long& timeout,
+    const uint16_t& interestId, const uint32_t& clientContext,
+    const uint32_t& requestContext, const uint32_t& parent,
+    const std::unordered_set<uint32_t>& zones, const uint64_t& caller)
+    : _client(client),
+      _interestId(interestId),
+      _clientContext(clientContext),
+      _requestContext(requestContext),
+      _parent(parent),
+      _zones(zones) {
   _callers.insert(caller);
 
   // Interest operations can time out if the state server is taking too long.
   _timeout = g_loop->resource<uvw::timer_handle>();
   _timeout->on<uvw::timer_event>(
-      [this](const uvw::timer_event &, uvw::timer_handle &) {
+      [this](const uvw::timer_event&, uvw::timer_handle&) {
         HandleInterestTimeout();
       });
 
@@ -43,7 +47,7 @@ void InterestOperation::HandleInterestTimeout() {
   Finish(true);
 }
 
-void InterestOperation::Finish(const bool &isTimeout) {
+void InterestOperation::Finish(const bool& isTimeout) {
   // Stop and release the time-out timer.
   if (_timeout) {
     _timeout->stop();
@@ -51,16 +55,16 @@ void InterestOperation::Finish(const bool &isTimeout) {
     _timeout.reset();
   }
 
-  for (const auto &dg : _pendingGenerates) {
+  for (const auto& dg : _pendingGenerates) {
     DatagramIterator dgi(dg);
     dgi.SeekPayload();
-    dgi.Skip(sizeof(uint64_t)); // Skip sender.
+    dgi.Skip(sizeof(uint64_t));  // Skip sender.
 
     uint16_t msgType = dgi.GetUint16();
     bool withOther =
         (msgType == STATESERVER_OBJECT_ENTER_INTEREST_WITH_REQUIRED_OTHER);
 
-    dgi.Skip(sizeof(uint32_t)); // Skip request context.
+    dgi.Skip(sizeof(uint32_t));  // Skip request context.
     _client->HandleObjectEntrance(dgi, withOther);
   }
 
@@ -75,7 +79,7 @@ void InterestOperation::Finish(const bool &isTimeout) {
   _client->_pendingInterests.erase(_requestContext);
 
   // Dispatch other received and queued datagrams.
-  for (const auto &dg : dispatch) {
+  for (const auto& dg : dispatch) {
     _client->HandleDatagram(dg);
   }
 
@@ -83,7 +87,7 @@ void InterestOperation::Finish(const bool &isTimeout) {
   if (_startTime.count() > 0 && !isTimeout) {
     _client->_clientAgent->RecordInterestTime(
         (double)(g_loop->now() - _startTime).count() /
-        1000); // Convert from MS to S.
+        1000);  // Convert from MS to S.
   }
 
   _finished = true;
@@ -95,19 +99,19 @@ bool InterestOperation::IsReady() const {
   return _hasTotal && _pendingGenerates.size() >= _total;
 }
 
-void InterestOperation::SetExpected(const uint32_t &total) {
+void InterestOperation::SetExpected(const uint32_t& total) {
   if (!_hasTotal) {
     _total = total;
     _hasTotal = true;
   }
 }
 
-void InterestOperation::QueueExpected(const std::shared_ptr<Datagram> &dg) {
+void InterestOperation::QueueExpected(const std::shared_ptr<Datagram>& dg) {
   _pendingGenerates.push_back(dg);
 }
 
-void InterestOperation::QueueDatagram(const std::shared_ptr<Datagram> &dg) {
+void InterestOperation::QueueDatagram(const std::shared_ptr<Datagram>& dg) {
   _pendingDatagrams.push_back(dg);
 }
 
-} // namespace Ardos
+}  // namespace Ardos

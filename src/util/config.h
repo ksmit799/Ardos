@@ -6,25 +6,25 @@
 namespace Ardos {
 
 class Config {
-public:
-  static Config *Instance();
+ public:
+  static Config* Instance();
 
-  void LoadConfig(const std::string &name);
+  void LoadConfig(const std::string& name);
   YAML::Node GetConfig() { return _config; }
 
-  std::string GetString(const std::string &key, const std::string &defVal = "");
-  YAML::Node GetNode(const std::string &key);
-  bool GetBool(const std::string &key, const bool &defVal = false);
+  std::string GetString(const std::string& key, const std::string& defVal = "");
+  YAML::Node GetNode(const std::string& key);
+  bool GetBool(const std::string& key, const bool& defVal = false);
 
-protected:
+ protected:
   Config() = default;
   ~Config() = default;
 
-  static Config *_instance;
+  static Config* _instance;
 
   YAML::Node _config;
 };
 
-} // namespace Ardos
+}  // namespace Ardos
 
-#endif // ARDOS_CONFIG_H
+#endif  // ARDOS_CONFIG_H
