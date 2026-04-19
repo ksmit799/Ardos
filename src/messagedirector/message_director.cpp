@@ -2,6 +2,8 @@
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <cstring>
+
 #include "../clientagent/client_agent.h"
 #ifdef ARDOS_WANT_DB_SERVER
 #include "../database/database_server.h"
@@ -147,8 +149,12 @@ std::string MessageDirector::GetLocalQueue() { return _localQueue; }
  *  @param  size            Size of the buffer
  */
 void MessageDirector::onData(AMQP::Connection* connection, const char* buffer,
-                             size_t size) {
-  _connectHandle->write((char*)buffer, size);
+                             const size_t size) {
+  auto sendBuffer = std::unique_ptr<char[]>(new char[size]);
+  if (size != 0) {
+    std::memcpy(sendBuffer.get(), buffer, size);
+  }
+  _connectHandle->write(std::move(sendBuffer), size);
 }
 
 /**
