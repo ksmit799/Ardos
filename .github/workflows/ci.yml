@@ -22,6 +22,7 @@ jobs:
           sudo apt-get install -y build-essential cmake tar git zip unzip curl pkg-config
 
       - name: Build
+        if: github.event_name == 'pull_request'
         run: |
           cmake -B build \
             -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake \
@@ -30,6 +31,7 @@ jobs:
           cmake --build build
 
       - uses: cpp-linter/cpp-linter-action@v2
+        if: github.event_name == 'pull_request'
         id: linter
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -41,7 +43,7 @@ jobs:
           thread-comments: ${{ github.event_name == 'pull_request' && 'update' }}
 
       - name: Fail fast
-        if: steps.linter.outputs.checks-failed > 0
+        if: github.event_name == 'pull_request' && steps.linter.outputs.checks-failed > 0
         run: exit 1
 
       - name: Build Docker image
