@@ -10,6 +10,7 @@ Checks: >
   -readability-magic-numbers,
   -modernize-use-trailing-return-type,
   -readability-implicit-bool-conversion,
+  -bugprone-easily-swappable-parameters,
 
 WarningsAsErrors: ''
 
