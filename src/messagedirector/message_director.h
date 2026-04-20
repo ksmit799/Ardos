@@ -56,8 +56,6 @@ class MessageDirector : public AMQP::ConnectionHandler {
 
   void StartConsuming();
 
-  static bool WithinGlobalRange(const std::string& channel);
-
   static MessageDirector* _instance;
 
   std::unique_ptr<StateServer> _stateServer;
