@@ -314,13 +314,6 @@ void MessageDirector::DeliverLocally(const std::string& routingKey,
   for (const auto& subscriber : _subscribers) {
     subscriber->HandleUpdate(routingKey, dg);
   }
-
-  for (const auto& it : _leavingSubscribers) {
-    _subscribers.erase(it);
-    delete it;
-  }
-
-  _leavingSubscribers.clear();
 }
 
 /**
