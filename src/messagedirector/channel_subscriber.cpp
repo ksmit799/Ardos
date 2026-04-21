@@ -8,9 +8,8 @@ namespace Ardos {
 // We use this to keep track of which channels we have opened with RabbitMQ.
 // Once a channel reaches a subscriber count of 0, we let RabbitMQ know that
 // we no longer wish to be routed messages about it.
-std::unordered_map<uint64_t, unsigned int>
-    ChannelSubscriber::_globalChannels =
-        std::unordered_map<uint64_t, unsigned int>();
+std::unordered_map<uint64_t, unsigned int> ChannelSubscriber::_globalChannels =
+    std::unordered_map<uint64_t, unsigned int>();
 std::unordered_map<uint64_t, unsigned int> ChannelSubscriber::_globalBuckets =
     std::unordered_map<uint64_t, unsigned int>();
 
