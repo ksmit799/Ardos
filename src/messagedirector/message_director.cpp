@@ -169,7 +169,7 @@ void MessageDirector::onReady(AMQP::Connection* connection) {
 
   // Create our "global" exchange.
   _globalChannel = new AMQP::Channel(_connection);
-  _globalChannel->declareExchange(kGlobalExchange, AMQP::fanout)
+  _globalChannel->declareExchange(kGlobalExchange, AMQP::topic)
       .onSuccess([this]() {
         // Create our local queue.
         // This queue is specific to this process, and will be automatically
@@ -293,6 +293,30 @@ void MessageDirector::RemoveSubscriber(ChannelSubscriber* subscriber) {
 }
 
 /**
+ * Synchronously dispatches a datagram to in-process subscribers, bypassing
+ * RabbitMQ. Used by ChannelSubscriber::PublishDatagram so a subscribe-then-
+ * publish on the same channel doesn't race the async bindQueue, and so
+ * same-process traffic skips the broker round-trip entirely.
+ * @param routingKey
+ * @param dg
+ */
+void MessageDirector::DeliverLocally(const std::string& routingKey,
+                                     const std::shared_ptr<Datagram>& dg) {
+  // Mirror the safety-net check in StartConsuming's onReceived: skip the
+  // dispatch entirely if no binding in this MD could match.
+  uint64_t channel = ChannelSubscriber::ChannelFromRoutingKey(routingKey);
+  uint64_t bucket = channel >> kChannelBucketShift;
+  if (!ChannelSubscriber::_globalChannels.contains(channel) &&
+      !ChannelSubscriber::_globalBuckets.contains(bucket)) {
+    return;
+  }
+
+  for (const auto& subscriber : _subscribers) {
+    subscriber->HandleUpdate(routingKey, dg);
+  }
+}
+
+/**
  * Called when a participant connects.
  */
 void MessageDirector::ParticipantJoined() {
@@ -362,12 +386,21 @@ void MessageDirector::InitMetrics() {
  * Messages are handled by each Channel Subscriber.
  */
 void MessageDirector::StartConsuming() {
-  _globalChannel->consume(_localQueue)
+  // Consume in no-ack mode: the broker treats messages as acknowledged the
+  // moment they're delivered, which removes a round-trip per message and
+  // noticeably improves throughput. Trade-off: if this process dies mid-handle
+  // the in-flight message is lost, but the MD holds no durable state worth
+  // recovering -- the whole cluster re-converges on restart.
+  _globalChannel->consume(_localQueue, AMQP::noack)
       .onSuccess([this](const std::string& tag) { _consumeTag = tag; })
       .onReceived([this](const AMQP::Message& message, uint64_t deliveryTag,
                          bool redelivered) {
-        // Acknowledge the message.
-        _globalChannel->ack(deliveryTag);
+        // Drop loopback copies. PublishDatagram tags every outgoing message
+        // with our local queue name and delivers synchronously in-process;
+        // the broker still fans the message out to us, so ignore that copy.
+        if (message.hasAppID() && message.appID() == _localQueue) {
+          return;
+        }
 
         // Increment observed datagrams metric.
         if (_datagramsObservedCounter) {
@@ -375,10 +408,14 @@ void MessageDirector::StartConsuming() {
         }
 
         // First, check if we have at least one channel subscriber listening to
-        // the channel in this cluster.
-        if (!ChannelSubscriber::_globalChannels.contains(
-                message.routingkey()) &&
-            !WithinGlobalRange(message.routingkey())) {
+        // the channel in this cluster. The topic exchange should only deliver
+        // messages matching one of our bindings, but keep the check as a
+        // safety net against spurious deliveries.
+        uint64_t channel =
+            ChannelSubscriber::ChannelFromRoutingKey(message.routingkey());
+        uint64_t bucket = channel >> kChannelBucketShift;
+        if (!ChannelSubscriber::_globalChannels.contains(channel) &&
+            !ChannelSubscriber::_globalBuckets.contains(bucket)) {
           return;
         }
 
@@ -419,15 +456,6 @@ void MessageDirector::StartConsuming() {
       .onError([](const char* message) {
         spdlog::get("md")->error("Received error: {}", message);
       });
-}
-
-bool MessageDirector::WithinGlobalRange(const std::string& routingKey) {
-  auto channel = std::stoull(routingKey);
-  return std::any_of(ChannelSubscriber::_globalRanges.begin(),
-                     ChannelSubscriber::_globalRanges.end(), [channel](auto i) {
-                       return channel >= i.first.first &&
-                              channel <= i.first.second;
-                     });
 }
 
 void MessageDirector::HandleWeb(ws28::Client* client, nlohmann::json& data) {

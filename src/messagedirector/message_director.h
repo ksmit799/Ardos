@@ -7,6 +7,7 @@
 #include <prometheus/histogram.h>
 #include <ws28/Client.h>
 
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <unordered_set>
 #include <uvw.hpp>
@@ -16,6 +17,7 @@ namespace Ardos {
 const std::string kGlobalExchange = "global-exchange";
 
 class ChannelSubscriber;
+class Datagram;
 class MDParticipant;
 
 class StateServer;
@@ -39,6 +41,9 @@ class MessageDirector : public AMQP::ConnectionHandler {
   void AddSubscriber(ChannelSubscriber* subscriber);
   void RemoveSubscriber(ChannelSubscriber* subscriber);
 
+  void DeliverLocally(const std::string& routingKey,
+                      const std::shared_ptr<Datagram>& dg);
+
   void ParticipantJoined();
   void ParticipantLeft(MDParticipant* participant);
 
@@ -55,8 +60,6 @@ class MessageDirector : public AMQP::ConnectionHandler {
   void InitMetrics();
 
   void StartConsuming();
-
-  static bool WithinGlobalRange(const std::string& channel);
 
   static MessageDirector* _instance;
 

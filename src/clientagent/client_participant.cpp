@@ -40,7 +40,7 @@ static bool IsClassOrDerivedFrom(const DCClass* candidate, DCClass* baseClass) {
 
 ClientParticipant::ClientParticipant(
     ClientAgent* clientAgent, const std::shared_ptr<uvw::tcp_handle>& socket)
-    : NetworkClient(socket), ChannelSubscriber(), _clientAgent(clientAgent) {
+    : NetworkClient(socket), _clientAgent(clientAgent) {
   auto address = GetRemoteAddress();
   spdlog::get("ca")->debug("Client connected from {}:{}", address.ip,
                            address.port);

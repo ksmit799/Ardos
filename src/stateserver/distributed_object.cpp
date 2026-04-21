@@ -660,6 +660,10 @@ void DistributedObject::HandleLocationChange(const uint32_t& newParent,
     return;
   }
 
+  // At this point the new parent (which may or may not be the same as the old
+  // parent) is unaware of our existence in this zone.
+  _parentSynchronized = false;
+
   // Send changing location message.
   auto dg = std::make_shared<Datagram>(targets, _doId,
                                        STATESERVER_OBJECT_CHANGING_LOCATION);
@@ -667,10 +671,6 @@ void DistributedObject::HandleLocationChange(const uint32_t& newParent,
   dg->AddLocation(newParent, newZone);
   dg->AddLocation(oldParent, oldZone);
   PublishDatagram(dg);
-
-  // At this point the new parent (which may or may not be the same as the old
-  // parent) is unaware of our existence in this zone.
-  _parentSynchronized = false;
 
   // Send enter location message.
   if (newParent) {
