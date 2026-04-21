@@ -8,9 +8,9 @@ namespace Ardos {
 // We use this to keep track of which channels we have opened with RabbitMQ.
 // Once a channel reaches a subscriber count of 0, we let RabbitMQ know that
 // we no longer wish to be routed messages about it.
-std::unordered_map<std::string, unsigned int>
+std::unordered_map<uint64_t, unsigned int>
     ChannelSubscriber::_globalChannels =
-        std::unordered_map<std::string, unsigned int>();
+        std::unordered_map<uint64_t, unsigned int>();
 std::unordered_map<uint64_t, unsigned int> ChannelSubscriber::_globalBuckets =
     std::unordered_map<uint64_t, unsigned int>();
 
@@ -49,7 +49,7 @@ void ChannelSubscriber::Shutdown() {
   // beforehand, or the early-return on "not in _localChannels" kicks in and
   // leaks the global state.
   while (!_localChannels.empty()) {
-    UnsubscribeChannel(std::stoull(_localChannels.back()));
+    UnsubscribeChannel(*_localChannels.begin());
   }
 
   // Same pattern for ranges.
@@ -60,20 +60,15 @@ void ChannelSubscriber::Shutdown() {
 }
 
 void ChannelSubscriber::SubscribeChannel(const uint64_t& channel) {
-  std::string channelStr = std::to_string(channel);
-
   // Don't add duplicate channels.
-  if (std::find(_localChannels.begin(), _localChannels.end(), channelStr) !=
-      _localChannels.end()) {
+  if (!_localChannels.insert(channel).second) {
     return;
   }
 
-  _localChannels.push_back(channelStr);
-
   // Next, lets check if this channel is already being listened to elsewhere.
   // If it is, increment the subscriber count.
-  if (_globalChannels.contains(channelStr)) {
-    _globalChannels[channelStr]++;
+  if (_globalChannels.contains(channel)) {
+    _globalChannels[channel]++;
     return;
   }
 
@@ -82,28 +77,22 @@ void ChannelSubscriber::SubscribeChannel(const uint64_t& channel) {
                             BuildChannelRoutingKey(channel));
 
   // ... and register it as a newly opened global channel.
-  _globalChannels[channelStr] = 1;
+  _globalChannels[channel] = 1;
 }
 
 void ChannelSubscriber::UnsubscribeChannel(const uint64_t& channel) {
-  std::string channelStr = std::to_string(channel);
-
   // Make sure we've subscribed to this channel.
-  auto position =
-      std::find(_localChannels.begin(), _localChannels.end(), channelStr);
-  if (position == _localChannels.end()) {
+  if (!_localChannels.erase(channel)) {
     return;
   }
 
-  _localChannels.erase(position);
-
   // We can safely assume the channel exists in a global context.
-  _globalChannels[channelStr]--;
+  _globalChannels[channel]--;
 
   // If we have 0 current listeners for this channel, let RabbitMQ know we no
   // longer care about it.
-  if (!_globalChannels[channelStr]) {
-    _globalChannels.erase(channelStr);
+  if (!_globalChannels[channel]) {
+    _globalChannels.erase(channel);
     _globalChannel->unbindQueue(kGlobalExchange, _localQueue,
                                 BuildChannelRoutingKey(channel));
   }
@@ -161,25 +150,37 @@ void ChannelSubscriber::UnsubscribeRange(const uint64_t& min,
 void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram>& dg) {
   DatagramIterator dgi(dg);
 
+  // Tag every publish with our local queue name. The broker fans the message
+  // out to every bound queue including our own; the consume callback drops
+  // copies carrying this appID since we already delivered them in-process.
+  std::string localQueue = MessageDirector::Instance()->GetLocalQueue();
+
   uint8_t channels = dgi.GetUint8();
   for (uint8_t i = 0; i < channels; ++i) {
     uint64_t channel = dgi.GetUint64();
-    _globalChannel->publish(kGlobalExchange, BuildChannelRoutingKey(channel),
-                            reinterpret_cast<const char*>(dg->GetData()),
+    std::string routingKey = BuildChannelRoutingKey(channel);
+
+    // Deliver to in-process subscribers. Avoids the subscribe-then-publish
+    // race (async bindQueue not yet live) and skips the broker round-trip
+    // for traffic that never needed to leave this MD. DeliverLocally no-ops
+    // when nothing in this MD could match.
+    MessageDirector::Instance()->DeliverLocally(routingKey, dg);
+
+    AMQP::Envelope envelope(reinterpret_cast<const char*>(dg->GetData()),
                             (size_t)dg->Size());
+    envelope.setAppID(localQueue);
+    _globalChannel->publish(kGlobalExchange, routingKey, envelope);
   }
 }
 
 void ChannelSubscriber::HandleUpdate(const std::string& routingKey,
                                      const std::shared_ptr<Datagram>& dg) {
-  // Routing keys look like `chan.<bucket>.<channel>`. Subscribers track
-  // channels by their raw ID string, so extract that portion first.
-  std::string channelStr = std::to_string(ChannelFromRoutingKey(routingKey));
+  // Routing keys look like `chan.<bucket>.<channel>`; pull the channel out
+  // once for both the set lookup and the range check.
+  uint64_t channel = ChannelFromRoutingKey(routingKey);
 
   // First, check if this ChannelSubscriber cares about the message.
-  if (std::find(_localChannels.begin(), _localChannels.end(), channelStr) ==
-          _localChannels.end() &&
-      !WithinLocalRange(routingKey)) {
+  if (!_localChannels.contains(channel) && !WithinLocalRange(channel)) {
     return;
   }
 
@@ -187,8 +188,7 @@ void ChannelSubscriber::HandleUpdate(const std::string& routingKey,
   HandleDatagram(dg);
 }
 
-bool ChannelSubscriber::WithinLocalRange(const std::string& routingKey) {
-  auto channel = ChannelFromRoutingKey(routingKey);
+bool ChannelSubscriber::WithinLocalRange(uint64_t channel) {
   return std::any_of(
       _localRanges.begin(), _localRanges.end(),
       [channel](auto i) { return channel >= i.first && channel <= i.second; });

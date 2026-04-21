@@ -293,6 +293,37 @@ void MessageDirector::RemoveSubscriber(ChannelSubscriber* subscriber) {
 }
 
 /**
+ * Synchronously dispatches a datagram to in-process subscribers, bypassing
+ * RabbitMQ. Used by ChannelSubscriber::PublishDatagram so a subscribe-then-
+ * publish on the same channel doesn't race the async bindQueue, and so
+ * same-process traffic skips the broker round-trip entirely.
+ * @param routingKey
+ * @param dg
+ */
+void MessageDirector::DeliverLocally(const std::string& routingKey,
+                                     const std::shared_ptr<Datagram>& dg) {
+  // Mirror the safety-net check in StartConsuming's onReceived: skip the
+  // dispatch entirely if no binding in this MD could match.
+  uint64_t channel = ChannelSubscriber::ChannelFromRoutingKey(routingKey);
+  uint64_t bucket = channel >> kChannelBucketShift;
+  if (!ChannelSubscriber::_globalChannels.contains(channel) &&
+      !ChannelSubscriber::_globalBuckets.contains(bucket)) {
+    return;
+  }
+
+  for (const auto& subscriber : _subscribers) {
+    subscriber->HandleUpdate(routingKey, dg);
+  }
+
+  for (const auto& it : _leavingSubscribers) {
+    _subscribers.erase(it);
+    delete it;
+  }
+
+  _leavingSubscribers.clear();
+}
+
+/**
  * Called when a participant connects.
  */
 void MessageDirector::ParticipantJoined() {
@@ -371,6 +402,13 @@ void MessageDirector::StartConsuming() {
       .onSuccess([this](const std::string& tag) { _consumeTag = tag; })
       .onReceived([this](const AMQP::Message& message, uint64_t deliveryTag,
                          bool redelivered) {
+        // Drop loopback copies. PublishDatagram tags every outgoing message
+        // with our local queue name and delivers synchronously in-process;
+        // the broker still fans the message out to us, so ignore that copy.
+        if (message.hasAppID() && message.appID() == _localQueue) {
+          return;
+        }
+
         // Increment observed datagrams metric.
         if (_datagramsObservedCounter) {
           _datagramsObservedCounter->Increment();
@@ -383,8 +421,7 @@ void MessageDirector::StartConsuming() {
         uint64_t channel =
             ChannelSubscriber::ChannelFromRoutingKey(message.routingkey());
         uint64_t bucket = channel >> kChannelBucketShift;
-        if (!ChannelSubscriber::_globalChannels.contains(
-                std::to_string(channel)) &&
+        if (!ChannelSubscriber::_globalChannels.contains(channel) &&
             !ChannelSubscriber::_globalBuckets.contains(bucket)) {
           return;
         }
