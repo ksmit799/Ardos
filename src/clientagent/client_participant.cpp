@@ -1,7 +1,5 @@
 #include "client_participant.h"
 
-#include <dcField.h>
-
 #include "../net/message_types.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
