@@ -2,6 +2,7 @@
 #define ARDOS_MESSAGE_TYPES_H
 
 #include <cstdint>
+#include <cstddef>
 
 constexpr uint64_t INVALID_CHANNEL = 0;
 constexpr uint32_t INVALID_DO_ID = 0;
