@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <limits>
 
 namespace Ardos {
 
@@ -61,30 +62,67 @@ std::vector<std::string_view> Split(std::string_view s, char delim) {
   return out;
 }
 
-bool ParseCartesianRule(std::string_view ruleStr, ParentingRule& out) {
+bool ParseCartesianRule(std::string_view ruleStr, const std::string& className,
+                        ParentingRule& out) {
   // "<startZone>:<gridSize>:<radius>"
   auto parts = Split(ruleStr, ':');
   if (parts.size() != 3) {
+    spdlog::get("ca")->warn(
+        "Class '{}' Cartesian rule '{}' has {} token(s); expected 3 "
+        "('<startZone>:<gridSize>:<radius>').",
+        className, ruleStr, parts.size());
     return false;
   }
   if (!ParseUint32(parts[0], out.cartStartZone) ||
       !ParseUint32(parts[1], out.cartGridSize) ||
       !ParseUint32(parts[2], out.cartRadius)) {
+    spdlog::get("ca")->warn(
+        "Class '{}' Cartesian rule '{}' has a non-numeric or out-of-range "
+        "uint32 token.",
+        className, ruleStr);
     return false;
   }
   if (out.cartGridSize == 0) {
+    spdlog::get("ca")->warn(
+        "Class '{}' Cartesian rule '{}' has gridSize=0; grid must have at "
+        "least one cell per row.",
+        className, ruleStr);
+    return false;
+  }
+  // The highest cell id is startZone + gridSize*gridSize - 1; reject rules
+  // whose grid wraps past UINT32_MAX. CartesianGridZones stores the
+  // computed ids back into uint32_t and a silent wrap would produce
+  // interest in completely unrelated regions of the zone space.
+  const uint64_t totalCells =
+      static_cast<uint64_t>(out.cartGridSize) * out.cartGridSize;
+  const uint64_t maxZone =
+      static_cast<uint64_t>(out.cartStartZone) + totalCells - 1;
+  if (maxZone > std::numeric_limits<uint32_t>::max()) {
+    spdlog::get("ca")->warn(
+        "Class '{}' Cartesian rule '{}' overflows the 32-bit zone space: "
+        "startZone={} + gridSize^2={} would reach zone {}, above UINT32_MAX.",
+        className, ruleStr, out.cartStartZone, totalCells, maxZone);
     return false;
   }
   return true;
 }
 
-bool ParseAutoRule(std::string_view ruleStr, ParentingRule& out) {
+bool ParseAutoRule(std::string_view ruleStr, const std::string& className,
+                   ParentingRule& out) {
   // "<originZone>:<z1>|<z2>|..."
   auto colon = ruleStr.find(':');
   if (colon == std::string_view::npos) {
+    spdlog::get("ca")->warn(
+        "Class '{}' Auto rule '{}' is missing the ':' separator "
+        "('<originZone>:<z1>|<z2>|...').",
+        className, ruleStr);
     return false;
   }
   if (!ParseUint32(ruleStr.substr(0, colon), out.autoOriginZone)) {
+    spdlog::get("ca")->warn(
+        "Class '{}' Auto rule '{}' has a non-numeric or out-of-range uint32 "
+        "origin zone.",
+        className, ruleStr);
     return false;
   }
 
@@ -95,11 +133,19 @@ bool ParseAutoRule(std::string_view ruleStr, ParentingRule& out) {
     }
     uint32_t parsed;
     if (!ParseUint32(z, parsed)) {
+      spdlog::get("ca")->warn(
+          "Class '{}' Auto rule '{}' has a non-numeric or out-of-range uint32 "
+          "extra zone token '{}'.",
+          className, ruleStr, z);
       return false;
     }
     out.autoExtraZones.push_back(parsed);
   }
   if (out.autoExtraZones.empty()) {
+    spdlog::get("ca")->warn(
+        "Class '{}' Auto rule '{}' has no extra zones; expected at least one "
+        "('<originZone>:<z1>|<z2>|...').",
+        className, ruleStr);
     return false;
   }
   return true;
@@ -122,7 +168,7 @@ bool TryParseParentingRule(DCClass* klass, ParentingRule& out) {
   }
 
   DCAtomicField* atomicField = field->as_atomic_field();
-  if (!atomicField || atomicField->get_num_elements() < 2) {
+  if (!atomicField || atomicField->get_num_elements() != 2) {
     spdlog::get("ca")->warn(
         "Class '{}' has a setParentingRules field but it isn't a two-element "
         "atomic (expected `setParentingRules(string type, string Rule)`).",
@@ -150,22 +196,14 @@ bool TryParseParentingRule(DCClass* klass, ParentingRule& out) {
     return true;
   }
   if (typeStr == "Cartesian") {
-    if (!ParseCartesianRule(ruleStr, out)) {
-      spdlog::get("ca")->warn(
-          "Class '{}' has Cartesian parenting rule with malformed Rule "
-          "string: '{}' (expected '<startZone>:<gridSize>:<radius>')",
-          klass->get_name(), ruleStr);
+    if (!ParseCartesianRule(ruleStr, klass->get_name(), out)) {
       return false;
     }
     out.kind = ParentingRuleKind::Cartesian;
     return true;
   }
   if (typeStr == "Auto") {
-    if (!ParseAutoRule(ruleStr, out)) {
-      spdlog::get("ca")->warn(
-          "Class '{}' has Auto parenting rule with malformed Rule string: "
-          "'{}' (expected '<originZone>:<z1>|<z2>|...')",
-          klass->get_name(), ruleStr);
+    if (!ParseAutoRule(ruleStr, klass->get_name(), out)) {
       return false;
     }
     out.kind = ParentingRuleKind::Auto;
@@ -201,12 +239,17 @@ std::unordered_set<uint32_t> CartesianGridZones(const ParentingRule& rule,
   uint32_t col = static_cast<uint32_t>(linear % rule.cartGridSize);
 
   // radius=0 -> just the centre cell; radius=1 -> 3x3; radius=2 -> 5x5.
-  const uint32_t reach = rule.cartRadius;
+  // Clamp in 64-bit: cartRadius is unbounded so row+reach / col+reach can
+  // overflow uint32 and collapse the window to a small wrapped range.
+  const uint64_t reach = rule.cartRadius;
+  const uint32_t gridMax = rule.cartGridSize - 1;
 
-  uint32_t rowLo = (row >= reach) ? (row - reach) : 0;
-  uint32_t rowHi = std::min<uint32_t>(rule.cartGridSize - 1, row + reach);
-  uint32_t colLo = (col >= reach) ? (col - reach) : 0;
-  uint32_t colHi = std::min<uint32_t>(rule.cartGridSize - 1, col + reach);
+  uint32_t rowLo = (row >= reach) ? static_cast<uint32_t>(row - reach) : 0;
+  uint32_t rowHi = static_cast<uint32_t>(
+      std::min<uint64_t>(gridMax, static_cast<uint64_t>(row) + reach));
+  uint32_t colLo = (col >= reach) ? static_cast<uint32_t>(col - reach) : 0;
+  uint32_t colHi = static_cast<uint32_t>(
+      std::min<uint64_t>(gridMax, static_cast<uint64_t>(col) + reach));
 
   for (uint32_t r = rowLo; r <= rowHi; ++r) {
     for (uint32_t c = colLo; c <= colHi; ++c) {
