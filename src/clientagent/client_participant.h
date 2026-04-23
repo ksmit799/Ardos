@@ -114,7 +114,7 @@ class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
   void RemoveInterest(Interest& i, const uint32_t& context,
                       const uint64_t& caller = 0);
 
-  void CloseZones(const uint32_t& parent,
+  bool CloseZones(const uint32_t& parent,
                   const std::unordered_set<uint32_t>& killedZones);
 
   void HandleRemoveObject(const uint32_t& doId);
