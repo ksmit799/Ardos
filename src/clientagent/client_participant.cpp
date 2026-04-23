@@ -143,6 +143,25 @@ void ClientParticipant::Shutdown() {
     (it++)->second->Finish();
   }
 
+  // Cancel any in-flight parent-class lookups so their timers don't fire
+  // after we've been destroyed. A response landing after shutdown would be
+  // dropped anyway (the stale-parent check would fail), but leaving live
+  // timers around risks callbacks on a dead `this`.
+  for (auto& [context, entry] : _pendingParentClassLookups) {
+    if (entry.timeout) {
+      entry.timeout->stop();
+      entry.timeout->close();
+      entry.timeout.reset();
+    }
+  }
+  _pendingParentClassLookups.clear();
+
+  // Drop the avatar's rule-based interest without trying to close zones --
+  // ChannelSubscriber::Shutdown below will tear down every subscription
+  // anyway, and calling RemoveInterest here would publish closure traffic
+  // that the other end doesn't care about (the CP is going away).
+  _avatarParentRule.reset();
+
   spdlog::get("ca")->debug("Routing {} post-remove(s) for '{}'",
                            _postRemoves.size(), _channel);
 
@@ -501,6 +520,9 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
       }
       break;
     }
+    case STATESERVER_OBJECT_GET_CLASS_RESP:
+      HandleGetClassResp(dgi);
+      break;
     case STATESERVER_OBJECT_CHANGING_LOCATION: {
       uint32_t doId = dgi.GetUint32();
       if (TryQueuePending(doId, dgi.GetUnderlyingDatagram())) {
@@ -824,10 +846,19 @@ void ClientParticipant::HandleAddOwnership(
     const uint16_t& dcId, DatagramIterator& dgi, const bool& other) {
   // Track location from the configured avatar class only.
   DCClass* avatarClass = _clientAgent->GetAvatarClass();
-  if (IsClassOrDerivedFrom(_ownedObjects[doId].dcc, avatarClass)) {
+  bool isAvatar = IsClassOrDerivedFrom(_ownedObjects[doId].dcc, avatarClass);
+  if (isAvatar) {
     _avatarDoId = doId;
     _avatarParent = parentId;
     _avatarZone = zoneId;
+
+    // Kick off parenting-rule resolution for the avatar's initial parent.
+    // The round-trip is asynchronous; rules get applied once the response
+    // lands and we've confirmed the avatar hasn't moved elsewhere in the
+    // meantime.
+    if (_clientAgent->GetParentingRulesEnabled() && parentId != INVALID_DO_ID) {
+      RequestParentClass(parentId);
+    }
   }
 
   auto dg = std::make_shared<Datagram>();
@@ -857,8 +888,28 @@ void ClientParticipant::HandleChangeLocation(const uint32_t& doId,
                                              const uint32_t& newZone) {
   // If the players avatar is changing location, make sure we keep track of it.
   if (_avatarDoId == doId) {
+    uint32_t oldParent = _avatarParent;
     _avatarParent = newParent;
     _avatarZone = newZone;
+
+    if (_clientAgent->GetParentingRulesEnabled()) {
+      if (newParent != oldParent) {
+        // Parent changed: the old parent's rule (if any) no longer applies,
+        // so tear down any CA-managed interest tied to it. The new parent's
+        // class needs looking up from scratch -- DoIds get reused, so a
+        // parent with the same id may be a completely different class than
+        // it was last time we saw it.
+        ClearAvatarParentRule();
+        if (newParent != INVALID_DO_ID) {
+          RequestParentClass(newParent);
+        }
+      } else if (_avatarParentRule &&
+                 _avatarParentRule->parentId == newParent) {
+        // Same parent, zone changed. If the rule cares about zone
+        // (Follow/Cartesian), re-evaluate. Stated/Auto no-op.
+        UpdateAvatarParentRule();
+      }
+    }
   }
 
   auto dg = std::make_shared<Datagram>();

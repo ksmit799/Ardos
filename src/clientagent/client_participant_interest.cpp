@@ -1,4 +1,7 @@
+#include <dcFile.h>
+
 #include "../net/message_types.h"
+#include "../util/globals.h"
 #include "../util/logger.h"
 #include "client_participant.h"
 
@@ -132,6 +135,14 @@ void ClientParticipant::BuildInterest(DatagramIterator& dgi,
 
 void ClientParticipant::AddInterest(Interest& i, const uint32_t& context,
                                     const uint64_t& caller) {
+  // Externally-triggered interests (client or AI) get Auto-rule extras
+  // merged in before we touch any subscriptions. Rule-based internal
+  // interests already know exactly what zones they want and don't need
+  // further expansion.
+  if (!i.isInternal) {
+    MaybeApplyAutoRule(i);
+  }
+
   std::unordered_set<uint32_t> newZones;
   for (const auto& zone : i.zones) {
     if (LookupInterests(i.parent, zone).empty()) {
@@ -234,6 +245,14 @@ void ClientParticipant::NotifyInterestDone(const InterestOperation* iop) {
 
 void ClientParticipant::HandleInterestDone(const uint16_t& interestId,
                                            const uint32_t& context) {
+  // CA-managed interests are invisible to the client; suppress the
+  // completion notification. The client never saw a CLIENT_ADD_INTEREST
+  // for this id, so a DONE_INTEREST_RESP would be confusing.
+  auto it = _interests.find(interestId);
+  if (it != _interests.end() && it->second.isInternal) {
+    return;
+  }
+
   auto dg = std::make_shared<Datagram>();
   dg->AddUint16(CLIENT_DONE_INTEREST_RESP);
 #ifdef ARDOS_USE_LEGACY_CLIENT
@@ -339,6 +358,281 @@ bool ClientParticipant::CloseZones(
   }
 
   return true;
+}
+
+void ClientParticipant::RequestParentClass(const uint32_t& parentId) {
+  if (parentId == INVALID_DO_ID) {
+    return;
+  }
+
+  uint32_t context = _nextContext++;
+
+  auto& entry = _pendingParentClassLookups[context];
+  entry.parentId = parentId;
+  entry.timeout = g_loop->resource<uvw::timer_handle>();
+  entry.timeout->on<uvw::timer_event>(
+      [this, context](const uvw::timer_event&, uvw::timer_handle&) {
+        HandleParentClassLookupTimeout(context);
+      });
+  entry.timeout->start(
+      uvw::timer_handle::time{_clientAgent->GetInterestTimeout()},
+      uvw::timer_handle::time{0});
+
+  auto dg = std::make_shared<Datagram>(parentId, _channel,
+                                       STATESERVER_OBJECT_GET_CLASS);
+  dg->AddUint32(context);
+  PublishDatagram(dg);
+}
+
+void ClientParticipant::HandleGetClassResp(DatagramIterator& dgi) {
+  uint32_t context = dgi.GetUint32();
+  uint32_t doId = dgi.GetUint32();
+  uint16_t dcId = dgi.GetUint16();
+
+  auto it = _pendingParentClassLookups.find(context);
+  if (it == _pendingParentClassLookups.end()) {
+    // Context unknown. Either we already timed it out (warning was logged
+    // at that point) or it was never ours. Nothing to do.
+    return;
+  }
+
+  uint32_t requestedParent = it->second.parentId;
+  if (it->second.timeout) {
+    it->second.timeout->stop();
+    it->second.timeout->close();
+    it->second.timeout.reset();
+  }
+  _pendingParentClassLookups.erase(it);
+
+  // Defensive: response should be about the exact parent we asked for. A
+  // mismatch here means something went wrong on the wire or contexts got
+  // reused while one was still in flight -- refuse to act on it.
+  if (doId != requestedParent) {
+    spdlog::get("ca")->warn(
+        "Client: {} got class response for doId {} but expected parent {} "
+        "(ctx {})",
+        _channel, doId, requestedParent, context);
+    return;
+  }
+
+  // Stale check: the avatar may have left this parent (or logged out)
+  // while the request was in flight. Dropping here is the right call --
+  // if the avatar arrives back at the same parent later we'll have
+  // already fired a fresh request.
+  if (_avatarParent != requestedParent) {
+    spdlog::get("ca")->debug(
+        "Client: {} dropping stale class response for parent {} (avatar "
+        "now under {})",
+        _channel, requestedParent, _avatarParent);
+    return;
+  }
+
+  DCClass* parentClass = g_dc_file->get_class(dcId);
+  if (!parentClass) {
+    spdlog::get("ca")->warn(
+        "Client: {} got class response with unknown dcId {} for parent {}",
+        _channel, dcId, requestedParent);
+    return;
+  }
+
+  // Duplicate-resolution guard for the A->B->A scenario: both A lookups
+  // can legitimately resolve, one after the other. The first sets
+  // _avatarParentRule; the second sees it's already populated for this
+  // parent and bails.
+  if (_avatarParentRule && _avatarParentRule->parentId == requestedParent) {
+    return;
+  }
+
+  ParentingRule rule;
+  if (!TryParseParentingRule(parentClass, rule)) {
+    // Parse failure or no rule => Stated-equivalent. Record the parent so
+    // A->B->A dedupe still works, but don't open anything.
+    _avatarParentRule = AvatarParentRule{requestedParent, ParentingRule{}, 0};
+    return;
+  }
+
+  ApplyAvatarParentRule(requestedParent, rule);
+}
+
+void ClientParticipant::HandleParentClassLookupTimeout(
+    const uint32_t& context) {
+  auto it = _pendingParentClassLookups.find(context);
+  if (it == _pendingParentClassLookups.end()) {
+    // Shouldn't happen (the timer callback owns its entry), but don't
+    // crash if something pulled it out of the map first.
+    return;
+  }
+
+  uint32_t parentId = it->second.parentId;
+  if (it->second.timeout) {
+    // Already fired; just tear the timer down.
+    it->second.timeout->close();
+    it->second.timeout.reset();
+  }
+  _pendingParentClassLookups.erase(it);
+
+  spdlog::get("ca")->warn(
+      "Client: {} parent class lookup timed out for parent {} (ctx {})",
+      _channel, parentId, context);
+}
+
+uint16_t ClientParticipant::AllocateInternalInterestId() {
+  // Walk forward from the cursor, skipping any ids already in use. In
+  // practice clients don't pick ids this high, so the first candidate is
+  // almost always free. If we ever wrap all the way round we give up --
+  // that means every one of the 65K interest slots is in use, which is
+  // well beyond any sane deployment.
+  uint16_t start = _nextInternalInterestId;
+  do {
+    uint16_t id = _nextInternalInterestId++;
+    if (_nextInternalInterestId == 0) {
+      // uint16 wrapped -- skip past the low range where clients usually
+      // allocate to keep collision odds low on the next pass.
+      _nextInternalInterestId = 0xF000;
+    }
+    if (!_interests.contains(id)) {
+      return id;
+    }
+  } while (_nextInternalInterestId != start);
+
+  spdlog::get("ca")->error(
+      "Client: {} ran out of interest id space allocating internal slot",
+      _channel);
+  return 0;
+}
+
+void ClientParticipant::ApplyAvatarParentRule(const uint32_t& parentId,
+                                              const ParentingRule& rule) {
+  // Stated / unparsable rules: just record the parent for dedupe. No
+  // internal interest is opened.
+  if (rule.kind == ParentingRuleKind::Stated ||
+      rule.kind == ParentingRuleKind::Auto) {
+    // Auto is a per-interest-open rule, not an avatar-parent one, so for
+    // the purposes of tracking the avatar's parent it behaves like Stated.
+    _avatarParentRule = AvatarParentRule{parentId, rule, 0};
+    return;
+  }
+
+  std::unordered_set<uint32_t> zones;
+  if (rule.kind == ParentingRuleKind::Follow) {
+    if (_avatarZone != INVALID_DO_ID) {
+      zones.insert(_avatarZone);
+    }
+  } else if (rule.kind == ParentingRuleKind::Cartesian) {
+    zones = CartesianGridZones(rule, _avatarZone);
+  }
+
+  uint16_t id = AllocateInternalInterestId();
+  _avatarParentRule = AvatarParentRule{parentId, rule, id};
+
+  if (zones.empty()) {
+    // Off-grid or no avatar zone yet; nothing to open, but keep the slot
+    // recorded so zone updates can populate it later.
+    return;
+  }
+
+  Interest i;
+  i.id = id;
+  i.parent = parentId;
+  i.zones = std::move(zones);
+  i.isInternal = true;
+  AddInterest(i, /*context=*/0, /*caller=*/0);
+
+  spdlog::get("ca")->debug(
+      "Client: {} opened rule-based interest {} for parent {} with {} "
+      "zone(s)",
+      _channel, id, parentId, i.zones.size());
+}
+
+void ClientParticipant::UpdateAvatarParentRule() {
+  // Called when the avatar's zone (but not parent) changes. Only Follow
+  // and Cartesian care about zone; Stated/Auto are zone-agnostic.
+  if (!_avatarParentRule) {
+    return;
+  }
+  const ParentingRule& rule = _avatarParentRule->rule;
+  if (rule.kind != ParentingRuleKind::Follow &&
+      rule.kind != ParentingRuleKind::Cartesian) {
+    return;
+  }
+
+  std::unordered_set<uint32_t> zones;
+  if (rule.kind == ParentingRuleKind::Follow) {
+    if (_avatarZone != INVALID_DO_ID) {
+      zones.insert(_avatarZone);
+    }
+  } else {
+    zones = CartesianGridZones(rule, _avatarZone);
+  }
+
+  // If we've never actually opened an interest yet (e.g. initial zone was
+  // off-grid), do it now rather than modifying.
+  if (!_interests.contains(_avatarParentRule->interestId)) {
+    if (zones.empty()) {
+      return;  // still nothing to open.
+    }
+    Interest i;
+    i.id = _avatarParentRule->interestId;
+    i.parent = _avatarParentRule->parentId;
+    i.zones = std::move(zones);
+    i.isInternal = true;
+    AddInterest(i, /*context=*/0, /*caller=*/0);
+    return;
+  }
+
+  // Already-open interest: AddInterest handles the diff for us by comparing
+  // the incoming zone set against the stored one in _interests.
+  Interest i = _interests[_avatarParentRule->interestId];
+  i.zones = std::move(zones);
+  i.isInternal = true;
+  AddInterest(i, /*context=*/0, /*caller=*/0);
+}
+
+void ClientParticipant::ClearAvatarParentRule() {
+  if (!_avatarParentRule) {
+    return;
+  }
+
+  uint16_t id = _avatarParentRule->interestId;
+  auto it = _interests.find(id);
+  if (it != _interests.end()) {
+    Interest i = it->second;
+    RemoveInterest(i, /*context=*/0, /*caller=*/0);
+  }
+  _avatarParentRule.reset();
+}
+
+void ClientParticipant::MaybeApplyAutoRule(Interest& i) {
+  // Auto needs the parent's class to know which origin zone / extras
+  // apply. The open path has to stay synchronous so we can only consult
+  // parents that are already visible; a non-visible parent quietly falls
+  // through to a plain (non-extended) interest.
+  DCClass* parentClass = LookupObject(i.parent);
+  if (!parentClass) {
+    return;
+  }
+
+  ParentingRule rule;
+  if (!TryParseParentingRule(parentClass, rule)) {
+    return;
+  }
+  if (rule.kind != ParentingRuleKind::Auto) {
+    return;
+  }
+
+  if (!i.zones.contains(rule.autoOriginZone)) {
+    return;
+  }
+
+  for (const uint32_t& extra : rule.autoExtraZones) {
+    i.zones.insert(extra);
+  }
+
+  spdlog::get("ca")->debug(
+      "Client: {} applied Auto rule on parent {} (origin zone {}), "
+      "merged {} extra zone(s) into interest {}",
+      _channel, i.parent, rule.autoOriginZone, rule.autoExtraZones.size(),
+      i.id);
 }
 
 }  // namespace Ardos

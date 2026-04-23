@@ -249,6 +249,19 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram>& dgIn) {
       PublishDatagram(dg);
       break;
     }
+    case STATESERVER_OBJECT_GET_CLASS: {
+      spdlog::get("ss")->debug(
+          "Distributed Object: '{}' received class query from: {}", _doId,
+          sender);
+
+      auto dg = std::make_shared<Datagram>(sender, _doId,
+                                           STATESERVER_OBJECT_GET_CLASS_RESP);
+      dg->AddUint32(dgi.GetUint32());
+      dg->AddUint32(_doId);
+      dg->AddUint16(_dclass->get_number());
+      PublishDatagram(dg);
+      break;
+    }
     case STATESERVER_OBJECT_GET_AI_RESP: {
       dgi.GetUint32();  // Discard context.
       uint32_t parentId = dgi.GetUint32();

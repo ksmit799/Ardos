@@ -61,6 +61,7 @@ class ClientAgent {
   GetInterestZoneRanges() const;
   [[nodiscard]] unsigned long GetInterestTimeout() const;
   [[nodiscard]] DCClass* GetAvatarClass() const;
+  [[nodiscard]] bool GetParentingRulesEnabled() const;
 
   void ParticipantJoined();
   void ParticipantLeft(ClientParticipant* client);
@@ -89,6 +90,7 @@ class ClientAgent {
   std::unordered_set<uint32_t> _interestZones;
   std::vector<std::pair<uint32_t, uint32_t>> _interestZoneRanges;
   unsigned long _interestTimeout;
+  bool _parentingRulesEnabled = true;
 
   std::unordered_map<uint32_t, Uberdog> _uberdogs;
   DCClass* _avatarClass = nullptr;
