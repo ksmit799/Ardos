@@ -244,10 +244,10 @@ void ClientParticipant::HandleInterestDone(const uint16_t& interestId,
 
 void ClientParticipant::HandleAddInterest(const Interest& i,
                                           const uint32_t& context) {
-  bool multiple = i.zones.empty();
+  const bool multiple = i.zones.size() != 1;
 
   auto dg = std::make_shared<Datagram>();
-  dg->AddUint16(multiple ? CLIENT_ADD_INTEREST : CLIENT_ADD_INTEREST_MULTIPLE);
+  dg->AddUint16(multiple ? CLIENT_ADD_INTEREST_MULTIPLE : CLIENT_ADD_INTEREST);
   dg->AddUint32(context);
   dg->AddUint16(i.id);
   dg->AddUint32(i.parent);
