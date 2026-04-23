@@ -156,7 +156,11 @@ void ClientParticipant::AddInterest(Interest& i, const uint32_t& context,
       }
     }
 
-    CloseZones(previousInterest.parent, killedZones);
+    if (!CloseZones(previousInterest.parent, killedZones)) {
+      // This can happen if a zone containing one of our session objects is
+      // closed. At this point, we'll be disconnected.
+      return;
+    }
   }
 
   _interests[i.id] = i;
@@ -280,7 +284,11 @@ void ClientParticipant::RemoveInterest(Interest& i, const uint32_t& context,
   }
 
   // Now that we know which zones to kill, let's get to it.
-  CloseZones(i.parent, killedZones);
+  if (!CloseZones(i.parent, killedZones)) {
+    // This can happen if a zone containing one of our session objects is
+    // closed. At this point, we'll be disconnected.
+    return;
+  }
 
   NotifyInterestDone(i.id, caller);
   HandleInterestDone(i.id, context);
@@ -288,7 +296,7 @@ void ClientParticipant::RemoveInterest(Interest& i, const uint32_t& context,
   _interests.erase(i.id);
 }
 
-void ClientParticipant::CloseZones(
+bool ClientParticipant::CloseZones(
     const uint32_t& parent, const std::unordered_set<uint32_t>& killedZones) {
   for (const auto& zone : killedZones) {
     spdlog::get("ca")->debug("Client: {} closing zone: {} - {}", _channel,
@@ -309,7 +317,7 @@ void ClientParticipant::CloseZones(
         // client.
         SendDisconnect(CLIENT_DISCONNECT_SESSION_OBJECT_DELETED,
                        "A session object has unexpectedly left interest");
-        return;
+        return false;
       }
 
       HandleRemoveObject(visibleObject.doId);
@@ -329,6 +337,8 @@ void ClientParticipant::CloseZones(
   for (const auto& zone : killedZones) {
     UnsubscribeChannel(LocationAsChannel(parent, zone));
   }
+
+  return true;
 }
 
 }  // namespace Ardos
