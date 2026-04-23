@@ -62,17 +62,17 @@ std::vector<std::string_view> Split(std::string_view s, char delim) {
 }
 
 bool ParseCartesianRule(std::string_view ruleStr, ParentingRule& out) {
-  // "<startZone>:<gridSize>:<sideLength>"
+  // "<startZone>:<gridSize>:<radius>"
   auto parts = Split(ruleStr, ':');
   if (parts.size() != 3) {
     return false;
   }
   if (!ParseUint32(parts[0], out.cartStartZone) ||
       !ParseUint32(parts[1], out.cartGridSize) ||
-      !ParseUint32(parts[2], out.cartSideLength)) {
+      !ParseUint32(parts[2], out.cartRadius)) {
     return false;
   }
-  if (out.cartGridSize == 0 || out.cartSideLength == 0) {
+  if (out.cartGridSize == 0) {
     return false;
   }
   return true;
@@ -153,7 +153,7 @@ bool TryParseParentingRule(DCClass* klass, ParentingRule& out) {
     if (!ParseCartesianRule(ruleStr, out)) {
       spdlog::get("ca")->warn(
           "Class '{}' has Cartesian parenting rule with malformed Rule "
-          "string: '{}' (expected '<startZone>:<gridSize>:<sideLength>')",
+          "string: '{}' (expected '<startZone>:<gridSize>:<radius>')",
           klass->get_name(), ruleStr);
       return false;
     }
@@ -180,8 +180,7 @@ bool TryParseParentingRule(DCClass* klass, ParentingRule& out) {
 std::unordered_set<uint32_t> CartesianGridZones(const ParentingRule& rule,
                                                 uint32_t avatarZone) {
   std::unordered_set<uint32_t> zones;
-  if (rule.kind != ParentingRuleKind::Cartesian || rule.cartGridSize == 0 ||
-      rule.cartSideLength == 0) {
+  if (rule.kind != ParentingRuleKind::Cartesian || rule.cartGridSize == 0) {
     return zones;
   }
 
@@ -201,21 +200,13 @@ std::unordered_set<uint32_t> CartesianGridZones(const ParentingRule& rule,
   uint32_t row = static_cast<uint32_t>(linear / rule.cartGridSize);
   uint32_t col = static_cast<uint32_t>(linear % rule.cartGridSize);
 
-  // sideLength = 1 -> reach 0 (just the centre cell).
-  // sideLength = 3 -> reach 1 (3x3 block).
-  // sideLength = 5 -> reach 2 (5x5 block).
-  // For even side lengths we round down so sideLength=2 degenerates to just
-  // the centre cell -- odd lengths are the natural shape for "centred on
-  // avatar" and we don't try to pick a biased off-centre orientation.
-  uint32_t reach = (rule.cartSideLength > 0) ? (rule.cartSideLength - 1) / 2
-                                             : 0;
+  // radius=0 -> just the centre cell; radius=1 -> 3x3; radius=2 -> 5x5.
+  const uint32_t reach = rule.cartRadius;
 
   uint32_t rowLo = (row >= reach) ? (row - reach) : 0;
-  uint32_t rowHi =
-      std::min<uint32_t>(rule.cartGridSize - 1, row + reach);
+  uint32_t rowHi = std::min<uint32_t>(rule.cartGridSize - 1, row + reach);
   uint32_t colLo = (col >= reach) ? (col - reach) : 0;
-  uint32_t colHi =
-      std::min<uint32_t>(rule.cartGridSize - 1, col + reach);
+  uint32_t colHi = std::min<uint32_t>(rule.cartGridSize - 1, col + reach);
 
   for (uint32_t r = rowLo; r <= rowHi; ++r) {
     for (uint32_t c = colLo; c <= colHi; ++c) {

@@ -36,14 +36,14 @@ enum class ParentingRuleKind {
 struct ParentingRule {
   ParentingRuleKind kind = ParentingRuleKind::Stated;
 
-  // Cartesian rule parameters, parsed from "startZone:gridSize:sideLength".
-  //   startZone:  zoneId of cell (0, 0) in the grid.
-  //   gridSize:   number of cells per row. Total cells = gridSize * gridSize.
-  //   sideLength: side of the NxN interest window centred on the avatar.
-  //               sideLength=1 is "just the current cell", 3 is 3x3, etc.
+  // Cartesian rule parameters, parsed from "startZone:gridSize:radius".
+  //   startZone: zoneId of cell (0, 0) in the grid.
+  //   gridSize:  number of cells per row. Total cells = gridSize * gridSize.
+  //   radius:    number of cells around the avatar cell to keep open.
+  //              radius=0 is "just the current cell", 1 is 3x3, 2 is 5x5, etc.
   uint32_t cartStartZone = 0;
   uint32_t cartGridSize = 0;
-  uint32_t cartSideLength = 0;
+  uint32_t cartRadius = 0;
 
   // Auto rule parameters, parsed from "originZone:z1|z2|...".
   uint32_t autoOriginZone = 0;
