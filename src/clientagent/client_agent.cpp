@@ -149,6 +149,14 @@ ClientAgent::ClientAgent() {
     _interestTimeout = timeoutParam.as<unsigned long>();
   }
 
+  // setParentingRules support. On by default; deployments with a
+  // user-level field named `setParentingRules` that shouldn't be
+  // interpreted by the CA can opt out via config.
+  _parentingRulesEnabled = true;
+  if (auto parentingParam = config["parenting-rules"]) {
+    _parentingRulesEnabled = parentingParam.as<bool>();
+  }
+
   // Optional player avatar class configuration.
   if (auto avatarClassParam = config["avatar-class"]) {
     _avatarClass =
@@ -345,6 +353,14 @@ unsigned long ClientAgent::GetInterestTimeout() const {
  * @return
  */
 DCClass* ClientAgent::GetAvatarClass() const { return _avatarClass; }
+
+/**
+ * Returns whether setParentingRules-driven behaviour is enabled.
+ * @return
+ */
+bool ClientAgent::GetParentingRulesEnabled() const {
+  return _parentingRulesEnabled;
+}
 
 /**
  * Called when a participant connects.

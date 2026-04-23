@@ -1,12 +1,15 @@
 #ifndef ARDOS_CLIENT_PARTICIPANT_H
 #define ARDOS_CLIENT_PARTICIPANT_H
 
+#include <optional>
+
 #include "../messagedirector/channel_subscriber.h"
 #include "../net/datagram_iterator.h"
 #include "../net/message_types.h"
 #include "../net/network_client.h"
 #include "client_agent.h"
 #include "interest_operation.h"
+#include "parenting_rule.h"
 
 namespace Ardos {
 
@@ -35,6 +38,30 @@ struct Interest {
   uint16_t id;
   uint32_t parent;
   std::unordered_set<uint32_t> zones;
+  // True for CA-managed rule-based interests (Follow/Cartesian). These run
+  // through the normal AddInterest/RemoveInterest machinery so overlap with
+  // client-owned interests is handled correctly, but we suppress the
+  // CLIENT_ADD_INTEREST / CLIENT_DONE_INTEREST_RESP notifications -- from
+  // the client's point of view the resulting generates "just happen".
+  bool isInternal = false;
+};
+
+// Bookkeeping for an in-flight STATESERVER_OBJECT_GET_CLASS. We only track
+// the parent we asked about; on response we compare it against the avatar's
+// current parent to decide whether to honour the reply. Each entry owns a
+// timer so a lost/slow response doesn't leak the context forever.
+struct PendingParentClassLookup {
+  uint32_t parentId;
+  std::shared_ptr<uvw::timer_handle> timeout;
+};
+
+// Active rule-based interest opened on behalf of the avatar's current parent.
+// Holds the internal interest id that tracks its zones inside _interests so
+// we can diff/close cleanly when the avatar moves or zone changes.
+struct AvatarParentRule {
+  uint32_t parentId;
+  ParentingRule rule;
+  uint16_t interestId;
 };
 
 class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
@@ -141,6 +168,37 @@ class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
   void HandleChangeLocation(const uint32_t& doId, const uint32_t& newParent,
                             const uint32_t& newZone);
 
+  // Parent-class lookup used to drive setParentingRules. The response path
+  // checks _avatarParent against the originally-requested parent so that
+  // replies for avatars that moved on before the round-trip completes are
+  // dropped rather than acted on.
+  void RequestParentClass(const uint32_t& parentId);
+  void HandleGetClassResp(DatagramIterator& dgi);
+  void HandleParentClassLookupTimeout(const uint32_t& context);
+
+  // Rule application helpers. ApplyAvatarParentRule is invoked once the
+  // parent's class has been resolved and we've confirmed the avatar is
+  // still under that parent. UpdateAvatarParentRule re-evaluates on zone
+  // change within the same parent. ClearAvatarParentRule tears the whole
+  // thing down when the avatar leaves.
+  void ApplyAvatarParentRule(const uint32_t& parentId,
+                             const ParentingRule& rule);
+  void UpdateAvatarParentRule();
+  void ClearAvatarParentRule();
+
+  // Auto rule: when a regular (non-internal) interest is opened, and that
+  // interest's parent carries an Auto rule whose origin zone is in the
+  // requested set, inject the rule's extra zones into the interest before
+  // it's dispatched. Only looks at parents currently visible to this
+  // client -- we don't fire GET_CLASS here because the interest-open path
+  // is synchronous and blocking it on a round-trip would complicate the
+  // IOP flow considerably.
+  void MaybeApplyAutoRule(Interest& i);
+
+  // Helper: pick a fresh interest id that isn't currently occupied by a
+  // client- or AI-owned interest, for internal rule-based allocations.
+  uint16_t AllocateInternalInterestId();
+
   ClientAgent* _clientAgent;
 
   uint64_t _channel;
@@ -185,6 +243,20 @@ class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
   std::unordered_map<uint16_t, Interest> _interests;
   // A map of interest contexts to their in-progress operations.
   std::unordered_map<uint32_t, InterestOperation*> _pendingInterests;
+  // In-flight GET_CLASS lookups keyed by request context. Populated when the
+  // avatar enters a new parent; drained on response, stale-drop, or timeout.
+  std::unordered_map<uint32_t, PendingParentClassLookup>
+      _pendingParentClassLookups;
+
+  // Currently-applied avatar parent rule, if any. Populated once a GET_CLASS
+  // resolves and the avatar hasn't moved on. Cleared when the avatar leaves
+  // the parent or logs out.
+  std::optional<AvatarParentRule> _avatarParentRule;
+
+  // Allocation cursor for internal interest ids. Starts in the high uint16
+  // range to stay clear of client-picked ids in practice; collisions with
+  // existing entries are skipped over in AllocateInternalInterestId.
+  uint16_t _nextInternalInterestId = 0xF000;
 
   // A list of datagrams to be routed when this client disconnects.
   std::vector<std::shared_ptr<Datagram>> _postRemoves;
