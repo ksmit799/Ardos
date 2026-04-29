@@ -24,11 +24,11 @@ jobs:
       - name: Build
         if: github.event_name == 'pull_request'
         run: |
-          cmake -B build \
+          cmake -B cmake-build-release \
             -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          cmake --build build
+          cmake --build cmake-build-release
 
       - uses: cpp-linter/cpp-linter-action@v2
         if: github.event_name == 'pull_request'
@@ -79,18 +79,18 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install build deps
+      - name: Configure
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake git zip unzip curl pkg-config
+          sudo apt-get install -y build-essential cmake tar git zip unzip curl pkg-config
 
       - name: Build with coverage
         run: |
-          cmake -B build \
+          cmake -B cmake-build-debug \
             -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake \
             -DCMAKE_BUILD_TYPE=Debug \
             -DARDOS_COVERAGE=ON
-          cmake --build build
+          cmake --build cmake-build-debug
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -102,7 +102,7 @@ jobs:
 
       - name: Run tests
         env:
-          ARDOS_BINARY: ${{ github.workspace }}/build/bin/ardos
+          ARDOS_BINARY: ${{ github.workspace }}/cmake-build-debug/bin/ardos
         run: |
           pytest tests/ -v --junitxml=junit.xml \
             --ignore=tests/benchmarks \
