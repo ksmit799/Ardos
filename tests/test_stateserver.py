@@ -57,7 +57,11 @@ class TestCreateAndGet:
         # never reach the new object.
         time.sleep(0.3)
 
-        req = Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_ALL).add_uint32(123)
+        req = (
+            Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_ALL)
+            .add_uint32(123)
+            .add_uint32(DO_ID)
+        )
         watcher = channel_conn(5)
         watcher.flush()
         sender.send(req)
