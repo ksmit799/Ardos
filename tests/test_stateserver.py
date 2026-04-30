@@ -55,7 +55,7 @@ class TestCreateAndGet:
         # The SS spawns the DO and binds its DoId queue asynchronously through
         # RabbitMQ; without a beat here the GET_ALL can race the bind and
         # never reach the new object.
-        time.sleep(0.1)
+        time.sleep(0.3)
 
         req = Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_ALL).add_uint32(123)
         watcher = channel_conn(5)

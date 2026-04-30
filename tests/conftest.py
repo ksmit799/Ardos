@@ -71,6 +71,11 @@ def _purge_between_tests(external_services) -> Iterator[None]:
         MongoClient(cfg.MONGODB_URI).drop_database("ardos_test")
     except Exception:
         pass
+    # Give RabbitMQ a beat to clean up exclusive/auto-delete queues left
+    # behind by the just-stopped daemon. Without this, the next test's
+    # daemon can pick up garbage on its bound channels and eject clients
+    # on hello.
+    time.sleep(0.5)
 
 
 # ---------------------------------------------------------------------------

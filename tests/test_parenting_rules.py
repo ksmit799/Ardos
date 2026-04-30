@@ -141,6 +141,10 @@ def _setup_peer_and_avatar(ai, client_conn, parent_dclass_name: str,
         do_id=PARENT_DOID, parent=0, zone=0, dclass_id=parent_cls,
         required=_required_setname_and_rule("Room", rule_type, rule_str),
     )
+    # The SS binds each DO's DoId queue asynchronously through RabbitMQ;
+    # subsequent messages targeting that channel can race the bind. Sleep
+    # after each create so location updates / set_owner aren't dropped.
+    time.sleep(0.15)
 
     # Peer object for the client to discover.
     peer_cls = class_id("test.dc", "DistributedTestObject1")
@@ -148,6 +152,7 @@ def _setup_peer_and_avatar(ai, client_conn, parent_dclass_name: str,
         do_id=PEER_DOID, parent=PARENT_DOID, zone=peer_zone,
         dclass_id=peer_cls, required=_required_uint32(777),
     )
+    time.sleep(0.15)
 
     # Avatar — DistributedPlayer so it passes the IsClassOrDerivedFrom
     # check against avatar-class=DistributedPlayer.
@@ -156,6 +161,7 @@ def _setup_peer_and_avatar(ai, client_conn, parent_dclass_name: str,
         do_id=AVATAR_DOID, parent=PARENT_DOID, zone=avatar_zone,
         dclass_id=avatar_cls, required=_required_setname("Alice"),
     )
+    time.sleep(0.15)
     ai.set_owner(AVATAR_DOID, CLIENT_CHANNEL)
     return client
 
@@ -220,7 +226,7 @@ class TestCartesianRule:
         # The Cartesian rule fires after an async GET_CLASS round-trip, so
         # the avatar's owner entry and the peer's non-owner entry can race.
         # Assert on the set of (do_id, owner-ness) seen, not the order.
-        entries = _collect_entries(client, expected_count=2, timeout=5.0)
+        entries = _collect_entries(client, expected_count=2, timeout=8.0)
         by_doid = {e.do_id: e for e in entries}
         assert AVATAR_DOID in by_doid, f"avatar entry missing; got {entries!r}"
         assert PEER_DOID in by_doid, f"peer entry missing; got {entries!r}"

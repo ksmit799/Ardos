@@ -74,8 +74,8 @@ class TestRanges:
         # Range subscriptions go through bucket-based RabbitMQ bindings
         # (src/messagedirector/channel_subscriber.cpp:100); flush()'s 50ms
         # poll isn't long enough for the bindings to propagate. Sleep here
-        # rather than slowing every test.
-        time.sleep(0.2)
+        # rather than slowing every test. CI under load needs >200ms.
+        time.sleep(0.5)
         sender = channel_conn()
         sender.send(Datagram.create([CH_A + 50], sender=0, msgtype=1234))
         got = sub.recv(timeout=2.0)

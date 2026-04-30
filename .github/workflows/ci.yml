@@ -111,7 +111,11 @@ jobs:
         if: always()
         run: |
           mkdir -p coverage
-          gcovr -r . --exclude libs --exclude tests \
+          gcovr -r . \
+            --exclude 'libs/.*' \
+            --exclude 'tests/.*' \
+            --gcov-exclude 'libs/.*' \
+            --gcov-ignore-errors=source_not_found,output_error \
             --html-details coverage/index.html \
             --xml coverage.xml \
             --print-summary

@@ -21,6 +21,8 @@ to exercise:
 """
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from tests.common.ardos import (
@@ -86,6 +88,10 @@ def _establish_and_own(ai, client, *, name="Alice") -> None:
         dclass_id=class_id("test.dc", "DistributedPlayer"),
         required=_required_setname(name),
     )
+    # The SS spawns the DO and binds its DoId queue asynchronously through
+    # RabbitMQ; without a beat here SET_OWNER can race the bind and be
+    # dropped before the DO subscribes to its own channel.
+    time.sleep(0.15)
     ai.set_owner(AVATAR_DOID, CLIENT_CHANNEL)
 
 
@@ -116,14 +122,28 @@ class TestOwnershipHandoff:
         _hello(client)
         ai = ai_conn()
         ai.set_client_state(CLIENT_CHANNEL, AUTH_STATE_ESTABLISHED)
+
+        # GET_ZONES_OBJECTS is sent to channel `parent`; channel 0 is
+        # INVALID_CHANNEL so a parent=0 interest never resolves. Use a
+        # local non-zero parent for this test only.
+        local_parent = 9_001
+        ai.create_object(
+            do_id=local_parent,
+            parent=0,
+            zone=0,
+            dclass_id=class_id("test.dc", "DistributedPlayer"),
+            required=_required_setname("Room"),
+        )
+        time.sleep(0.15)
         ai.create_object(
             do_id=AVATAR_DOID,
-            parent=AVATAR_PARENT,
+            parent=local_parent,
             zone=AVATAR_ZONE,
             dclass_id=class_id("test.dc", "DistributedPlayer"),
             required=_required_setname("Bob"),
         )
-        ai.add_interest(CLIENT_CHANNEL, interest_id=1, parent=AVATAR_PARENT, zone=AVATAR_ZONE)
+        time.sleep(0.15)
+        ai.add_interest(CLIENT_CHANNEL, interest_id=1, parent=local_parent, zone=AVATAR_ZONE)
 
         entry = client.expect_object_entry(owner=False, timeout=5.0)
         assert entry.do_id == AVATAR_DOID
