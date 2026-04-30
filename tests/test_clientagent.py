@@ -1,7 +1,7 @@
 """Client Agent tests — authentication, heartbeat, security boundaries."""
 import pytest
 
-from tests.common.ardos import Datagram, DatagramIterator
+from tests.common.ardos import AUTH_STATE_ESTABLISHED, Datagram, DatagramIterator
 from tests.common.dc import dc_hash, field_id
 from tests.common.msgtypes import (
     CLIENT_ADD_INTEREST,
@@ -12,6 +12,9 @@ from tests.common.msgtypes import (
     CLIENT_HEARTBEAT,
     CLIENT_OBJECT_SET_FIELD,
 )
+
+# Pinned client channel so the AI knows where to send CLIENTAGENT_SET_STATE.
+CLIENT_CHANNEL = 1_000_000_000
 
 
 @pytest.fixture
@@ -32,6 +35,7 @@ def ca_client_interest(ardos):
         md=True, ss=True, ca=True,
         overrides={
             "client-agent": {
+                "channels": {"min": CLIENT_CHANNEL, "max": CLIENT_CHANNEL},
                 "interest": {
                     "client": "all",
                     "mode": "whitelist",
@@ -84,11 +88,15 @@ class TestHeartbeat:
 
 
 class TestInterestSecurity:
-    def test_forbidden_zone_disconnects_client(self, ca_client_interest, client_conn):
+    def test_forbidden_zone_disconnects_client(self, ca_client_interest, ai_conn, client_conn):
         """With mode=whitelist, adding interest in a non-listed zone must eject."""
         c = client_conn()
         c.hello(dc_hash("test.dc"), "dev")
         c.expect_hello_resp()
+        # Bypass the anonymous-auth gate so CLIENT_ADD_INTEREST reaches the
+        # whitelist check. HandlePreAuth only allows DISCONNECT/SET_FIELD/HEARTBEAT.
+        ai = ai_conn()
+        ai.set_client_state(CLIENT_CHANNEL, AUTH_STATE_ESTABLISHED)
         # CLIENT_ADD_INTEREST format: [ctx:uint32][interestId:uint16][parent:uint32][zone:uint32]
         dg = Datagram.create_client(CLIENT_ADD_INTEREST)
         dg.add_uint32(1).add_uint16(1).add_uint32(5000).add_uint32(999)  # zone 999 not whitelisted
@@ -97,10 +105,12 @@ class TestInterestSecurity:
         it = DatagramIterator(got)
         assert it.read_client_msgtype() == CLIENT_EJECT
 
-    def test_whitelisted_zone_allowed(self, ca_client_interest, client_conn):
+    def test_whitelisted_zone_allowed(self, ca_client_interest, ai_conn, client_conn):
         c = client_conn()
         c.hello(dc_hash("test.dc"), "dev")
         c.expect_hello_resp()
+        ai = ai_conn()
+        ai.set_client_state(CLIENT_CHANNEL, AUTH_STATE_ESTABLISHED)
         dg = Datagram.create_client(CLIENT_ADD_INTEREST)
         dg.add_uint32(1).add_uint16(1).add_uint32(5000).add_uint32(200)  # in 100-399
         c.send(dg)

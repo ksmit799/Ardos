@@ -20,10 +20,23 @@ This file has two tiers:
   the moment the avatar gets ownership; an avatar whose parent has no
   rule (Stated) must NOT see that peer.
 """
+import time
+
 import pytest
 
-from tests.common.ardos import AUTH_STATE_ESTABLISHED, Datagram
+from tests.common.ardos import (
+    AUTH_STATE_ESTABLISHED,
+    Datagram,
+    DatagramIterator,
+    ObjectEntry,
+)
 from tests.common.dc import class_id, dc_hash
+from tests.common.msgtypes import (
+    CLIENT_ENTER_OBJECT_REQUIRED,
+    CLIENT_ENTER_OBJECT_REQUIRED_OTHER,
+    CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER,
+    CLIENT_ENTER_OBJECT_REQUIRED_OWNER,
+)
 
 CLIENT_CHANNEL = 1_000_000_000
 PARENT_DOID = 9_001
@@ -147,6 +160,49 @@ def _setup_peer_and_avatar(ai, client_conn, parent_dclass_name: str,
     return client
 
 
+_ENTRY_MSGTYPES = {
+    CLIENT_ENTER_OBJECT_REQUIRED,
+    CLIENT_ENTER_OBJECT_REQUIRED_OTHER,
+    CLIENT_ENTER_OBJECT_REQUIRED_OWNER,
+    CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER,
+}
+_OWNER_MSGTYPES = {
+    CLIENT_ENTER_OBJECT_REQUIRED_OWNER,
+    CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER,
+}
+
+
+def _collect_entries(client, expected_count: int, timeout: float = 5.0):
+    """Drain object entries until `expected_count` have arrived or `timeout`
+    elapses. Non-entry datagrams (CLIENT_OBJECT_LOCATION, bookkeeping, etc.)
+    are silently dropped. Order between owner and non-owner is not
+    guaranteed — the Cartesian rule fires after an async GET_CLASS
+    round-trip — so callers should compare on the resulting set."""
+    entries = []
+    deadline = time.monotonic() + timeout
+    while len(entries) < expected_count:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        dg = client.recv_maybe(timeout=remaining)
+        if dg is None:
+            break
+        it = DatagramIterator(dg)
+        mt = it.read_client_msgtype()
+        if mt not in _ENTRY_MSGTYPES:
+            continue  # bookkeeping / location updates / etc.
+        do_id = it.read_uint32()
+        parent = it.read_uint32()
+        zone = it.read_uint32()
+        dc_id = it.read_uint16()
+        required = bytes(it._buf[it._off:])
+        entries.append(ObjectEntry(
+            msgtype=mt, do_id=do_id, parent=parent, zone=zone, dc_id=dc_id,
+            required=required, owner=mt in _OWNER_MSGTYPES,
+        ))
+    return entries
+
+
 class TestCartesianRule:
     def test_adjacent_cell_peer_becomes_visible_via_rule(
         self, avatar_cluster, ai_conn, client_conn
@@ -161,39 +217,43 @@ class TestCartesianRule:
             avatar_zone=1000, peer_zone=1005,
         )
 
-        # First entry: owner entry for the avatar.
-        first = client.expect_object_entry(owner=True, timeout=5.0)
-        assert first.do_id == AVATAR_DOID
-
-        # Second entry (after the async GET_CLASS round-trip + rule apply):
-        # non-owner entry for the peer, triggered by the CA's internally
-        # opened Cartesian interest.
-        second = client.expect_object_entry(owner=False, timeout=5.0)
-        assert second.do_id == PEER_DOID
-        assert second.zone == 1005
+        # The Cartesian rule fires after an async GET_CLASS round-trip, so
+        # the avatar's owner entry and the peer's non-owner entry can race.
+        # Assert on the set of (do_id, owner-ness) seen, not the order.
+        entries = _collect_entries(client, expected_count=2, timeout=5.0)
+        by_doid = {e.do_id: e for e in entries}
+        assert AVATAR_DOID in by_doid, f"avatar entry missing; got {entries!r}"
+        assert PEER_DOID in by_doid, f"peer entry missing; got {entries!r}"
+        assert by_doid[PEER_DOID].zone == 1005
+        # Peer must reach the client as a non-owner; the avatar may arrive
+        # in either form depending on which side of the race lands first.
+        assert not by_doid[PEER_DOID].owner
 
     def test_off_window_peer_is_not_visible(
         self, avatar_cluster, ai_conn, client_conn
     ):
         """Peer at zone 1015 (cell [3,3]) is outside radius-1 of cell [0,0].
         Cartesian rule must NOT open it; the client should only receive the
-        owner entry."""
+        avatar's entry (owner or non-owner depending on race)."""
         ai = ai_conn()
         client = _setup_peer_and_avatar(
             ai, client_conn,
             parent_dclass_name="DistributedAvatarCartesian",
             avatar_zone=1000, peer_zone=1015,
         )
-        first = client.expect_object_entry(owner=True, timeout=5.0)
-        assert first.do_id == AVATAR_DOID
-
-        # Give the CA a comfortable window for its GET_CLASS round-trip +
-        # rule apply. Nothing more should arrive.
-        import time
+        # Wait for at least the avatar to arrive, then give the CA a
+        # comfortable window for the GET_CLASS round-trip + rule apply.
+        entries = _collect_entries(client, expected_count=1, timeout=5.0)
+        assert any(e.do_id == AVATAR_DOID for e in entries), (
+            f"avatar entry missing; got {entries!r}"
+        )
         time.sleep(1.0)
-        extra = client.recv_maybe(timeout=0.25)
-        assert extra is None, (
-            f"expected no further object entries; got {extra!r}"
+        # Drain anything else that may have arrived; the only allowed extras
+        # are repeat avatar entries (owner-vs-location race), never PEER.
+        more = _collect_entries(client, expected_count=10, timeout=0.25)
+        seen = {e.do_id for e in entries + more}
+        assert PEER_DOID not in seen, (
+            f"peer at zone 1015 must not be visible; got {entries + more!r}"
         )
 
 

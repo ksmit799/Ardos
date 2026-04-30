@@ -168,6 +168,13 @@ class TestFieldRouting:
         ai = ai_conn()
         _establish_and_own(ai, client)
         client.expect_object_entry(owner=True)
+        # The CA only delivers `broadcast` field updates that arrive on
+        # channels it's subscribed to. Owned-object channels are subscribed
+        # automatically, but the SS publishes broadcasts to the location
+        # channel — which the CA only joins via interest. Open one in the
+        # avatar's zone so the broadcast lands.
+        ai.add_interest(CLIENT_CHANNEL, interest_id=99,
+                        parent=AVATAR_PARENT, zone=AVATAR_ZONE)
 
         fid = field_id("test.dc", "DistributedPlayer", "sendChat")
         payload = Datagram().add_string("broadcast!").bytes()

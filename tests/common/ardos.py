@@ -30,6 +30,9 @@ from .msgtypes import (
     CLIENTAGENT_EJECT,
     CLIENTAGENT_SET_CLIENT_ID,
     CLIENTAGENT_SET_STATE,
+    CLIENT_ADD_INTEREST,
+    CLIENT_ADD_INTEREST_MULTIPLE,
+    CLIENT_DONE_INTEREST_RESP,
     CLIENT_EJECT,
     CLIENT_ENTER_OBJECT_REQUIRED,
     CLIENT_ENTER_OBJECT_REQUIRED_OTHER,
@@ -48,6 +51,14 @@ from .msgtypes import (
     STATESERVER_OBJECT_SET_FIELD,
     STATESERVER_OBJECT_SET_OWNER,
 )
+
+# Interest-bookkeeping messages the CA emits around object entries; the
+# `expect_object_entry` helper transparently skips these.
+_INTEREST_BOOKKEEPING_MSGS = {
+    CLIENT_ADD_INTEREST,
+    CLIENT_ADD_INTEREST_MULTIPLE,
+    CLIENT_DONE_INTEREST_RESP,
+}
 
 # ClientParticipant::AuthState values. Sending CLIENTAGENT_SET_STATE with
 # value=ESTABLISHED bypasses the normal hello+anonymous-auth handshake so the
@@ -421,27 +432,55 @@ class ClientConnection(MDConnection):
     def expect_object_entry(
         self,
         *,
-        owner: bool = True,
+        owner: Optional[bool] = True,
         timeout: float = 5.0,
     ) -> "ObjectEntry":
         """Wait for a CLIENT_ENTER_OBJECT_REQUIRED[_OWNER][_OTHER] and decode it.
 
+        CLIENT_ADD_INTEREST, CLIENT_ADD_INTEREST_MULTIPLE, and
+        CLIENT_DONE_INTEREST_RESP datagrams that arrive ahead of the entry
+        are transparently consumed (each is its own framed datagram) so
+        callers can ignore the bookkeeping messages the CA emits around
+        AI-driven interest opens.
+
+        If `owner` is None either owner or non-owner variants are accepted.
+
         Wire format (src/clientagent/client_participant.cpp HandleAddOwnership /
-        HandleAddObject, non-legacy branch):
+        HandleAddObject):
           [uint16 msgType][uint32 doId][uint32 parent][uint32 zone]
           [uint16 dcId][<required field data...>]
 
         Required-field payload is opaque to the harness (it's DC-shaped); the
         caller slices it if needed.
         """
-        got = self.recv(timeout=timeout)
-        it = DatagramIterator(got)
-        mt = it.read_client_msgtype()
-        expected = (
-            {CLIENT_ENTER_OBJECT_REQUIRED_OWNER, CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER}
-            if owner
-            else {CLIENT_ENTER_OBJECT_REQUIRED, CLIENT_ENTER_OBJECT_REQUIRED_OTHER}
-        )
+        if owner is None:
+            expected = {
+                CLIENT_ENTER_OBJECT_REQUIRED,
+                CLIENT_ENTER_OBJECT_REQUIRED_OTHER,
+                CLIENT_ENTER_OBJECT_REQUIRED_OWNER,
+                CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER,
+            }
+        elif owner:
+            expected = {
+                CLIENT_ENTER_OBJECT_REQUIRED_OWNER,
+                CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER,
+            }
+        else:
+            expected = {
+                CLIENT_ENTER_OBJECT_REQUIRED,
+                CLIENT_ENTER_OBJECT_REQUIRED_OTHER,
+            }
+
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = max(0.01, deadline - time.monotonic())
+            got = self.recv(timeout=remaining)
+            it = DatagramIterator(got)
+            mt = it.read_client_msgtype()
+            if mt in _INTEREST_BOOKKEEPING_MSGS:
+                # Drain bookkeeping datagrams and keep waiting for the entry.
+                continue
+            break
         if mt not in expected:
             raise AssertionError(
                 f"expected object-entry msg ({sorted(expected)}); got "
@@ -461,10 +500,27 @@ class ClientConnection(MDConnection):
     def expect_object_set_field(
         self, *, do_id: Optional[int] = None, timeout: float = 2.0
     ) -> "ClientFieldUpdate":
-        """Consume a CLIENT_OBJECT_SET_FIELD delivered from server -> client."""
-        got = self.recv(timeout=timeout)
-        it = DatagramIterator(got)
-        mt = it.read_client_msgtype()
+        """Consume a CLIENT_OBJECT_SET_FIELD delivered from server -> client.
+
+        Drains interest-bookkeeping and (re)entry datagrams that may arrive
+        ahead of the field update so callers don't have to drive the order
+        explicitly.
+        """
+        skip = _INTEREST_BOOKKEEPING_MSGS | {
+            CLIENT_ENTER_OBJECT_REQUIRED,
+            CLIENT_ENTER_OBJECT_REQUIRED_OTHER,
+            CLIENT_ENTER_OBJECT_REQUIRED_OWNER,
+            CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER,
+        }
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = max(0.01, deadline - time.monotonic())
+            got = self.recv(timeout=remaining)
+            it = DatagramIterator(got)
+            mt = it.read_client_msgtype()
+            if mt in skip:
+                continue
+            break
         if mt != CLIENT_OBJECT_SET_FIELD:
             raise AssertionError(
                 f"expected CLIENT_OBJECT_SET_FIELD; got {mt} ({symbol_for(mt)})"

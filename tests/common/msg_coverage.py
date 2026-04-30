@@ -16,7 +16,7 @@ _HEADER = Path(__file__).resolve().parents[2] / "src" / "net" / "message_types.h
 
 _ENUM_LINE = re.compile(r"^\s*([A-Z][A-Z0-9_]+)\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*,")
 _ENUM_BLOCK_START = re.compile(r"^\s*enum\s+(\w+)")
-_LEGACY_IFDEF = re.compile(r"^\s*#ifdef\s+ARDOS_USE_LEGACY_CLIENT")
+_SKIP_IFDEF = re.compile(r"^\s*#ifdef\s+ARDOS_USE_LEGACY_CLIENT")
 _ELSE = re.compile(r"^\s*#else")
 _ENDIF = re.compile(r"^\s*#endif")
 
@@ -24,15 +24,15 @@ _ENDIF = re.compile(r"^\s*#endif")
 def _parse() -> Dict[str, Dict[str, int]]:
     """Return {enum_name: {symbol: value}} parsed from message_types.h.
 
-    The ARDOS_USE_LEGACY_CLIENT branch is skipped entirely — tests target the
-    modern build only.
+    The header gates one ifdef-branch we don't target; the parser drops it so
+    only the active arm's symbols populate the table.
     """
     out: Dict[str, Dict[str, int]] = defaultdict(dict)
     enum: str | None = None
-    skip = False  # set while inside the #ifdef ARDOS_USE_LEGACY_CLIENT arm
+    skip = False  # set while inside the skipped ifdef arm
 
     for line in _HEADER.read_text().splitlines():
-        if _LEGACY_IFDEF.search(line):
+        if _SKIP_IFDEF.search(line):
             skip = True
             continue
         if _ELSE.search(line) and skip:

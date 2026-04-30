@@ -1,6 +1,6 @@
 // Test DC file for Ardos Python test harness.
-// Modern (non-legacy) client. Kept minimal but exercises every field
-// kind/keyword pair we assert on in tests.
+// Kept minimal but exercises every field kind/keyword pair we assert on
+// in tests.
 
 dclass DistributedTestObject1 {
 	setRequired1(uint32 r = 78) required broadcast ram;

@@ -53,7 +53,7 @@ class TestActivate:
         sender.send(dg)
 
         # Give the DBSS time to load + activate.
-        time.sleep(1.0)
+        time.sleep(2.0)
 
         dg = Datagram.create([do_id], sender=SENDER, msgtype=STATESERVER_OBJECT_GET_ALL).add_uint32(77)
         sender.send(dg)

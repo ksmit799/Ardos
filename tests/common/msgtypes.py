@@ -9,12 +9,9 @@ from __future__ import annotations
 
 from .msg_coverage import ALL_MESSAGES
 
-# Flatten every enum into module globals. Legacy client symbols are excluded
-# — tests do not target ARDOS_USE_LEGACY_CLIENT builds.
+# Flatten every enum into module globals.
 _globals = globals()
 for _enum, _syms in ALL_MESSAGES.items():
-    if _enum.endswith("_LEGACY"):
-        continue
     for _name, _val in _syms.items():
         _globals[_name] = _val
 
