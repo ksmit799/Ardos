@@ -21,7 +21,7 @@ import struct
 import subprocess
 import time
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence
+from typing import Callable, Iterable, List, Optional, Sequence
 
 from .msg_coverage import symbol_for, tracker
 from .msgtypes import (
@@ -48,6 +48,8 @@ from .msgtypes import (
     CONTROL_REMOVE_CHANNEL,
     STATESERVER_CREATE_OBJECT_WITH_REQUIRED,
     STATESERVER_OBJECT_DELETE_RAM,
+    STATESERVER_OBJECT_GET_LOCATION,
+    STATESERVER_OBJECT_GET_LOCATION_RESP,
     STATESERVER_OBJECT_SET_FIELD,
     STATESERVER_OBJECT_SET_OWNER,
 )
@@ -322,6 +324,39 @@ class MDConnection:
         except TimeoutError:
             return None
 
+    def wait_for(
+        self,
+        predicate: Callable[["Datagram"], bool],
+        *,
+        timeout: float = 2.0,
+    ) -> Datagram:
+        """Receive datagrams until ``predicate(dg)`` returns True or timeout.
+
+        Non-matching datagrams are dropped. Use this instead of a blind sleep
+        whenever the test can identify a specific message that proves the
+        daemon has reached a desired state — round-trip a probe through the
+        SS, watch a location channel for an entry, etc.
+
+        Raises TimeoutError if no datagram satisfies the predicate within the
+        deadline. Forward-compatible with ``ConnectionError`` from
+        ``recv()`` (peer closed): the underlying error propagates.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"wait_for: predicate not satisfied within {timeout}s"
+                )
+            try:
+                dg = self.recv(timeout=remaining)
+            except TimeoutError:
+                raise TimeoutError(
+                    f"wait_for: predicate not satisfied within {timeout}s"
+                )
+            if predicate(dg):
+                return dg
+
     # --- assertion helpers (Astron-style) ---
     def expect(self, expected: Datagram, timeout: float = 2.0) -> Datagram:
         got = self.recv(timeout=timeout)
@@ -388,6 +423,100 @@ class ChannelConnection(MDConnection):
         """Drop any queued datagrams (e.g. after setup churn)."""
         while self.recv_maybe(timeout=0.05) is not None:
             pass
+
+    def wait_object_alive(
+        self,
+        do_id: int,
+        *,
+        sender: Optional[int] = None,
+        timeout: float = 2.0,
+        probe_interval: float = 0.1,
+    ) -> None:
+        """Round-trip GET_LOCATION through ``do_id`` to confirm the DO has
+        finished spawning and bound its DoId queue on RabbitMQ. Use this
+        after a create_object instead of a blind sleep before sending
+        anything to that DoId.
+
+        Re-sends every ``probe_interval`` seconds because the first probe
+        may itself race the bind and be dropped — once the bind lands, a
+        probe will reach the DO and we'll observe the response.
+
+        ``sender`` is the channel the GET_LOCATION_RESP comes back on; it
+        must be one this connection is subscribed to. Defaults to the
+        first subscribed channel.
+        """
+        if sender is None:
+            if not self._subs:
+                raise RuntimeError(
+                    "wait_object_alive: no subscribed channel to receive on; "
+                    "pass `sender=` or subscribe first"
+                )
+            sender = self._subs[0]
+
+        ctx = 0xC0FFEE  # arbitrary, we only check it's echoed back
+
+        def send_probe() -> None:
+            self.send(
+                Datagram.create(
+                    [do_id], sender=sender,
+                    msgtype=STATESERVER_OBJECT_GET_LOCATION,
+                ).add_uint32(ctx)
+            )
+
+        def is_resp(dg: Datagram) -> bool:
+            try:
+                it = DatagramIterator(dg)
+                _, _, mt = it.read_header()
+                if mt != STATESERVER_OBJECT_GET_LOCATION_RESP:
+                    return False
+                return it.read_uint32() == ctx
+            except Exception:
+                return False
+
+        deadline = time.monotonic() + timeout
+        send_probe()
+        last_send = time.monotonic()
+        while time.monotonic() < deadline:
+            try:
+                dg = self.recv(timeout=probe_interval)
+            except TimeoutError:
+                if time.monotonic() - last_send >= probe_interval:
+                    send_probe()
+                    last_send = time.monotonic()
+                continue
+            if is_resp(dg):
+                return
+            # Other traffic on this channel — drop and keep waiting.
+        raise TimeoutError(
+            f"wait_object_alive: no GET_LOCATION_RESP for {do_id} in {timeout}s"
+        )
+
+    def wait_range_active(
+        self, lo: int, hi: int, *, sender: int = 0, timeout: float = 2.0
+    ) -> None:
+        """Confirm a range subscription is live by self-probing.
+
+        Sends a sentinel-msgtype datagram to a channel inside [lo, hi] and
+        waits for it to come back through the bus. Replaces a blind sleep
+        after ``add_range`` with a wait on an actual signal that the
+        bucket-based RabbitMQ binding is in place.
+
+        Picks ``lo`` as the probe channel. ``sender`` defaults to 0 since
+        this connection's subscription is via range only (no explicit
+        sender channel needed for the round-trip).
+        """
+        sentinel = 0xBEEF
+        self.send(Datagram.create([lo], sender=sender, msgtype=sentinel))
+
+        def is_probe(dg: Datagram) -> bool:
+            try:
+                it = DatagramIterator(dg)
+                _, _, mt = it.read_header()
+                return mt == sentinel
+            except Exception:
+                return False
+
+        self.wait_for(is_probe, timeout=timeout)
 
 
 class ClientConnection(MDConnection):
@@ -697,6 +826,7 @@ class AIConnection(ChannelConnection):
         )
         self.send(dg)
 
+
     def set_owner(self, do_id: int, owner_channel: int) -> None:
         """Assign ownership (STATESERVER_OBJECT_SET_OWNER). The SS will push an
         ENTER_OWNER_WITH_REQUIRED[_OTHER] to `owner_channel`, which the CA
@@ -733,10 +863,19 @@ class Daemon:
     # Seconds to wait for each listen socket before giving up.
     BOOT_TIMEOUT = 30.0
 
-    def __init__(self, config_path: Path, log_path: Path, ports: Iterable[int]) -> None:
+    def __init__(
+        self,
+        config_path: Path,
+        log_path: Path,
+        ports: Iterable[int],
+        md_port: Optional[int] = None,
+    ) -> None:
         self.config_path = Path(config_path)
         self.log_path = Path(log_path)
         self.ports = list(ports)
+        # MD port — used for the readiness round-trip after listen sockets
+        # come up. None means the daemon doesn't host an MD (probe is skipped).
+        self.md_port = md_port
         self._proc: Optional[subprocess.Popen] = None
 
     def start(self) -> None:
@@ -773,6 +912,52 @@ class Daemon:
             pending = still
             if pending:
                 time.sleep(0.1)
+
+        # Listen sockets are open, but the MD's RabbitMQ subscriber set may
+        # still be coming online — accept-then-immediately-publish would
+        # race the consumer. Round-trip a control-message probe through the
+        # bus to confirm the MD is fully wired.
+        if self.md_port is not None:
+            self._md_round_trip(timeout=max(2.0, deadline - time.monotonic()))
+
+    def _md_round_trip(self, *, timeout: float) -> None:
+        """Probe the MD by subscribing to a private channel, publishing a
+        sentinel-msgtype datagram to it, and waiting for it to come back.
+        Re-sends every 250ms in case the first probe races the queue
+        binding."""
+        probe_channel = 0xC0FFEEC0FFEE  # private to this probe
+        sentinel_mt = 0xBEEF
+        try:
+            conn = ChannelConnection("127.0.0.1", self.md_port, probe_channel)
+        except OSError:
+            return  # MD port wasn't actually open; let the caller's tests fail loudly
+        try:
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                conn.send(Datagram.create([probe_channel], sender=0, msgtype=sentinel_mt))
+
+                def is_probe(dg: Datagram) -> bool:
+                    try:
+                        it = DatagramIterator(dg)
+                        _, _, mt = it.read_header()
+                        return mt == sentinel_mt
+                    except Exception:
+                        return False
+
+                try:
+                    conn.wait_for(is_probe, timeout=0.25)
+                    return
+                except TimeoutError:
+                    continue
+            self._dump_tail()
+            raise TimeoutError(
+                f"MD round-trip probe never came back within {timeout}s"
+            )
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     def _dump_tail(self) -> None:
         try:

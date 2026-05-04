@@ -21,8 +21,6 @@ to exercise:
 """
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from tests.common.ardos import (
@@ -88,10 +86,9 @@ def _establish_and_own(ai, client, *, name="Alice") -> None:
         dclass_id=class_id("test.dc", "DistributedPlayer"),
         required=_required_setname(name),
     )
-    # The SS spawns the DO and binds its DoId queue asynchronously through
-    # RabbitMQ; without a beat here SET_OWNER can race the bind and be
-    # dropped before the DO subscribes to its own channel.
-    time.sleep(0.15)
+    # Wait for the DO to bind its DoId queue before SET_OWNER would otherwise
+    # race the bind and be dropped.
+    ai.wait_object_alive(AVATAR_DOID)
     ai.set_owner(AVATAR_DOID, CLIENT_CHANNEL)
 
 
@@ -134,7 +131,7 @@ class TestOwnershipHandoff:
             dclass_id=class_id("test.dc", "DistributedPlayer"),
             required=_required_setname("Room"),
         )
-        time.sleep(0.15)
+        ai.wait_object_alive(local_parent)
         ai.create_object(
             do_id=AVATAR_DOID,
             parent=local_parent,
@@ -142,7 +139,7 @@ class TestOwnershipHandoff:
             dclass_id=class_id("test.dc", "DistributedPlayer"),
             required=_required_setname("Bob"),
         )
-        time.sleep(0.15)
+        ai.wait_object_alive(AVATAR_DOID)
         ai.add_interest(CLIENT_CHANNEL, interest_id=1, parent=local_parent, zone=AVATAR_ZONE)
 
         entry = client.expect_object_entry(owner=False, timeout=5.0)

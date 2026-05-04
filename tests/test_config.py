@@ -4,7 +4,6 @@ These verify that ardos honours its `want-*` flags and rejects obviously bad
 config without crashing the runner.
 """
 import subprocess
-import time
 from pathlib import Path
 
 import pytest

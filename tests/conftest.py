@@ -1,9 +1,13 @@
 """Pytest configuration and fixtures for the Ardos test suite."""
 from __future__ import annotations
 
+import base64
+import json
 import os
 import socket
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Callable, Iterator, List, Optional
 
@@ -59,11 +63,59 @@ def external_services() -> None:
         pytest.exit(f"failed to reach MongoDB: {e}", 1)
 
 
+def _rabbit_mgmt_request(path: str, timeout: float = 1.0) -> Optional[object]:
+    """GET against RabbitMQ's management HTTP API. Returns parsed JSON, or
+    None if the API isn't available (no management plugin, wrong creds,
+    etc) — callers fall back to a short sleep.
+    """
+    auth = base64.b64encode(
+        f"{cfg.RABBITMQ_USER}:{cfg.RABBITMQ_PASS}".encode()
+    ).decode()
+    req = urllib.request.Request(
+        f"http://{cfg.RABBITMQ_HOST}:15672/api/{path}",
+        headers={"Authorization": f"Basic {auth}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def _wait_rabbit_drained(timeout: float = 2.0) -> None:
+    """Wait until the previous daemon's auto-generated exclusive queues are
+    reaped by RabbitMQ. Replaces a blind sleep with a real signal — the
+    queues vanish from the management view shortly after the daemon's
+    AMQP connection drops on SIGTERM.
+
+    Falls back to a short sleep if the management API isn't reachable
+    (e.g. running against a vanilla rabbitmq:3 image).
+    """
+    deadline = time.monotonic() + timeout
+    first = True
+    while time.monotonic() < deadline:
+        queues = _rabbit_mgmt_request("queues")
+        if queues is None:
+            if first:
+                # Management plugin not available — one short sleep is the
+                # best we can do without it.
+                time.sleep(0.2)
+            return
+        first = False
+        # Ardos's per-process queue is declared with no name (server-
+        # generated, prefix `amq.gen-`). Wait until none of those linger.
+        stragglers = [q for q in queues if q.get("name", "").startswith("amq.gen-")]
+        if not stragglers:
+            return
+        time.sleep(0.05)
+
+
 @pytest.fixture(autouse=True)
 def _purge_between_tests(external_services) -> Iterator[None]:
-    """Between each test: drop the mongo db + delete any ardos-owned rabbit
-    queues. Ardos uses per-node queues, so a fresh rabbitmq state plus a fresh
-    process gives us the known-clean state the plan calls for."""
+    """Between each test: drop the mongo db + wait for RabbitMQ to reap any
+    exclusive queues the just-stopped daemon left behind. Ardos uses
+    per-node exclusive queues, so once those are gone the next daemon
+    boots into a known-clean state."""
     yield
     try:
         from pymongo import MongoClient
@@ -71,11 +123,7 @@ def _purge_between_tests(external_services) -> Iterator[None]:
         MongoClient(cfg.MONGODB_URI).drop_database("ardos_test")
     except Exception:
         pass
-    # Give RabbitMQ a beat to clean up exclusive/auto-delete queues left
-    # behind by the just-stopped daemon. Without this, the next test's
-    # daemon can pick up garbage on its bound channels and eject clients
-    # on hello.
-    time.sleep(0.5)
+    _wait_rabbit_drained()
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +163,12 @@ def ardos(tmp_path: Path, request) -> Iterator[Callable[..., Daemon]]:
         )
         log_path = LOG_DIR / f"{request.node.name}-{len(started)}.log"
         ports = cfg.expected_ports(md=md, ca=ca, md_port=md_port, ca_port=ca_port)
-        daemon = Daemon(config_path=config_path, log_path=log_path, ports=ports)
+        daemon = Daemon(
+            config_path=config_path,
+            log_path=log_path,
+            ports=ports,
+            md_port=md_port if md else None,
+        )
         daemon.start()
         started.append(daemon)
         return daemon

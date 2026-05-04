@@ -3,8 +3,6 @@
 Exercises ACTIVATE_WITH_DEFAULTS (loading a DB-backed object into RAM),
 GET_ACTIVATED queries, and delete-from-disk lifecycle.
 """
-import time
-
 import pytest
 
 from tests.common.ardos import Datagram, DatagramIterator
@@ -43,7 +41,6 @@ def _seed_player(sender_conn, name="activator") -> int:
 
 
 class TestActivate:
-    @pytest.mark.skip(reason="XXX: peer-closed-connection without daemon-log root cause")
     def test_activate_pulls_object_into_ss(self, dbss, channel_conn):
         sender = channel_conn(SENDER)
         sender.flush()
@@ -53,10 +50,11 @@ class TestActivate:
         dg.add_uint32(do_id).add_uint32(0).add_uint32(0)
         sender.send(dg)
 
-        # Give the DBSS time to load + activate.
-        time.sleep(2.0)
+        # Wait for the DBSS to finish loading + activating by probing the
+        # newly-active SS object until GET_LOCATION_RESP comes back.
+        sender.wait_object_alive(do_id, sender=SENDER, timeout=5.0)
 
-        dg = Datagram.create([do_id], sender=SENDER, msgtype=STATESERVER_OBJECT_GET_ALL).add_uint32(77)
+        dg = Datagram.create([do_id], sender=SENDER, msgtype=STATESERVER_OBJECT_GET_ALL).add_uint32(77).add_uint32(do_id)
         sender.send(dg)
         it = DatagramIterator(sender.recv(timeout=5.0))
         _, _, mt = it.read_header()

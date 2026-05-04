@@ -9,8 +9,6 @@ Covers the distributed-object lifecycle on the SS:
   - zone queries (GET_ZONE_OBJECTS, GET_ZONES_OBJECTS)
   - object delete
 """
-import time
-
 import pytest
 
 from tests.common.ardos import Datagram, DatagramIterator
@@ -50,22 +48,20 @@ def ss(ardos):
 
 class TestCreateAndGet:
     def test_create_then_get_all(self, ss, channel_conn):
-        sender = channel_conn()
-        sender.send(_create_required())
-        # The SS spawns the DO and binds its DoId queue asynchronously through
-        # RabbitMQ; without a beat here the GET_ALL can race the bind and
-        # never reach the new object.
-        time.sleep(0.3)
+        # Subscribe to channel 5 upfront — used as both the wait_object_alive
+        # response channel and the GET_ALL_RESP sink.
+        conn = channel_conn(5)
+        conn.send(_create_required())
+        # Wait until the DO has bound its DoId queue (replaces a blind sleep).
+        conn.wait_object_alive(DO_ID, sender=5)
 
         req = (
             Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_ALL)
             .add_uint32(123)
             .add_uint32(DO_ID)
         )
-        watcher = channel_conn(5)
-        watcher.flush()
-        sender.send(req)
-        got = watcher.recv(timeout=3.0)
+        conn.send(req)
+        got = conn.recv(timeout=3.0)
         it = DatagramIterator(got)
         _, _, mt = it.read_header()
         assert mt == STATESERVER_OBJECT_GET_ALL_RESP

@@ -4,8 +4,6 @@ Verifies channel subscribe/unsubscribe, range subscriptions, fan-out across
 multiple subscribers, and post-remove hooks. This is the core of the cluster
 so everything else depends on it being solid.
 """
-import time
-
 import pytest
 
 from tests.common.ardos import Datagram, DatagramIterator
@@ -68,17 +66,13 @@ class TestRouting:
 
 
 class TestRanges:
-    @pytest.mark.skip(
-        reason="XXX: range-subscribed message never reaches the subscriber. "
-        "Source path looks correct (SubscribeRange increments _globalBuckets, "
-        "DeliverLocally checks the bucket, HandleUpdate accepts via "
-        "WithinLocalRange) but the publish never lands. Needs daemon-log "
-        "investigation to root-cause."
-    )
     def test_range_subscription(self, md, channel_conn):
         sub = channel_conn()
         sub.add_range(CH_A, CH_A + 100)
-        time.sleep(0.5)
+        # Wait until the bucket binding is live before publishing the test
+        # message — replaces a blind sleep with a self-probe round-trip.
+        sub.wait_range_active(CH_A, CH_A + 100)
+
         sender = channel_conn()
         sender.send(Datagram.create([CH_A + 50], sender=0, msgtype=1234))
         got = sub.recv(timeout=2.0)
@@ -88,7 +82,7 @@ class TestRanges:
     def test_range_removal(self, md, channel_conn):
         sub = channel_conn()
         sub.add_range(CH_A, CH_A + 100)
-        time.sleep(0.2)
+        sub.wait_range_active(CH_A, CH_A + 100)
         sub.send(
             Datagram.create_control(CONTROL_REMOVE_RANGE)
             .add_channel(CH_A).add_channel(CH_A + 100)

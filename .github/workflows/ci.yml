@@ -54,9 +54,10 @@ jobs:
 
     services:
       rabbitmq:
-        image: rabbitmq:3
+        image: rabbitmq:3-management
         ports:
           - 5672:5672
+          - 15672:15672
         options: >-
           --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 5s

@@ -142,9 +142,9 @@ def _setup_peer_and_avatar(ai, client_conn, parent_dclass_name: str,
         required=_required_setname_and_rule("Room", rule_type, rule_str),
     )
     # The SS binds each DO's DoId queue asynchronously through RabbitMQ;
-    # subsequent messages targeting that channel can race the bind. Sleep
-    # after each create so location updates / set_owner aren't dropped.
-    time.sleep(0.15)
+    # wait on a real signal (GET_LOCATION_RESP round-trip) before issuing
+    # follow-up messages so they don't race the bind.
+    ai.wait_object_alive(PARENT_DOID)
 
     # Peer object for the client to discover.
     peer_cls = class_id("test.dc", "DistributedTestObject1")
@@ -152,7 +152,7 @@ def _setup_peer_and_avatar(ai, client_conn, parent_dclass_name: str,
         do_id=PEER_DOID, parent=PARENT_DOID, zone=peer_zone,
         dclass_id=peer_cls, required=_required_uint32(777),
     )
-    time.sleep(0.15)
+    ai.wait_object_alive(PEER_DOID)
 
     # Avatar — DistributedPlayer so it passes the IsClassOrDerivedFrom
     # check against avatar-class=DistributedPlayer.
@@ -161,7 +161,7 @@ def _setup_peer_and_avatar(ai, client_conn, parent_dclass_name: str,
         do_id=AVATAR_DOID, parent=PARENT_DOID, zone=avatar_zone,
         dclass_id=avatar_cls, required=_required_setname("Alice"),
     )
-    time.sleep(0.15)
+    ai.wait_object_alive(AVATAR_DOID)
     ai.set_owner(AVATAR_DOID, CLIENT_CHANNEL)
     return client
 
@@ -247,16 +247,17 @@ class TestCartesianRule:
             parent_dclass_name="DistributedAvatarCartesian",
             avatar_zone=1000, peer_zone=1015,
         )
-        # Wait for at least the avatar to arrive, then give the CA a
-        # comfortable window for the GET_CLASS round-trip + rule apply.
+        # Wait for at least the avatar to arrive. Then drain for a generous
+        # window — the GET_CLASS round-trip + rule apply is async and we want
+        # to make sure no PEER entry sneaks in late. _collect_entries' own
+        # timeout is the only "wait" we need: it returns as soon as
+        # expected_count entries arrive OR the timeout elapses.
         entries = _collect_entries(client, expected_count=1, timeout=5.0)
         assert any(e.do_id == AVATAR_DOID for e in entries), (
             f"avatar entry missing; got {entries!r}"
         )
-        time.sleep(1.0)
-        # Drain anything else that may have arrived; the only allowed extras
-        # are repeat avatar entries (owner-vs-location race), never PEER.
-        more = _collect_entries(client, expected_count=10, timeout=0.25)
+        # Allow a wide drain window for any belated peer entry.
+        more = _collect_entries(client, expected_count=10, timeout=1.25)
         seen = {e.do_id for e in entries + more}
         assert PEER_DOID not in seen, (
             f"peer at zone 1015 must not be visible; got {entries + more!r}"
@@ -279,9 +280,9 @@ class TestStatedRule:
         first = client.expect_object_entry(owner=True, timeout=5.0)
         assert first.do_id == AVATAR_DOID
 
-        import time
-        time.sleep(1.0)
-        extra = client.recv_maybe(timeout=0.25)
+        # Drain for a wide window; if the rule were misapplied the peer
+        # would arrive within this period.
+        extra = client.recv_maybe(timeout=1.25)
         assert extra is None, (
             f"Stated rule must not open peer visibility; got {extra!r}"
         )
