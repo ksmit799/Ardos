@@ -28,6 +28,8 @@ from .msgtypes import (
     CLIENTAGENT_ADD_INTEREST,
     CLIENTAGENT_ADD_SESSION_OBJECT,
     CLIENTAGENT_EJECT,
+    CLIENTAGENT_GET_NETWORK_ADDRESS,
+    CLIENTAGENT_GET_NETWORK_ADDRESS_RESP,
     CLIENTAGENT_SET_CLIENT_ID,
     CLIENTAGENT_SET_STATE,
     CLIENT_ADD_INTEREST,
@@ -744,12 +746,56 @@ class AIConnection(ChannelConnection):
 
     # --- CA control -----------------------------------------------------------
 
-    def set_client_state(self, client_channel: int, state: int) -> None:
-        """Force CLIENTAGENT_SET_STATE — jump a client's auth gate."""
+    def set_client_state(
+        self, client_channel: int, state: int, *, wait: bool = True,
+        timeout: float = 2.0,
+    ) -> None:
+        """Force CLIENTAGENT_SET_STATE — jump a client's auth gate.
+
+        With ``wait=True`` (default), follows the SET_STATE with a
+        round-trip through the same channel and blocks until the response
+        comes back. Required when the *next* operation will come from a
+        different TCP socket (e.g. the test's ``client_conn``), since the
+        daemon reads from each socket independently — otherwise the client's
+        next message can race the SET_STATE and be rejected as pre-auth.
+        """
         dg = Datagram.create(
             [client_channel], sender=self.ai_channel, msgtype=CLIENTAGENT_SET_STATE
         ).add_uint16(state)
         self.send(dg)
+        if wait:
+            self.wait_channel_drained(client_channel, timeout=timeout)
+
+    def wait_channel_drained(
+        self, channel: int, *, timeout: float = 2.0
+    ) -> None:
+        """Block until prior messages sent on this AI socket to ``channel``
+        have been processed.
+
+        Implementation: send a CLIENTAGENT_GET_NETWORK_ADDRESS probe to the
+        channel and wait for the matching RESP back on this AI's
+        subscription. The CP handles its inbound queue in FIFO order, so
+        the RESP arriving means everything we sent earlier is done.
+        """
+        ctx = 0xFEEDFACE
+        self.send(
+            Datagram.create(
+                [channel], sender=self.ai_channel,
+                msgtype=CLIENTAGENT_GET_NETWORK_ADDRESS,
+            ).add_uint32(ctx)
+        )
+
+        def is_resp(dg: Datagram) -> bool:
+            try:
+                it = DatagramIterator(dg)
+                _, _, mt = it.read_header()
+                if mt != CLIENTAGENT_GET_NETWORK_ADDRESS_RESP:
+                    return False
+                return it.read_uint32() == ctx
+            except Exception:
+                return False
+
+        self.wait_for(is_resp, timeout=timeout)
 
     def set_client_id(self, client_channel: int, new_channel: int) -> None:
         """Rebind a CA's subscription channel (CLIENTAGENT_SET_CLIENT_ID).
