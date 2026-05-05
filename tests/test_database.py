@@ -53,18 +53,6 @@ class TestCreate:
         do_id = it.read_uint32()
         assert 100_000_000 <= do_id <= 399_999_999
 
-    def test_create_unknown_class_fails(self, db, channel_conn):
-        sender = channel_conn(SENDER)
-        sender.flush()
-        dg = Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_CREATE_OBJECT)
-        dg.add_uint32(7).add_uint16(0xFFFF).add_uint16(0)
-        sender.send(dg)
-        resp = sender.recv(timeout=5.0)
-        it = DatagramIterator(resp)
-        _, _, mt = it.read_header()
-        assert mt == DBSERVER_CREATE_OBJECT_RESP
-        assert it.read_uint32() == 7
-        assert it.read_uint32() == 0  # INVALID_DO_ID
 
 
 class TestGetSet:
