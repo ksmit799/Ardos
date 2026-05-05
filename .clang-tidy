@@ -8,8 +8,9 @@ Checks: >
   
   -readability-identifier-length,
   -readability-magic-numbers,
-  -modernize-use-trailing-return-type,
   -readability-implicit-bool-conversion,
+  -readability-convert-member-functions-to-static,
+  -modernize-use-trailing-return-type,
   -bugprone-easily-swappable-parameters,
 
 WarningsAsErrors: ''

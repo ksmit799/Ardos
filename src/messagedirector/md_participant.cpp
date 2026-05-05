@@ -9,7 +9,7 @@
 namespace Ardos {
 
 MDParticipant::MDParticipant(const std::shared_ptr<uvw::tcp_handle>& socket)
-    : NetworkClient(socket), ChannelSubscriber() {
+    : NetworkClient(socket) {
   auto address = GetRemoteAddress();
   spdlog::get("md")->info("Participant connected from {}:{}", address.ip,
                           address.port);
@@ -95,7 +95,7 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram>& dg) {
         case CONTROL_CLEAR_POST_REMOVES:
           _postRemoves.clear();
           break;
-        case CONTROL_SET_CON_NAME:
+        case CONTROL_SET_CON_NAME:  // NOLINT(bugprone-branch-clone)
           _connName = dgi.GetString();
           break;
         default:

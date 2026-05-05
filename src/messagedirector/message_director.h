@@ -29,8 +29,8 @@ class MessageDirector : public AMQP::ConnectionHandler {
  public:
   static MessageDirector* Instance();
 
-  AMQP::Channel* GetGlobalChannel();
-  std::string GetLocalQueue();
+  [[nodiscard]] AMQP::Channel* GetGlobalChannel() const;
+  [[nodiscard]] std::string GetLocalQueue() const;
 
   void onData(AMQP::Connection* connection, const char* buffer,
               size_t size) override;
@@ -49,10 +49,16 @@ class MessageDirector : public AMQP::ConnectionHandler {
 
   void HandleWeb(ws28::Client* client, nlohmann::json& data);
 
-  StateServer* GetStateServer() { return _stateServer.get(); }
-  ClientAgent* GetClientAgent() { return _clientAgent.get(); }
-  DatabaseServer* GetDbServer() { return _db.get(); }
-  DatabaseStateServer* GetDbStateServer() { return _dbss.get(); }
+  [[nodiscard]] StateServer* GetStateServer() const {
+    return _stateServer.get();
+  }
+  [[nodiscard]] ClientAgent* GetClientAgent() const {
+    return _clientAgent.get();
+  }
+  [[nodiscard]] DatabaseServer* GetDbServer() const { return _db.get(); }
+  [[nodiscard]] DatabaseStateServer* GetDbStateServer() const {
+    return _dbss.get();
+  }
 
  private:
   MessageDirector();

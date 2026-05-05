@@ -125,13 +125,15 @@ MessageDirector::MessageDirector() {
  * Returns the "global" channel used for routing messages.
  * @return
  */
-AMQP::Channel* MessageDirector::GetGlobalChannel() { return _globalChannel; }
+AMQP::Channel* MessageDirector::GetGlobalChannel() const {
+  return _globalChannel;
+}
 
 /**
  * Returns the local messaging queue for this message director.
  * @return
  */
-std::string MessageDirector::GetLocalQueue() { return _localQueue; }
+std::string MessageDirector::GetLocalQueue() const { return _localQueue; }
 
 /**
  *  Method that is called by AMQP-CPP when data has to be sent over the
@@ -247,7 +249,7 @@ void MessageDirector::onError(AMQP::Connection* connection,
   // The connection is dead at this point.
   // Log out an exception and shut everything down.
   spdlog::get("md")->error("RabbitMQ error: {}", message);
-  exit(1);
+  exit(1);  // NOLINT(concurrency-mt-unsafe)
 }
 
 /**
