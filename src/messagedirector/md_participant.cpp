@@ -76,12 +76,18 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram>& dg) {
         case CONTROL_REMOVE_CHANNEL:
           UnsubscribeChannel(dgi.GetUint64());
           break;
-        case CONTROL_ADD_RANGE:
-          SubscribeRange(dgi.GetUint64(), dgi.GetUint64());
+        case CONTROL_ADD_RANGE: {
+          uint64_t min = dgi.GetUint64();
+          uint64_t max = dgi.GetUint64();
+          SubscribeRange(min, max);
           break;
-        case CONTROL_REMOVE_RANGE:
-          UnsubscribeRange(dgi.GetUint64(), dgi.GetUint64());
+        }
+        case CONTROL_REMOVE_RANGE: {
+          uint64_t min = dgi.GetUint64();
+          uint64_t max = dgi.GetUint64();
+          UnsubscribeRange(min, max);
           break;
+        }
         case CONTROL_ADD_POST_REMOVE:
           dgi.GetUint64();  // Sender channel.
           _postRemoves.emplace_back(dgi.GetDatagram());

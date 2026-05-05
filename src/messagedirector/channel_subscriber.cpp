@@ -191,9 +191,9 @@ void ChannelSubscriber::HandleUpdate(const std::string& routingKey,
   bool inLocal = _localChannels.contains(channel);
   bool inRange = !inLocal && WithinLocalRange(channel);
 
-  spdlog::get("md")->debug(
-      "HandleUpdate chan={} sub={} inLocal={} inRange={}", channel,
-      static_cast<const void*>(this), inLocal, inRange);
+  spdlog::get("md")->debug("HandleUpdate chan={} sub={} inLocal={} inRange={}",
+                           channel, static_cast<const void*>(this), inLocal,
+                           inRange);
 
   // First, check if this ChannelSubscriber cares about the message.
   if (!inLocal && !inRange) {
