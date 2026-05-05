@@ -5,6 +5,7 @@ the symbols directly (e.g. `from tests.common.msgtypes import
 STATESERVER_OBJECT_SET_FIELD`) — never hard-code values, since the parser
 keeps this file in lock-step with the header.
 """
+
 from __future__ import annotations
 
 from .msg_coverage import ALL_MESSAGES

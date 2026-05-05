@@ -4,6 +4,7 @@ Verifies channel subscribe/unsubscribe, range subscriptions, fan-out across
 multiple subscribers, and post-remove hooks. This is the core of the cluster
 so everything else depends on it being solid.
 """
+
 import pytest
 
 from tests.common.ardos import Datagram, DatagramIterator
@@ -48,7 +49,8 @@ class TestRouting:
     def test_fanout_to_multiple_subscribers(self, md, channel_conn):
         a = channel_conn(CH_A)
         b = channel_conn(CH_A)
-        a.flush(); b.flush()
+        a.flush()
+        b.flush()
         sender = channel_conn()
         dg = Datagram.create([CH_A], sender=0, msgtype=2000).add_string("hi")
         sender.send(dg)
@@ -88,7 +90,8 @@ class TestRanges:
         sub.wait_range_active(CH_A, CH_A + 100)
         sub.send(
             Datagram.create_control(CONTROL_REMOVE_RANGE)
-            .add_channel(CH_A).add_channel(CH_A + 100)
+            .add_channel(CH_A)
+            .add_channel(CH_A + 100)
         )
         sender = channel_conn()
         sender.send(Datagram.create([CH_A + 50], sender=0, msgtype=1234))
@@ -146,8 +149,7 @@ class TestMDControl:
     def test_set_con_name(self, md, channel_conn):
         sub = channel_conn()
         sub.send(
-            Datagram.create_control(CONTROL_SET_CON_NAME)
-            .add_string("test-debug-name")
+            Datagram.create_control(CONTROL_SET_CON_NAME).add_string("test-debug-name")
         )
         # Round-trip a normal message to confirm the connection is still
         # alive after the control message.
@@ -164,8 +166,9 @@ class TestMDControl:
         record wire-format coverage; subsequent traffic should still flow."""
         sub = channel_conn()
         sub.send(
-            Datagram.create_control(CONTROL_SET_CON_URL)
-            .add_string("http://debug.local")
+            Datagram.create_control(CONTROL_SET_CON_URL).add_string(
+                "http://debug.local"
+            )
         )
         sub.subscribe(CH_A)
         sender = channel_conn()
@@ -179,8 +182,7 @@ class TestMDControl:
         wire-format path — the MD should warn and continue."""
         sub = channel_conn()
         sub.send(
-            Datagram.create_control(CONTROL_LOG_MESSAGE)
-            .add_string("test log line")
+            Datagram.create_control(CONTROL_LOG_MESSAGE).add_string("test log line")
         )
         # Confirm normal traffic still flows.
         sub.subscribe(CH_A)

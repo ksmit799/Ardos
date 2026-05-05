@@ -6,3 +6,4 @@ pyyaml>=6.0
 pika>=1.3
 pymongo>=4.6
 gcovr>=7.0
+black>=24.0

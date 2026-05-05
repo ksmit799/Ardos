@@ -9,6 +9,7 @@ Covers the distributed-object lifecycle on the SS:
   - zone queries (GET_ZONE_OBJECTS, GET_ZONES_OBJECTS)
   - object delete
 """
+
 import pytest
 
 from tests.common.ardos import Datagram, DatagramIterator
@@ -49,9 +50,13 @@ ZONE = 100
 DO_ID = 1_000_001
 
 
-def _create_required(parent=PARENT, zone=ZONE, do_id=DO_ID, dc="DistributedTestObject1", required1=42):
+def _create_required(
+    parent=PARENT, zone=ZONE, do_id=DO_ID, dc="DistributedTestObject1", required1=42
+):
     cls = class_id("test.dc", dc)
-    dg = Datagram.create([SS_CHANNEL], sender=5, msgtype=STATESERVER_CREATE_OBJECT_WITH_REQUIRED)
+    dg = Datagram.create(
+        [SS_CHANNEL], sender=5, msgtype=STATESERVER_CREATE_OBJECT_WITH_REQUIRED
+    )
     dg.add_uint32(do_id).add_uint32(parent).add_uint32(zone).add_uint16(cls)
     dg.add_uint32(required1)
     return dg
@@ -90,7 +95,9 @@ class TestCreateAndGet:
         sender.send(_create_required())
         # Second should have been logged+dropped, not cause a crash. Touch the
         # object to confirm it's still alive.
-        req = Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION).add_uint32(1)
+        req = Datagram.create(
+            [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION
+        ).add_uint32(1)
         watcher = channel_conn(5)
         watcher.flush()
         sender.send(req)
@@ -196,7 +203,9 @@ class TestLocation:
 
         ack_watch.wait_for(is_location_ack, timeout=2.0)
 
-        req = Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION).add_uint32(0)
+        req = Datagram.create(
+            [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION
+        ).add_uint32(0)
         watcher = channel_conn(5)
         watcher.flush()
         sender.send(req)
@@ -223,7 +232,9 @@ class TestOwnership:
         ai.flush()
         parent_watch.flush()
 
-        dg = Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_SET_AI).add_channel(ai_channel)
+        dg = Datagram.create(
+            [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_SET_AI
+        ).add_channel(ai_channel)
         sender.send(dg)
         # AI should receive an ENTER_AI_WITH_REQUIRED-family message.
         got = ai.recv(timeout=2.0)
@@ -246,12 +257,16 @@ class TestOwnership:
         watcher.flush()
 
         sender.send(
-            Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_SET_AI).add_channel(ai_channel)
+            Datagram.create(
+                [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_SET_AI
+            ).add_channel(ai_channel)
         )
 
         ctx = 0xABCDEF
         sender.send(
-            Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_AI).add_uint32(ctx)
+            Datagram.create(
+                [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_AI
+            ).add_uint32(ctx)
         )
 
         def is_get_ai_resp(dg):
@@ -279,14 +294,18 @@ class TestDelete:
         sender.send(_create_required())
 
         sender.send(
-            Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_DELETE_RAM).add_uint32(DO_ID)
+            Datagram.create(
+                [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_DELETE_RAM
+            ).add_uint32(DO_ID)
         )
 
         # Verify: GET_LOCATION after delete should yield nothing.
         watcher = channel_conn(5)
         watcher.flush()
         sender.send(
-            Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION).add_uint32(77)
+            Datagram.create(
+                [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION
+            ).add_uint32(77)
         )
         watcher.expect_none(timeout=0.5)
 
@@ -308,7 +327,9 @@ class TestSSQueries:
         ctx = 0x010203
         dg = (
             Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_FIELD)
-            .add_uint32(ctx).add_uint32(DO_ID).add_uint16(fid)
+            .add_uint32(ctx)
+            .add_uint32(DO_ID)
+            .add_uint16(fid)
         )
         sender.send(dg)
 
@@ -328,7 +349,8 @@ class TestSSQueries:
         ctx = 0x040506
         dg = (
             Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_FIELDS)
-            .add_uint32(ctx).add_uint32(DO_ID)
+            .add_uint32(ctx)
+            .add_uint32(DO_ID)
             .add_uint16(1)  # field count
             .add_uint16(fid)
         )
@@ -349,7 +371,9 @@ class TestSSQueries:
 
         ctx = 0xC1A55
         sender.send(
-            Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_CLASS).add_uint32(ctx)
+            Datagram.create(
+                [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_CLASS
+            ).add_uint32(ctx)
         )
         got = watcher.recv(timeout=3.0)
         it = DatagramIterator(got)
@@ -359,7 +383,9 @@ class TestSSQueries:
         assert it.read_uint32() == DO_ID
         assert it.read_uint16() == class_id("test.dc", "DistributedTestObject1")
 
-    @pytest.mark.skip(reason="STATESERVER_OBJECT_GET_OWNER has no handler in distributed_object.cpp")
+    @pytest.mark.skip(
+        reason="STATESERVER_OBJECT_GET_OWNER has no handler in distributed_object.cpp"
+    )
     def test_get_owner_round_trip(self, ss, channel_conn):
         pass
 
@@ -375,15 +401,20 @@ class TestSSQueries:
 
         sender.send(_create_required(parent=1, zone=1, do_id=parent_doid))
         watcher.wait_object_alive(parent_doid, sender=5)
-        sender.send(_create_required(parent=parent_doid, zone=child_zone, do_id=child_doid))
+        sender.send(
+            _create_required(parent=parent_doid, zone=child_zone, do_id=child_doid)
+        )
         watcher.wait_object_alive(child_doid, sender=5)
         watcher.flush()
 
         ctx = 0x77CC
         # GET_ZONES_OBJECTS on the parent: [ctx][parent][zoneCount][zones...]
         dg = (
-            Datagram.create([parent_doid], sender=5, msgtype=STATESERVER_OBJECT_GET_ZONES_OBJECTS)
-            .add_uint32(ctx).add_uint32(parent_doid)
+            Datagram.create(
+                [parent_doid], sender=5, msgtype=STATESERVER_OBJECT_GET_ZONES_OBJECTS
+            )
+            .add_uint32(ctx)
+            .add_uint32(parent_doid)
             .add_uint16(1)
             .add_uint32(child_zone)
         )
@@ -405,15 +436,21 @@ class TestSSQueries:
         # Child count >= 1 (at least the one we made).
         assert it.read_uint32() >= 1
 
-    @pytest.mark.skip(reason="STATESERVER_OBJECT_GET_CHILDREN / GET_CHILD_COUNT have no handler in distributed_object.cpp")
+    @pytest.mark.skip(
+        reason="STATESERVER_OBJECT_GET_CHILDREN / GET_CHILD_COUNT have no handler in distributed_object.cpp"
+    )
     def test_get_children_round_trip(self, ss, channel_conn):
         pass
 
-    @pytest.mark.skip(reason="STATESERVER_OBJECT_GET_ZONE_COUNT / GET_ZONES_COUNT have no handler in distributed_object.cpp")
+    @pytest.mark.skip(
+        reason="STATESERVER_OBJECT_GET_ZONE_COUNT / GET_ZONES_COUNT have no handler in distributed_object.cpp"
+    )
     def test_get_zone_count_round_trip(self, ss, channel_conn):
         pass
 
-    @pytest.mark.skip(reason="STATESERVER_GET_ACTIVE_ZONES is on a DO; covered indirectly via GET_ZONES_OBJECTS")
+    @pytest.mark.skip(
+        reason="STATESERVER_GET_ACTIVE_ZONES is on a DO; covered indirectly via GET_ZONES_OBJECTS"
+    )
     def test_get_active_zones_round_trip(self, ss, channel_conn):
         pass
 
@@ -438,15 +475,17 @@ class TestSSBulkDelete:
 
         # DELETE_CHILDREN [doId] on the parent.
         sender.send(
-            Datagram.create([parent], sender=5, msgtype=STATESERVER_OBJECT_DELETE_CHILDREN)
-            .add_uint32(parent)
+            Datagram.create(
+                [parent], sender=5, msgtype=STATESERVER_OBJECT_DELETE_CHILDREN
+            ).add_uint32(parent)
         )
 
         # Children should be gone — GET_LOCATION on each yields no response.
         for child in (child_a, child_b):
             sender.send(
-                Datagram.create([child], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION)
-                .add_uint32(0xDEAD)
+                Datagram.create(
+                    [child], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION
+                ).add_uint32(0xDEAD)
             )
         watcher.expect_none(timeout=1.0)
 
@@ -470,27 +509,33 @@ class TestSSBulkDelete:
 
         # SET_AI flips _aiExplicitlySet=true so HandleDeleteAI picks it up.
         sender.send(
-            Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_SET_AI)
-            .add_channel(ai_channel)
+            Datagram.create(
+                [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_SET_AI
+            ).add_channel(ai_channel)
         )
         # Departing AI tells the SS to clean up.
         sender.send(
-            Datagram.create([SS_CHANNEL], sender=ai_channel,
-                            msgtype=STATESERVER_DELETE_AI_OBJECTS)
-            .add_channel(ai_channel)
+            Datagram.create(
+                [SS_CHANNEL], sender=ai_channel, msgtype=STATESERVER_DELETE_AI_OBJECTS
+            ).add_channel(ai_channel)
         )
 
         # Verify: GET_LOCATION on the deleted object should yield nothing.
         sender.send(
-            Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION)
-            .add_uint32(0xBEEF)
+            Datagram.create(
+                [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION
+            ).add_uint32(0xBEEF)
         )
         watcher.expect_none(timeout=1.0)
 
-    @pytest.mark.skip(reason="STATESERVER_OBJECT_DELETE_ZONE / DELETE_ZONES have no handler in distributed_object.cpp")
+    @pytest.mark.skip(
+        reason="STATESERVER_OBJECT_DELETE_ZONE / DELETE_ZONES have no handler in distributed_object.cpp"
+    )
     def test_delete_zone(self, ss, channel_conn):
         pass
 
-    @pytest.mark.skip(reason="STATESERVER_OBJECT_DELETE_FIELD_RAM / DELETE_FIELDS_RAM have no handler in distributed_object.cpp")
+    @pytest.mark.skip(
+        reason="STATESERVER_OBJECT_DELETE_FIELD_RAM / DELETE_FIELDS_RAM have no handler in distributed_object.cpp"
+    )
     def test_delete_field_ram(self, ss, channel_conn):
         pass

@@ -4,6 +4,7 @@ These are pure-Python, no daemon needed. They pin the harness's `Datagram` /
 `DatagramIterator` encoding to the spec in src/net/datagram.cpp — if the C++
 side ever changes endianness or header layout, these fail fast.
 """
+
 import pytest
 
 from tests.common.ardos import Datagram, DatagramIterator

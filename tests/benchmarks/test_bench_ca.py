@@ -3,6 +3,7 @@
 Covers the CA hot path (hello + first few messages). Interest-opening
 benchmarks require populated zones; those are tracked as a follow-up.
 """
+
 import pytest
 
 from tests.common.ardos import Datagram
@@ -22,4 +23,5 @@ def test_hello_cycle(ca, client_conn, benchmark):
         c.hello(dc_hash("test.dc"), "dev")
         c.expect_hello_resp()
         c.close()
+
     benchmark(step)

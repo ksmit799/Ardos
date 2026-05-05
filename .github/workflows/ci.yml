@@ -101,6 +101,9 @@ jobs:
       - name: Install test deps
         run: pip install -r tests/requirements-test.txt
 
+      - name: Check test formatting
+        run: black --check tests/
+
       - name: Run tests
         env:
           ARDOS_BINARY: ${{ github.workspace }}/cmake-build-debug/bin/ardos

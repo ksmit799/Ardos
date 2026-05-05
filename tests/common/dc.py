@@ -3,6 +3,7 @@
 We use Panda3D's libdclass (via the `panda3d` pip package) so the DC hash the
 harness uses to authenticate matches exactly what ardos computes at boot.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache

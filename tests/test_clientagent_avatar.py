@@ -19,6 +19,7 @@ to exercise:
   - CLIENTAGENT_ADD_SESSION_OBJECT + STATESERVER_OBJECT_DELETE_RAM
     → CLIENT_EJECT with CLIENT_DISCONNECT_SESSION_OBJECT_DELETED
 """
+
 from __future__ import annotations
 
 import pytest
@@ -49,7 +50,9 @@ PEER_DOID = 2_000_002  # second object in the same zone for broadcast tests
 def cluster(ardos):
     """MD + SS + CA pinned for deterministic avatar-ownership tests."""
     return ardos(
-        md=True, ss=True, ca=True,
+        md=True,
+        ss=True,
+        ca=True,
         overrides={
             "client-agent": {
                 "avatar-class": "DistributedPlayer",
@@ -178,7 +181,9 @@ class TestOwnershipHandoff:
             required=_required_setname("Bob"),
         )
         ai.wait_object_alive(AVATAR_DOID)
-        ai.add_interest(CLIENT_CHANNEL, interest_id=1, parent=local_parent, zone=AVATAR_ZONE)
+        ai.add_interest(
+            CLIENT_CHANNEL, interest_id=1, parent=local_parent, zone=AVATAR_ZONE
+        )
 
         entry = client.expect_object_entry(owner=False, timeout=5.0)
         assert entry.do_id == AVATAR_DOID
@@ -228,8 +233,9 @@ class TestFieldRouting:
         # automatically, but the SS publishes broadcasts to the location
         # channel — which the CA only joins via interest. Open one in the
         # avatar's zone so the broadcast lands.
-        ai.add_interest(CLIENT_CHANNEL, interest_id=99,
-                        parent=AVATAR_PARENT, zone=AVATAR_ZONE)
+        ai.add_interest(
+            CLIENT_CHANNEL, interest_id=99, parent=AVATAR_PARENT, zone=AVATAR_ZONE
+        )
 
         fid = field_id("test.dc", "DistributedPlayer", "sendChat")
         payload = Datagram().add_string("broadcast!").bytes()
@@ -241,9 +247,7 @@ class TestFieldRouting:
 
 
 class TestSessionObjects:
-    def test_session_object_delete_ejects_client(
-        self, cluster, ai_conn, client_conn
-    ):
+    def test_session_object_delete_ejects_client(self, cluster, ai_conn, client_conn):
         client = client_conn()
         _hello(client)
         ai = ai_conn()

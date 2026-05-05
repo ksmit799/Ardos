@@ -3,6 +3,7 @@
 These verify that ardos honours its `want-*` flags and rejects obviously bad
 config without crashing the runner.
 """
+
 import subprocess
 from pathlib import Path
 
@@ -45,7 +46,8 @@ def test_rejects_missing_dc_files(tmp_path: Path, external_services):
     )
     rc = subprocess.run(
         [str(locate_binary()), "--config", str(bad_cfg)],
-        capture_output=True, timeout=10,
+        capture_output=True,
+        timeout=10,
     ).returncode
     assert rc != 0
 
@@ -62,7 +64,8 @@ def test_all_roles_boot_together(ardos):
 def test_uberdog_config_loads(ardos):
     """UberDOG entries should be honoured — no DC class -> startup failure."""
     daemon = ardos(
-        md=True, ss=True,
+        md=True,
+        ss=True,
         uberdogs=[{"id": 4665, "class": "AuthManager", "anonymous": True}],
     )
     MDConnection("127.0.0.1", 7100).close()

@@ -3,6 +3,7 @@
 Measures the cost of broadcasting a single datagram to N subscribers. Covers
 the RabbitMQ routing rework (commit 2948152).
 """
+
 import pytest
 
 from tests.common.ardos import Datagram, DatagramIterator

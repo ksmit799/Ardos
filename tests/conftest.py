@@ -1,4 +1,5 @@
 """Pytest configuration and fixtures for the Ardos test suite."""
+
 from __future__ import annotations
 
 import base64
@@ -29,6 +30,7 @@ LOG_DIR = Path(__file__).resolve().parent / "logs"
 # ---------------------------------------------------------------------------
 # External services (rabbitmq + mongo)
 # ---------------------------------------------------------------------------
+
 
 def _tcp_open(host: str, port: int, timeout: float = 0.5) -> bool:
     try:
@@ -130,6 +132,7 @@ def _purge_between_tests(external_services) -> Iterator[None]:
 # Daemon factory
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def ardos(tmp_path: Path, request) -> Iterator[Callable[..., Daemon]]:
     """Yields a factory that spawns a configured ardos process.
@@ -156,9 +159,15 @@ def ardos(tmp_path: Path, request) -> Iterator[Callable[..., Daemon]]:
         out_dir = tmp_path / f"ardos-{len(started)}"
         config_path = cfg.generate_config(
             out_dir,
-            md=md, ss=ss, ca=ca, db=db, dbss=dbss,
-            md_port=md_port, ca_port=ca_port,
-            dc_files=dc_files, uberdogs=uberdogs,
+            md=md,
+            ss=ss,
+            ca=ca,
+            db=db,
+            dbss=dbss,
+            md_port=md_port,
+            ca_port=ca_port,
+            dc_files=dc_files,
+            uberdogs=uberdogs,
             overrides=overrides,
         )
         log_path = LOG_DIR / f"{request.node.name}-{len(started)}.log"
@@ -191,6 +200,7 @@ def ardos(tmp_path: Path, request) -> Iterator[Callable[..., Daemon]]:
 # Connection helpers
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def md_conn() -> Iterator[Callable[..., MDConnection]]:
     conns: List[MDConnection] = []
@@ -212,7 +222,9 @@ def md_conn() -> Iterator[Callable[..., MDConnection]]:
 def channel_conn() -> Iterator[Callable[..., ChannelConnection]]:
     conns: List[ChannelConnection] = []
 
-    def _factory(*channels: int, host: str = "127.0.0.1", port: int = 7100) -> ChannelConnection:
+    def _factory(
+        *channels: int, host: str = "127.0.0.1", port: int = 7100
+    ) -> ChannelConnection:
         c = ChannelConnection(host, port, *channels)
         conns.append(c)
         return c
@@ -270,6 +282,7 @@ def client_conn() -> Iterator[Callable[..., ClientConnection]]:
 # ---------------------------------------------------------------------------
 # Report hooks: save failure status for cleanup, print coverage at end.
 # ---------------------------------------------------------------------------
+
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):

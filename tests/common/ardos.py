@@ -11,6 +11,7 @@ Wire format reference:
                       (src/net/datagram.cpp AddString/AddBlob)
   - Byte order:       native LE (no htonl/htons anywhere).
 """
+
 from __future__ import annotations
 
 import os
@@ -92,9 +93,7 @@ def locate_binary() -> Path:
         cand = root / "bin" / "ardos"
         if cand.is_file():
             return cand
-    raise FileNotFoundError(
-        "ardos binary not found. Build it or set $ARDOS_BINARY."
-    )
+    raise FileNotFoundError("ardos binary not found. Build it or set $ARDOS_BINARY.")
 
 
 class Datagram:
@@ -108,34 +107,44 @@ class Datagram:
         return self.add_uint8(1 if v else 0)
 
     def add_int8(self, v: int) -> "Datagram":
-        self._buf += struct.pack("<b", v); return self
+        self._buf += struct.pack("<b", v)
+        return self
 
     def add_uint8(self, v: int) -> "Datagram":
-        self._buf += struct.pack("<B", v); return self
+        self._buf += struct.pack("<B", v)
+        return self
 
     def add_int16(self, v: int) -> "Datagram":
-        self._buf += struct.pack("<h", v); return self
+        self._buf += struct.pack("<h", v)
+        return self
 
     def add_uint16(self, v: int) -> "Datagram":
-        self._buf += struct.pack("<H", v); return self
+        self._buf += struct.pack("<H", v)
+        return self
 
     def add_int32(self, v: int) -> "Datagram":
-        self._buf += struct.pack("<i", v); return self
+        self._buf += struct.pack("<i", v)
+        return self
 
     def add_uint32(self, v: int) -> "Datagram":
-        self._buf += struct.pack("<I", v); return self
+        self._buf += struct.pack("<I", v)
+        return self
 
     def add_int64(self, v: int) -> "Datagram":
-        self._buf += struct.pack("<q", v); return self
+        self._buf += struct.pack("<q", v)
+        return self
 
     def add_uint64(self, v: int) -> "Datagram":
-        self._buf += struct.pack("<Q", v); return self
+        self._buf += struct.pack("<Q", v)
+        return self
 
     def add_float32(self, v: float) -> "Datagram":
-        self._buf += struct.pack("<f", v); return self
+        self._buf += struct.pack("<f", v)
+        return self
 
     def add_float64(self, v: float) -> "Datagram":
-        self._buf += struct.pack("<d", v); return self
+        self._buf += struct.pack("<d", v)
+        return self
 
     def add_string(self, s: str) -> "Datagram":
         data = s.encode("utf-8")
@@ -154,7 +163,8 @@ class Datagram:
         return self.add_uint32(parent).add_uint32(zone)
 
     def add_raw(self, data: bytes) -> "Datagram":
-        self._buf += data; return self
+        self._buf += data
+        return self
 
     def bytes(self) -> bytes:
         return bytes(self._buf)
@@ -220,32 +230,56 @@ class DatagramIterator:
         self._off += size
         return v
 
-    def read_bool(self) -> bool: return bool(self._read("<B", 1))
-    def read_int8(self) -> int: return self._read("<b", 1)
-    def read_uint8(self) -> int: return self._read("<B", 1)
-    def read_int16(self) -> int: return self._read("<h", 2)
-    def read_uint16(self) -> int: return self._read("<H", 2)
-    def read_int32(self) -> int: return self._read("<i", 4)
-    def read_uint32(self) -> int: return self._read("<I", 4)
-    def read_int64(self) -> int: return self._read("<q", 8)
-    def read_uint64(self) -> int: return self._read("<Q", 8)
-    def read_float32(self) -> float: return self._read("<f", 4)
-    def read_float64(self) -> float: return self._read("<d", 8)
+    def read_bool(self) -> bool:
+        return bool(self._read("<B", 1))
+
+    def read_int8(self) -> int:
+        return self._read("<b", 1)
+
+    def read_uint8(self) -> int:
+        return self._read("<B", 1)
+
+    def read_int16(self) -> int:
+        return self._read("<h", 2)
+
+    def read_uint16(self) -> int:
+        return self._read("<H", 2)
+
+    def read_int32(self) -> int:
+        return self._read("<i", 4)
+
+    def read_uint32(self) -> int:
+        return self._read("<I", 4)
+
+    def read_int64(self) -> int:
+        return self._read("<q", 8)
+
+    def read_uint64(self) -> int:
+        return self._read("<Q", 8)
+
+    def read_float32(self) -> float:
+        return self._read("<f", 4)
+
+    def read_float64(self) -> float:
+        return self._read("<d", 8)
 
     def read_string(self) -> str:
         n = self.read_uint16()
-        s = bytes(self._buf[self._off:self._off + n])
+        s = bytes(self._buf[self._off : self._off + n])
         self._off += n
         return s.decode("utf-8")
 
     def read_blob(self) -> bytes:
         n = self.read_uint16()
-        b = bytes(self._buf[self._off:self._off + n])
+        b = bytes(self._buf[self._off : self._off + n])
         self._off += n
         return b
 
-    def read_channel(self) -> int: return self.read_uint64()
-    def read_doid(self) -> int: return self.read_uint32()
+    def read_channel(self) -> int:
+        return self.read_uint64()
+
+    def read_doid(self) -> int:
+        return self.read_uint32()
 
     def read_header(self):
         """Consume the [count][recipients...][sender][msgtype] header.
@@ -266,11 +300,17 @@ class DatagramIterator:
         tracker.record_recv(mt)
         return mt
 
-    def seek(self, offset: int) -> None: self._off = offset
-    def tell(self) -> int: return self._off
-    def remaining(self) -> int: return len(self._buf) - self._off
+    def seek(self, offset: int) -> None:
+        self._off = offset
+
+    def tell(self) -> int:
+        return self._off
+
+    def remaining(self) -> int:
+        return len(self._buf) - self._off
+
     def peek(self, n: int) -> bytes:
-        return bytes(self._buf[self._off:self._off + n])
+        return bytes(self._buf[self._off : self._off + n])
 
 
 class MDConnection:
@@ -302,10 +342,14 @@ class MDConnection:
         while len(self._rx) < n:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError(f"timed out waiting for {n}B (have {len(self._rx)}B)")
+                raise TimeoutError(
+                    f"timed out waiting for {n}B (have {len(self._rx)}B)"
+                )
             ready, _, _ = select.select([self.sock], [], [], remaining)
             if not ready:
-                raise TimeoutError(f"timed out waiting for {n}B (have {len(self._rx)}B)")
+                raise TimeoutError(
+                    f"timed out waiting for {n}B (have {len(self._rx)}B)"
+                )
             chunk = self.sock.recv(65536)
             if not chunk:
                 raise ConnectionError("peer closed connection")
@@ -379,7 +423,9 @@ class MDConnection:
                 name = symbol_for(mt)
             except Exception:
                 name = "?"
-            raise AssertionError(f"expected no datagram; got {name}: {got.bytes().hex()}")
+            raise AssertionError(
+                f"expected no datagram; got {name}: {got.bytes().hex()}"
+            )
 
     def expect_multi(self, expected: Sequence[Datagram], timeout: float = 2.0) -> None:
         """Expect a set of datagrams (order-independent) within timeout."""
@@ -461,7 +507,8 @@ class ChannelConnection(MDConnection):
         def send_probe() -> None:
             self.send(
                 Datagram.create(
-                    [do_id], sender=sender,
+                    [do_id],
+                    sender=sender,
                     msgtype=STATESERVER_OBJECT_GET_LOCATION,
                 ).add_uint32(ctx)
             )
@@ -526,7 +573,9 @@ class ClientConnection(MDConnection):
     """CA-facing TCP connection. Implements the CLIENT_HELLO handshake."""
 
     def hello(self, dc_hash: int, version: str = "dev") -> None:
-        dg = Datagram.create_client(CLIENT_HELLO).add_uint32(dc_hash).add_string(version)
+        dg = (
+            Datagram.create_client(CLIENT_HELLO).add_uint32(dc_hash).add_string(version)
+        )
         self.send(dg)
 
     def expect_hello_resp(self, timeout: float = 2.0) -> None:
@@ -622,11 +671,21 @@ class ClientConnection(MDConnection):
         parent = it.read_uint32()
         zone = it.read_uint32()
         dc_id = it.read_uint16()
-        required = bytes(it._buf[it._off:])
+        required = bytes(it._buf[it._off :])
         return ObjectEntry(
-            msgtype=mt, do_id=do_id, parent=parent, zone=zone, dc_id=dc_id,
-            required=required, owner=(mt in {CLIENT_ENTER_OBJECT_REQUIRED_OWNER,
-                                             CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER}),
+            msgtype=mt,
+            do_id=do_id,
+            parent=parent,
+            zone=zone,
+            dc_id=dc_id,
+            required=required,
+            owner=(
+                mt
+                in {
+                    CLIENT_ENTER_OBJECT_REQUIRED_OWNER,
+                    CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER,
+                }
+            ),
         )
 
     def expect_object_set_field(
@@ -663,7 +722,7 @@ class ClientConnection(MDConnection):
                 f"expected field update for doId {do_id}; got {received_id}"
             )
         field_id = it.read_uint16()
-        payload = bytes(it._buf[it._off:])
+        payload = bytes(it._buf[it._off :])
         return ClientFieldUpdate(do_id=received_id, field_id=field_id, payload=payload)
 
     def expect_eject(self, *, reason: Optional[int] = None, timeout: float = 2.0):
@@ -677,9 +736,7 @@ class ClientConnection(MDConnection):
         it = DatagramIterator(got)
         mt = it.read_client_msgtype()
         if mt != CLIENT_EJECT:
-            raise AssertionError(
-                f"expected CLIENT_EJECT; got {mt} ({symbol_for(mt)})"
-            )
+            raise AssertionError(f"expected CLIENT_EJECT; got {mt} ({symbol_for(mt)})")
         got_reason = it.read_uint16()
         tracker.record_recv(got_reason)
         msg = it.read_string()
@@ -754,7 +811,11 @@ class AIConnection(ChannelConnection):
     # --- CA control -----------------------------------------------------------
 
     def set_client_state(
-        self, client_channel: int, state: int, *, wait: bool = True,
+        self,
+        client_channel: int,
+        state: int,
+        *,
+        wait: bool = True,
         timeout: float = 2.0,
     ) -> None:
         """Force CLIENTAGENT_SET_STATE — jump a client's auth gate.
@@ -773,9 +834,7 @@ class AIConnection(ChannelConnection):
         if wait:
             self.wait_channel_drained(client_channel, timeout=timeout)
 
-    def wait_channel_drained(
-        self, channel: int, *, timeout: float = 2.0
-    ) -> None:
+    def wait_channel_drained(self, channel: int, *, timeout: float = 2.0) -> None:
         """Block until prior messages sent on this AI socket to ``channel``
         have been processed.
 
@@ -787,7 +846,8 @@ class AIConnection(ChannelConnection):
         ctx = 0xFEEDFACE
         self.send(
             Datagram.create(
-                [channel], sender=self.ai_channel,
+                [channel],
+                sender=self.ai_channel,
                 msgtype=CLIENTAGENT_GET_NETWORK_ADDRESS,
             ).add_uint32(ctx)
         )
@@ -822,7 +882,9 @@ class AIConnection(ChannelConnection):
         """Push a single-zone interest onto a client (CLIENTAGENT_ADD_INTEREST)."""
         dg = (
             Datagram.create(
-                [client_channel], sender=self.ai_channel, msgtype=CLIENTAGENT_ADD_INTEREST
+                [client_channel],
+                sender=self.ai_channel,
+                msgtype=CLIENTAGENT_ADD_INTEREST,
             )
             .add_uint16(interest_id)
             .add_uint32(parent)
@@ -834,7 +896,8 @@ class AIConnection(ChannelConnection):
         """Bind an object's lifetime to the client session. Deleting the object
         disconnects the client (CLIENT_DISCONNECT_SESSION_OBJECT_DELETED)."""
         dg = Datagram.create(
-            [client_channel], sender=self.ai_channel,
+            [client_channel],
+            sender=self.ai_channel,
             msgtype=CLIENTAGENT_ADD_SESSION_OBJECT,
         ).add_uint32(do_id)
         self.send(dg)
@@ -868,7 +931,8 @@ class AIConnection(ChannelConnection):
         """
         dg = (
             Datagram.create(
-                [self.ss_channel], sender=self.ai_channel,
+                [self.ss_channel],
+                sender=self.ai_channel,
                 msgtype=STATESERVER_CREATE_OBJECT_WITH_REQUIRED,
             )
             .add_uint32(do_id)
@@ -897,7 +961,8 @@ class AIConnection(ChannelConnection):
         """
         dg = (
             Datagram.create(
-                [self.ss_channel], sender=self.ai_channel,
+                [self.ss_channel],
+                sender=self.ai_channel,
                 msgtype=STATESERVER_CREATE_OBJECT_WITH_REQUIRED_OTHER,
             )
             .add_uint32(do_id)
@@ -911,14 +976,15 @@ class AIConnection(ChannelConnection):
             dg.add_uint16(field_id_).add_raw(payload)
         self.send(dg)
 
-
     def set_owner(self, do_id: int, owner_channel: int) -> None:
         """Assign ownership (STATESERVER_OBJECT_SET_OWNER). The SS will push an
         ENTER_OWNER_WITH_REQUIRED[_OTHER] to `owner_channel`, which the CA
         translates into CLIENT_ENTER_OBJECT_REQUIRED_OWNER[_OTHER] for the
         client socket bound to that channel."""
         dg = Datagram.create(
-            [do_id], sender=self.ai_channel, msgtype=STATESERVER_OBJECT_SET_OWNER,
+            [do_id],
+            sender=self.ai_channel,
+            msgtype=STATESERVER_OBJECT_SET_OWNER,
         ).add_channel(owner_channel)
         self.send(dg)
 
@@ -926,7 +992,9 @@ class AIConnection(ChannelConnection):
         """Broadcast a field update authored by the AI side."""
         dg = (
             Datagram.create(
-                [do_id], sender=self.ai_channel, msgtype=STATESERVER_OBJECT_SET_FIELD,
+                [do_id],
+                sender=self.ai_channel,
+                msgtype=STATESERVER_OBJECT_SET_FIELD,
             )
             .add_uint32(do_id)
             .add_uint16(field_id)
@@ -937,7 +1005,9 @@ class AIConnection(ChannelConnection):
     def delete_object(self, do_id: int) -> None:
         """Delete from RAM (STATESERVER_OBJECT_DELETE_RAM)."""
         dg = Datagram.create(
-            [do_id], sender=self.ai_channel, msgtype=STATESERVER_OBJECT_DELETE_RAM,
+            [do_id],
+            sender=self.ai_channel,
+            msgtype=STATESERVER_OBJECT_DELETE_RAM,
         ).add_uint32(do_id)
         self.send(dg)
 
@@ -1019,7 +1089,9 @@ class Daemon:
         try:
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
-                conn.send(Datagram.create([probe_channel], sender=0, msgtype=sentinel_mt))
+                conn.send(
+                    Datagram.create([probe_channel], sender=0, msgtype=sentinel_mt)
+                )
 
                 def is_probe(dg: Datagram) -> bool:
                     try:
@@ -1035,9 +1107,7 @@ class Daemon:
                 except TimeoutError:
                     continue
             self._dump_tail()
-            raise TimeoutError(
-                f"MD round-trip probe never came back within {timeout}s"
-            )
+            raise TimeoutError(f"MD round-trip probe never came back within {timeout}s")
         finally:
             try:
                 conn.close()
@@ -1064,7 +1134,8 @@ class Daemon:
         self._proc = None
 
     def __enter__(self) -> "Daemon":
-        self.start(); return self
+        self.start()
+        return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.stop()

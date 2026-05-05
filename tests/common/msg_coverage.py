@@ -5,6 +5,7 @@ at test-collection time means the harness can't drift from the server — if a
 new message type is added, tests start seeing it in the "not exercised" list
 immediately.
 """
+
 from __future__ import annotations
 
 import re
@@ -90,7 +91,9 @@ class CoverageTracker:
             if not syms:
                 continue
             total = len(syms)
-            exercised = {sym for sym, v in syms.items() if v in self.sent or v in self.recv}
+            exercised = {
+                sym for sym, v in syms.items() if v in self.sent or v in self.recv
+            }
             pct = (len(exercised) * 100 // total) if total else 0
             lines.append(f"  {enum_name}: {len(exercised)}/{total} ({pct}%)")
             missing = sorted(set(syms) - exercised)
@@ -105,7 +108,9 @@ class CoverageTracker:
         exercised = 0
         for _, syms in ALL_MESSAGES.items():
             total += len(syms)
-            exercised += sum(1 for v in syms.values() if v in self.sent or v in self.recv)
+            exercised += sum(
+                1 for v in syms.values() if v in self.sent or v in self.recv
+            )
         return exercised / total if total else 1.0
 
 

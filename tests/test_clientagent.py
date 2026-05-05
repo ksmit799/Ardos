@@ -1,4 +1,5 @@
 """Client Agent tests — authentication, heartbeat, security boundaries."""
+
 import pytest
 
 from tests.common.ardos import AUTH_STATE_ESTABLISHED, Datagram, DatagramIterator
@@ -39,7 +40,9 @@ CLIENT_CHANNEL = 1_000_000_000
 @pytest.fixture
 def ca(ardos):
     return ardos(
-        md=True, ss=True, ca=True,
+        md=True,
+        ss=True,
+        ca=True,
         uberdogs=[
             {"id": 4665, "class": "AuthManager", "anonymous": True},
             {"id": 4666, "class": "ChatManager"},
@@ -51,7 +54,9 @@ def ca(ardos):
 def ca_client_interest(ardos):
     """CA with client-set interests enabled + zone whitelist for security tests."""
     return ardos(
-        md=True, ss=True, ca=True,
+        md=True,
+        ss=True,
+        ca=True,
         overrides={
             "client-agent": {
                 "channels": {"min": CLIENT_CHANNEL, "max": CLIENT_CHANNEL},
@@ -98,7 +103,9 @@ class TestHeartbeat:
 
 
 class TestInterestSecurity:
-    def test_forbidden_zone_disconnects_client(self, ca_client_interest, ai_conn, client_conn):
+    def test_forbidden_zone_disconnects_client(
+        self, ca_client_interest, ai_conn, client_conn
+    ):
         """With mode=whitelist, adding interest in a non-listed zone must eject."""
         c = client_conn()
         c.hello(dc_hash("test.dc"), "dev")
@@ -109,7 +116,9 @@ class TestInterestSecurity:
         ai.set_client_state(CLIENT_CHANNEL, AUTH_STATE_ESTABLISHED)
         # CLIENT_ADD_INTEREST format: [ctx:uint32][interestId:uint16][parent:uint32][zone:uint32]
         dg = Datagram.create_client(CLIENT_ADD_INTEREST)
-        dg.add_uint32(1).add_uint16(1).add_uint32(5000).add_uint32(999)  # zone 999 not whitelisted
+        dg.add_uint32(1).add_uint16(1).add_uint32(5000).add_uint32(
+            999
+        )  # zone 999 not whitelisted
         c.send(dg)
         c.expect_eject(reason=CLIENT_DISCONNECT_FORBIDDEN_INTEREST)
 
@@ -150,7 +159,9 @@ class TestAnonymousUberdog:
 def ca_admin(ardos):
     """CA cluster pinned to a single CLIENT_CHANNEL for AI-driven control tests."""
     return ardos(
-        md=True, ss=True, ca=True,
+        md=True,
+        ss=True,
+        ca=True,
         overrides={
             "client-agent": {
                 "channels": {"min": CLIENT_CHANNEL, "max": CLIENT_CHANNEL},
@@ -181,7 +192,9 @@ class TestCAAdmin:
         ai = ai_conn()
         _hello_and_establish(client, ai)
 
-        dg = Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_DROP)
+        dg = Datagram.create(
+            [CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_DROP
+        )
         ai.send(dg)
 
         # Drain anything that arrives before close. We don't strictly
@@ -203,16 +216,18 @@ class TestCAAdmin:
 
         extra_channel = 9_111_222
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_OPEN_CHANNEL)
-            .add_channel(extra_channel)
+            Datagram.create(
+                [CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_OPEN_CHANNEL
+            ).add_channel(extra_channel)
         )
 
         # Send a SEND_DATAGRAM with a simple client-bound payload (a heartbeat).
         ai.wait_channel_drained(CLIENT_CHANNEL)
         client_dg = Datagram.create_client(CLIENT_HEARTBEAT)
         ai.send(
-            Datagram.create([extra_channel], sender=ai.ai_channel, msgtype=CLIENTAGENT_SEND_DATAGRAM)
-            .add_raw(client_dg.bytes())
+            Datagram.create(
+                [extra_channel], sender=ai.ai_channel, msgtype=CLIENTAGENT_SEND_DATAGRAM
+            ).add_raw(client_dg.bytes())
         )
 
         got = client.recv(timeout=3.0)
@@ -226,19 +241,24 @@ class TestCAAdmin:
 
         extra_channel = 9_111_223
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_OPEN_CHANNEL)
-            .add_channel(extra_channel)
+            Datagram.create(
+                [CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_OPEN_CHANNEL
+            ).add_channel(extra_channel)
         )
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_CLOSE_CHANNEL)
-            .add_channel(extra_channel)
+            Datagram.create(
+                [CLIENT_CHANNEL],
+                sender=ai.ai_channel,
+                msgtype=CLIENTAGENT_CLOSE_CHANNEL,
+            ).add_channel(extra_channel)
         )
         ai.wait_channel_drained(CLIENT_CHANNEL)
 
         client_dg = Datagram.create_client(CLIENT_HEARTBEAT)
         ai.send(
-            Datagram.create([extra_channel], sender=ai.ai_channel, msgtype=CLIENTAGENT_SEND_DATAGRAM)
-            .add_raw(client_dg.bytes())
+            Datagram.create(
+                [extra_channel], sender=ai.ai_channel, msgtype=CLIENTAGENT_SEND_DATAGRAM
+            ).add_raw(client_dg.bytes())
         )
         # No more delivery on the closed channel.
         got = client.recv_maybe(timeout=0.5)
@@ -257,8 +277,13 @@ class TestCAAdmin:
         do_id = 5_001_001
         cls = class_id("test.dc", "DistributedTestObject1")
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_DECLARE_OBJECT)
-            .add_uint32(do_id).add_uint16(cls)
+            Datagram.create(
+                [CLIENT_CHANNEL],
+                sender=ai.ai_channel,
+                msgtype=CLIENTAGENT_DECLARE_OBJECT,
+            )
+            .add_uint32(do_id)
+            .add_uint16(cls)
         )
         ai.wait_channel_drained(CLIENT_CHANNEL)
 
@@ -275,12 +300,20 @@ class TestCAAdmin:
         do_id = 5_001_002
         cls = class_id("test.dc", "DistributedTestObject1")
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_DECLARE_OBJECT)
-            .add_uint32(do_id).add_uint16(cls)
+            Datagram.create(
+                [CLIENT_CHANNEL],
+                sender=ai.ai_channel,
+                msgtype=CLIENTAGENT_DECLARE_OBJECT,
+            )
+            .add_uint32(do_id)
+            .add_uint16(cls)
         )
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_UNDECLARE_OBJECT)
-            .add_uint32(do_id)
+            Datagram.create(
+                [CLIENT_CHANNEL],
+                sender=ai.ai_channel,
+                msgtype=CLIENTAGENT_UNDECLARE_OBJECT,
+            ).add_uint32(do_id)
         )
         ai.wait_channel_drained(CLIENT_CHANNEL)
 
@@ -297,8 +330,9 @@ class TestCAAdmin:
         # deliver to the client.
         client_dg = Datagram.create_client(CLIENT_HEARTBEAT)
         ai.send(
-            Datagram.create([new_channel], sender=ai.ai_channel, msgtype=CLIENTAGENT_SEND_DATAGRAM)
-            .add_raw(client_dg.bytes())
+            Datagram.create(
+                [new_channel], sender=ai.ai_channel, msgtype=CLIENTAGENT_SEND_DATAGRAM
+            ).add_raw(client_dg.bytes())
         )
         got = client.recv(timeout=3.0)
         mt = DatagramIterator(got).read_client_msgtype()
@@ -312,8 +346,13 @@ class TestCAAdmin:
 
         do_id = 5_001_003
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_SET_FIELDS_SENDABLE)
-            .add_uint32(do_id).add_uint16(0)  # zero-length sendable list
+            Datagram.create(
+                [CLIENT_CHANNEL],
+                sender=ai.ai_channel,
+                msgtype=CLIENTAGENT_SET_FIELDS_SENDABLE,
+            )
+            .add_uint32(do_id)
+            .add_uint16(0)  # zero-length sendable list
         )
         ai.wait_channel_drained(CLIENT_CHANNEL)
 
@@ -326,8 +365,11 @@ class TestCAAdmin:
         do_id = 5_001_004
         ai.add_session_object(CLIENT_CHANNEL, do_id)
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_REMOVE_SESSION_OBJECT)
-            .add_uint32(do_id)
+            Datagram.create(
+                [CLIENT_CHANNEL],
+                sender=ai.ai_channel,
+                msgtype=CLIENTAGENT_REMOVE_SESSION_OBJECT,
+            ).add_uint32(do_id)
         )
         ai.wait_channel_drained(CLIENT_CHANNEL)
 
@@ -343,8 +385,11 @@ class TestCAAdmin:
         ai.wait_channel_drained(CLIENT_CHANNEL)
 
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_REMOVE_INTEREST)
-            .add_uint16(interest_id)
+            Datagram.create(
+                [CLIENT_CHANNEL],
+                sender=ai.ai_channel,
+                msgtype=CLIENTAGENT_REMOVE_INTEREST,
+            ).add_uint16(interest_id)
         )
         ai.wait_channel_drained(CLIENT_CHANNEL)
 
@@ -355,8 +400,11 @@ class TestCAAdmin:
 
         client_dg = Datagram.create_client(CLIENT_HEARTBEAT)
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_SEND_DATAGRAM)
-            .add_raw(client_dg.bytes())
+            Datagram.create(
+                [CLIENT_CHANNEL],
+                sender=ai.ai_channel,
+                msgtype=CLIENTAGENT_SEND_DATAGRAM,
+            ).add_raw(client_dg.bytes())
         )
         got = client.recv(timeout=3.0)
         mt = DatagramIterator(got).read_client_msgtype()
@@ -380,8 +428,11 @@ class TestCAAdmin:
 
         ctx = 0x1337
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_GET_NETWORK_ADDRESS)
-            .add_uint32(ctx)
+            Datagram.create(
+                [CLIENT_CHANNEL],
+                sender=ai.ai_channel,
+                msgtype=CLIENTAGENT_GET_NETWORK_ADDRESS,
+            ).add_uint32(ctx)
         )
 
         def is_resp(dg):
@@ -414,11 +465,18 @@ class TestCAAdmin:
 
         post = Datagram.create([12345], sender=ai.ai_channel, msgtype=9999)
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_ADD_POST_REMOVE)
-            .add_blob(post.bytes())
+            Datagram.create(
+                [CLIENT_CHANNEL],
+                sender=ai.ai_channel,
+                msgtype=CLIENTAGENT_ADD_POST_REMOVE,
+            ).add_blob(post.bytes())
         )
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_CLEAR_POST_REMOVES)
+            Datagram.create(
+                [CLIENT_CHANNEL],
+                sender=ai.ai_channel,
+                msgtype=CLIENTAGENT_CLEAR_POST_REMOVES,
+            )
         )
         ai.wait_channel_drained(CLIENT_CHANNEL)
 
@@ -455,10 +513,15 @@ class TestCAAdmin:
         _hello_and_establish(client, ai)
 
         ai.send(
-            Datagram.create([CLIENT_CHANNEL], sender=ai.ai_channel, msgtype=CLIENTAGENT_ADD_INTEREST_MULTIPLE)
-            .add_uint16(43)         # interest id
-            .add_uint32(0)          # parent
-            .add_uint16(2)          # zone count
-            .add_uint32(0).add_uint32(1)
+            Datagram.create(
+                [CLIENT_CHANNEL],
+                sender=ai.ai_channel,
+                msgtype=CLIENTAGENT_ADD_INTEREST_MULTIPLE,
+            )
+            .add_uint16(43)  # interest id
+            .add_uint32(0)  # parent
+            .add_uint16(2)  # zone count
+            .add_uint32(0)
+            .add_uint32(1)
         )
         ai.wait_channel_drained(CLIENT_CHANNEL)

@@ -20,6 +20,7 @@ This file has two tiers:
   the moment the avatar gets ownership; an avatar whose parent has no
   rule (Stated) must NOT see that peer.
 """
+
 import time
 
 import pytest
@@ -54,7 +55,9 @@ def avatar_cluster(ardos):
     """MD+SS+CA with avatar-class configured + a pinned client channel so
     the AI-side driver knows where to send CLIENTAGENT_* messages."""
     return ardos(
-        md=True, ss=True, ca=True,
+        md=True,
+        ss=True,
+        ca=True,
         overrides={
             "client-agent": {
                 "avatar-class": "DistributedPlayer",
@@ -89,17 +92,12 @@ def test_ca_boots_with_all_rule_kinds_and_accepts_hello(ca, client_conn):
 # parent is an instance of a class with setParentingRules("Cartesian", ...).
 # ---------------------------------------------------------------------------
 
+
 def _required_setname_and_rule(name: str, type_: str, rule: str) -> bytes:
     """Required payload for a DistributedAvatar{Stated,Cartesian,...} object.
     These classes inherit from DistributedPlayer (setName required) and add
     setParentingRules (required, two strings)."""
-    return (
-        Datagram()
-        .add_string(name)
-        .add_string(type_)
-        .add_string(rule)
-        .bytes()
-    )
+    return Datagram().add_string(name).add_string(type_).add_string(rule).bytes()
 
 
 def _required_uint32(x: int) -> bytes:
@@ -119,8 +117,9 @@ _DC_DEFAULT_RULE = {
 }
 
 
-def _setup_peer_and_avatar(ai, client_conn, parent_dclass_name: str,
-                           avatar_zone: int, peer_zone: int):
+def _setup_peer_and_avatar(
+    ai, client_conn, parent_dclass_name: str, avatar_zone: int, peer_zone: int
+):
     """Build the standard Cartesian-integration fixture state.
 
     Returns the client connection. The peer is created at `peer_zone`, the
@@ -138,7 +137,10 @@ def _setup_peer_and_avatar(ai, client_conn, parent_dclass_name: str,
     parent_cls = class_id("test.dc", parent_dclass_name)
     rule_type, rule_str = _DC_DEFAULT_RULE[parent_dclass_name]
     ai.create_object(
-        do_id=PARENT_DOID, parent=0, zone=0, dclass_id=parent_cls,
+        do_id=PARENT_DOID,
+        parent=0,
+        zone=0,
+        dclass_id=parent_cls,
         required=_required_setname_and_rule("Room", rule_type, rule_str),
     )
     # The SS binds each DO's DoId queue asynchronously through RabbitMQ;
@@ -149,8 +151,11 @@ def _setup_peer_and_avatar(ai, client_conn, parent_dclass_name: str,
     # Peer object for the client to discover.
     peer_cls = class_id("test.dc", "DistributedTestObject1")
     ai.create_object(
-        do_id=PEER_DOID, parent=PARENT_DOID, zone=peer_zone,
-        dclass_id=peer_cls, required=_required_uint32(777),
+        do_id=PEER_DOID,
+        parent=PARENT_DOID,
+        zone=peer_zone,
+        dclass_id=peer_cls,
+        required=_required_uint32(777),
     )
     ai.wait_object_alive(PEER_DOID)
 
@@ -158,8 +163,11 @@ def _setup_peer_and_avatar(ai, client_conn, parent_dclass_name: str,
     # check against avatar-class=DistributedPlayer.
     avatar_cls = class_id("test.dc", "DistributedPlayer")
     ai.create_object(
-        do_id=AVATAR_DOID, parent=PARENT_DOID, zone=avatar_zone,
-        dclass_id=avatar_cls, required=_required_setname("Alice"),
+        do_id=AVATAR_DOID,
+        parent=PARENT_DOID,
+        zone=avatar_zone,
+        dclass_id=avatar_cls,
+        required=_required_setname("Alice"),
     )
     ai.wait_object_alive(AVATAR_DOID)
     ai.set_owner(AVATAR_DOID, CLIENT_CHANNEL)
@@ -201,11 +209,18 @@ def _collect_entries(client, expected_count: int, timeout: float = 5.0):
         parent = it.read_uint32()
         zone = it.read_uint32()
         dc_id = it.read_uint16()
-        required = bytes(it._buf[it._off:])
-        entries.append(ObjectEntry(
-            msgtype=mt, do_id=do_id, parent=parent, zone=zone, dc_id=dc_id,
-            required=required, owner=mt in _OWNER_MSGTYPES,
-        ))
+        required = bytes(it._buf[it._off :])
+        entries.append(
+            ObjectEntry(
+                msgtype=mt,
+                do_id=do_id,
+                parent=parent,
+                zone=zone,
+                dc_id=dc_id,
+                required=required,
+                owner=mt in _OWNER_MSGTYPES,
+            )
+        )
     return entries
 
 
@@ -218,9 +233,11 @@ class TestCartesianRule:
         Peer at zone 1005 must therefore generate to the client."""
         ai = ai_conn()
         client = _setup_peer_and_avatar(
-            ai, client_conn,
+            ai,
+            client_conn,
             parent_dclass_name="DistributedAvatarCartesian",
-            avatar_zone=1000, peer_zone=1005,
+            avatar_zone=1000,
+            peer_zone=1005,
         )
 
         # The Cartesian rule fires after an async GET_CLASS round-trip, so
@@ -235,17 +252,17 @@ class TestCartesianRule:
         # in either form depending on which side of the race lands first.
         assert not by_doid[PEER_DOID].owner
 
-    def test_off_window_peer_is_not_visible(
-        self, avatar_cluster, ai_conn, client_conn
-    ):
+    def test_off_window_peer_is_not_visible(self, avatar_cluster, ai_conn, client_conn):
         """Peer at zone 1015 (cell [3,3]) is outside radius-1 of cell [0,0].
         Cartesian rule must NOT open it; the client should only receive the
         avatar's entry (owner or non-owner depending on race)."""
         ai = ai_conn()
         client = _setup_peer_and_avatar(
-            ai, client_conn,
+            ai,
+            client_conn,
             parent_dclass_name="DistributedAvatarCartesian",
-            avatar_zone=1000, peer_zone=1015,
+            avatar_zone=1000,
+            peer_zone=1015,
         )
         # Wait for at least the avatar to arrive. Then drain for a generous
         # window — the GET_CLASS round-trip + rule apply is async and we want
@@ -253,15 +270,15 @@ class TestCartesianRule:
         # timeout is the only "wait" we need: it returns as soon as
         # expected_count entries arrive OR the timeout elapses.
         entries = _collect_entries(client, expected_count=1, timeout=5.0)
-        assert any(e.do_id == AVATAR_DOID for e in entries), (
-            f"avatar entry missing; got {entries!r}"
-        )
+        assert any(
+            e.do_id == AVATAR_DOID for e in entries
+        ), f"avatar entry missing; got {entries!r}"
         # Allow a wide drain window for any belated peer entry.
         more = _collect_entries(client, expected_count=10, timeout=1.25)
         seen = {e.do_id for e in entries + more}
-        assert PEER_DOID not in seen, (
-            f"peer at zone 1015 must not be visible; got {entries + more!r}"
-        )
+        assert (
+            PEER_DOID not in seen
+        ), f"peer at zone 1015 must not be visible; got {entries + more!r}"
 
 
 class TestStatedRule:
@@ -273,9 +290,11 @@ class TestStatedRule:
         parent."""
         ai = ai_conn()
         client = _setup_peer_and_avatar(
-            ai, client_conn,
+            ai,
+            client_conn,
             parent_dclass_name="DistributedAvatarStated",
-            avatar_zone=1000, peer_zone=1005,
+            avatar_zone=1000,
+            peer_zone=1005,
         )
         first = client.expect_object_entry(owner=True, timeout=5.0)
         assert first.do_id == AVATAR_DOID
@@ -283,6 +302,6 @@ class TestStatedRule:
         # Drain for a wide window; if the rule were misapplied the peer
         # would arrive within this period.
         extra = client.recv_maybe(timeout=1.25)
-        assert extra is None, (
-            f"Stated rule must not open peer visibility; got {extra!r}"
-        )
+        assert (
+            extra is None
+        ), f"Stated rule must not open peer visibility; got {extra!r}"
