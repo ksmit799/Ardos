@@ -126,10 +126,18 @@ class TestFieldUpdate:
 class TestLocation:
     def test_set_location_moves_object(self, ss, channel_conn):
         sender = channel_conn()
+        # Create a real parent DO at doId=60 so it will reply with
+        # LOCATION_ACK when the child reparents under it. Without an actual
+        # DO at the new parent's channel the ack never fires (the handler
+        # lives in distributed_object.cpp:289-315 — only a parent's DO sends
+        # LOCATION_ACK back to a relocating child).
+        new_parent_doid = 60
+        new_zone = 200
+        new_location_ch = (new_parent_doid << 32) | new_zone
+        # Parent DO at zone 1 (just somewhere out of the way).
+        sender.send(_create_required(parent=0, zone=1, do_id=new_parent_doid))
+        # Then the child we'll move.
         sender.send(_create_required())
-
-        new_parent, new_zone = 60, 200
-        new_location_ch = (new_parent << 32) | new_zone
 
         # Subscribe to old parent (PARENT) and new parent BEFORE the move so
         # we observe the CHANGING_LOCATION broadcast on each. Subscribe to
@@ -137,19 +145,21 @@ class TestLocation:
         # message, and to DO_ID for the LOCATION_ACK reply from the new
         # parent.
         old_parent_watch = channel_conn(PARENT)
-        new_parent_watch = channel_conn(new_parent)
+        new_parent_watch = channel_conn(new_parent_doid)
         new_loc_watch = channel_conn(new_location_ch)
         ack_watch = channel_conn(DO_ID)
         for w in (old_parent_watch, new_parent_watch, new_loc_watch, ack_watch):
             w.flush()
 
-        # Make sure the DO has bound its DoId queue before we move it,
-        # otherwise the SET_LOCATION can race the bind.
+        # Make sure both DOs have bound their DoId queues before we move
+        # the child, otherwise the SET_LOCATION (or the resulting
+        # CHANGING_LOCATION publish to the parent) can race the bind.
+        ack_watch.wait_object_alive(new_parent_doid, sender=DO_ID)
         ack_watch.wait_object_alive(DO_ID, sender=DO_ID)
         ack_watch.flush()
 
         dg = Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_SET_LOCATION)
-        dg.add_uint32(new_parent).add_uint32(new_zone)
+        dg.add_uint32(new_parent_doid).add_uint32(new_zone)
         sender.send(dg)
 
         def is_changing_location(dg):
@@ -196,7 +206,7 @@ class TestLocation:
         assert mt == STATESERVER_OBJECT_GET_LOCATION_RESP
         assert it.read_uint32() == 0  # context
         assert it.read_uint32() == DO_ID
-        assert it.read_uint32() == new_parent
+        assert it.read_uint32() == new_parent_doid
         assert it.read_uint32() == new_zone
 
 
@@ -441,8 +451,15 @@ class TestSSBulkDelete:
         watcher.expect_none(timeout=1.0)
 
     def test_delete_ai_objects_removes_ai_owned(self, ss, channel_conn):
-        """DELETE_AI_OBJECTS broadcast to an AI channel annihilates objects
-        whose _aiChannel matches."""
+        """DELETE_AI_OBJECTS is a shutdown notification: a departing AI
+        sends one message directly to the state server saying "delete all
+        objects belonging to my AI channel". The SS scans its _distObjs
+        for any DO with matching _aiChannel that was set via SET_AI
+        (IsAIExplicitlySet) and Annihilates each.
+
+        See state_server.cpp:113 HandleDeleteAI. Sent to SS_CHANNEL
+        (or BCHAN_STATESERVERS for cluster-wide shutdown); not a broadcast.
+        """
         sender = channel_conn()
         watcher = channel_conn(5)
 
@@ -451,14 +468,15 @@ class TestSSBulkDelete:
         watcher.wait_object_alive(DO_ID, sender=5)
         watcher.flush()
 
-        # Set the AI channel.
+        # SET_AI flips _aiExplicitlySet=true so HandleDeleteAI picks it up.
         sender.send(
             Datagram.create([DO_ID], sender=5, msgtype=STATESERVER_OBJECT_SET_AI)
             .add_channel(ai_channel)
         )
-        # Send DELETE_AI_OBJECTS targeting that AI channel.
+        # Departing AI tells the SS to clean up.
         sender.send(
-            Datagram.create([ai_channel], sender=5, msgtype=STATESERVER_DELETE_AI_OBJECTS)
+            Datagram.create([SS_CHANNEL], sender=ai_channel,
+                            msgtype=STATESERVER_DELETE_AI_OBJECTS)
             .add_channel(ai_channel)
         )
 
