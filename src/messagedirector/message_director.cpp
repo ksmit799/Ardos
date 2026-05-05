@@ -95,22 +95,30 @@ MessageDirector::MessageDirector() {
 
   _connectHandle->on<uvw::data_event>(
       [this](const uvw::data_event& event, uvw::tcp_handle&) {
-        // We've received a frame from RabbitMQ.
-        // It may be a partial frame, so we need to do buffering ourselves.
+        // We've received bytes from RabbitMQ. The buffer may contain zero
+        // or more complete frames followed by a partial frame. AMQP-CPP
+        // does no buffering of its own:
+        //
+        //   * parse() returns the number of bytes consumed (i.e. the
+        //     prefix length of complete frames it was able to decode).
+        //   * Whatever it didn't consume is the start of the next frame
+        //     and must be re-presented unchanged on the next call,
+        //     prepended to any newly-arrived bytes.
+        //
         // See:
         // https://github.com/CopernicaMarketingSoftware/AMQP-CPP#parsing-incoming-data
         _frameBuffer.insert(_frameBuffer.end(), event.data.get(),
                             event.data.get() + event.length);
 
-        auto processed =
-            _connection->parse(_frameBuffer.data(), _frameBuffer.size());
-
-        // If we have processed at least one complete frame, we can clear the
-        // buffer ready for new data. In the event no bytes were processed (an
-        // in-complete frame), AMQP expects both the old data and any new data
-        // in the buffer.
-        if (processed != 0) {
-          _frameBuffer.clear();
+        while (!_frameBuffer.empty()) {
+          const size_t processed =
+              _connection->parse(_frameBuffer.data(), _frameBuffer.size());
+          if (processed == 0) {
+            // Partial frame; wait for more bytes before retrying.
+            break;
+          }
+          _frameBuffer.erase(_frameBuffer.begin(),
+                             _frameBuffer.begin() + processed);
         }
       });
 
