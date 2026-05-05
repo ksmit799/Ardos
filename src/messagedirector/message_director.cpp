@@ -117,6 +117,8 @@ MessageDirector::MessageDirector() {
             // Partial frame; wait for more bytes before retrying.
             break;
           }
+          // parse() can't return more than size:
+          // NOLINTNEXTLINE(bugprone-narrowing-conversions)
           _frameBuffer.erase(_frameBuffer.begin(),
                              _frameBuffer.begin() + processed);
         }
