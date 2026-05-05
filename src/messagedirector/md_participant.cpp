@@ -92,10 +92,11 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram>& dg) {
           dgi.GetUint64();  // Sender channel.
           _postRemoves.emplace_back(dgi.GetDatagram());
           break;
-        case CONTROL_CLEAR_POST_REMOVES:
+        case CONTROL_CLEAR_POST_REMOVES:  // NOLINT(bugprone-branch-clone):
+                                          // Weird clang bug.
           _postRemoves.clear();
           break;
-        case CONTROL_SET_CON_NAME:  // NOLINT(bugprone-branch-clone)
+        case CONTROL_SET_CON_NAME:
           _connName = dgi.GetString();
           break;
         default:

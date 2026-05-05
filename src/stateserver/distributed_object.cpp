@@ -13,8 +13,7 @@ DistributedObject::DistributedObject(StateServerImplementation* stateServer,
                                      const uint32_t& parentId,
                                      const uint32_t& zoneId, DCClass* dclass,
                                      DatagramIterator& dgi, const bool& other)
-    : ChannelSubscriber(),
-      _stateServer(stateServer),
+    : _stateServer(stateServer),
       _doId(doId),
       _parentId(INVALID_DO_ID),
       _zoneId(INVALID_DO_ID),
@@ -299,10 +298,11 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram>& dgIn) {
             break;  // No change, so do nothing.
           }
 
-          auto& children = _zoneObjects[zoneId];
-          children.erase(childId);
-          if (children.empty()) {
-            _zoneObjects.erase(zoneId);
+          if (auto it = _zoneObjects.find(zoneId); it != _zoneObjects.end()) {
+            it->second.erase(childId);
+            if (it->second.empty()) {
+              _zoneObjects.erase(it);
+            }
           }
         }
 
@@ -314,10 +314,11 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram>& dgIn) {
         dg->AddUint32(newZone);
         PublishDatagram(dg);
       } else if (doId == _doId) {
-        auto& children = _zoneObjects[zoneId];
-        children.erase(childId);
-        if (children.empty()) {
-          _zoneObjects.erase(zoneId);
+        if (auto it = _zoneObjects.find(zoneId); it != _zoneObjects.end()) {
+          it->second.erase(childId);
+          if (it->second.empty()) {
+            _zoneObjects.erase(it);
+          }
         }
       } else {
         spdlog::get("ss")->warn(

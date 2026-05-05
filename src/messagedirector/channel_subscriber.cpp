@@ -44,13 +44,10 @@ ChannelSubscriber::ChannelSubscriber() {
 void ChannelSubscriber::Shutdown() {
   MessageDirector::Instance()->RemoveSubscriber(this);
 
-  // Cleanup our local channel subscriptions. Unsubscribe* pops from the local
-  // list itself and also decrements the shared ref counts / tears down the
-  // RabbitMQ binding when the last subscriber drops -- so we must NOT pop
-  // beforehand, or the early-return on "not in _localChannels" kicks in and
-  // leaks the global state.
+  // Cleanup our local channel subscriptions.
   while (!_localChannels.empty()) {
-    UnsubscribeChannel(*_localChannels.begin());
+    uint64_t channel = *_localChannels.begin();
+    UnsubscribeChannel(channel);
   }
 
   // Same pattern for ranges.
