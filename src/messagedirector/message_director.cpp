@@ -81,7 +81,7 @@ MessageDirector::MessageDirector() {
         // Just die on error, the message director always needs a connection to
         // RabbitMQ.
         spdlog::get("md")->error("Socket error: {}", event.what());
-        exit(1);
+        exit(1);  // NOLINT(concurrency-mt-unsafe)
       });
 
   _connectHandle->on<uvw::connect_event>(
@@ -93,24 +93,26 @@ MessageDirector::MessageDirector() {
         _connectHandle->read();
       });
 
-  _connectHandle->on<uvw::data_event>([this](const uvw::data_event& event,
-                                             uvw::tcp_handle&) {
-    // We've received a frame from RabbitMQ.
-    // It may be a partial frame, so we need to do buffering ourselves.
-    // See:
-    // https://github.com/CopernicaMarketingSoftware/AMQP-CPP#parsing-incoming-data
-    _frameBuffer.insert(_frameBuffer.end(), event.data.get(),
-                        event.data.get() + event.length);
+  _connectHandle->on<uvw::data_event>(
+      [this](const uvw::data_event& event, uvw::tcp_handle&) {
+        // We've received a frame from RabbitMQ.
+        // It may be a partial frame, so we need to do buffering ourselves.
+        // See:
+        // https://github.com/CopernicaMarketingSoftware/AMQP-CPP#parsing-incoming-data
+        _frameBuffer.insert(_frameBuffer.end(), event.data.get(),
+                            event.data.get() + event.length);
 
-    auto processed = _connection->parse(&_frameBuffer[0], _frameBuffer.size());
+        auto processed =
+            _connection->parse(_frameBuffer.data(), _frameBuffer.size());
 
-    // If we have processed at least one complete frame, we can clear the buffer
-    // ready for new data. In the event no bytes were processed (an in-complete
-    // frame), AMQP expects both the old data and any new data in the buffer.
-    if (processed != 0) {
-      _frameBuffer.clear();
-    }
-  });
+        // If we have processed at least one complete frame, we can clear the
+        // buffer ready for new data. In the event no bytes were processed (an
+        // in-complete frame), AMQP expects both the old data and any new data
+        // in the buffer.
+        if (processed != 0) {
+          _frameBuffer.clear();
+        }
+      });
 
   // Initialize metrics.
   InitMetrics();
@@ -150,6 +152,8 @@ std::string MessageDirector::GetLocalQueue() const { return _localQueue; }
  */
 void MessageDirector::onData(AMQP::Connection* connection, const char* buffer,
                              const size_t size) {
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays): runtime-sized buffer for uvw
+  // write
   auto sendBuffer = std::unique_ptr<char[]>(new char[size]);
   if (size != 0) {
     std::memcpy(sendBuffer.get(), buffer, size);
@@ -202,7 +206,7 @@ void MessageDirector::onReady(AMQP::Connection* connection) {
                 spdlog::get("md")->error(
                     "want-database was set to true but Ardos was "
                     "built without ARDOS_WANT_DB_SERVER");
-                exit(1);
+                exit(1);  // NOLINT(concurrency-mt-unsafe)
 #endif
               }
 
@@ -211,7 +215,7 @@ void MessageDirector::onReady(AMQP::Connection* connection) {
               }
 
               if (Config::Instance()->GetBool("want-web-panel")) {
-                new WebPanel();
+                _webPanel = std::make_unique<WebPanel>();
               }
 
               // Start listening for incoming connections.
@@ -223,13 +227,13 @@ void MessageDirector::onReady(AMQP::Connection* connection) {
             .onError([](const char* message) {
               spdlog::get("md")->error("Failed to declare local queue: {}",
                                        message);
-              exit(1);
+              exit(1);  // NOLINT(concurrency-mt-unsafe)
             });
       })
       .onError([](const char* message) {
         spdlog::get("md")->error("Failed to declare global exchange: {}",
                                  message);
-        exit(1);
+        exit(1);  // NOLINT(concurrency-mt-unsafe)
       });
 }
 

@@ -2,6 +2,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+
 #include "../net/datagram_iterator.h"
 #include "message_director.h"
 
@@ -102,8 +104,7 @@ void ChannelSubscriber::SubscribeRange(const uint64_t& min,
                                        const uint64_t& max) {
   // Make sure we're not adding a duplicate range.
   auto range = std::make_pair(min, max);
-  if (std::find(_localRanges.begin(), _localRanges.end(), range) !=
-      _localRanges.end()) {
+  if (std::ranges::find(_localRanges, range) != _localRanges.end()) {
     return;
   }
 
@@ -129,7 +130,7 @@ void ChannelSubscriber::UnsubscribeRange(const uint64_t& min,
                                          const uint64_t& max) {
   auto range = std::make_pair(min, max);
 
-  auto position = std::find(_localRanges.begin(), _localRanges.end(), range);
+  auto position = std::ranges::find(_localRanges, range);
   if (position == _localRanges.end()) {
     return;
   }
@@ -202,9 +203,9 @@ void ChannelSubscriber::HandleUpdate(const std::string& routingKey,
 }
 
 bool ChannelSubscriber::WithinLocalRange(uint64_t channel) {
-  return std::any_of(
-      _localRanges.begin(), _localRanges.end(),
-      [channel](auto i) { return channel >= i.first && channel <= i.second; });
+  return std::ranges::any_of(_localRanges, [channel](auto i) {
+    return channel >= i.first && channel <= i.second;
+  });
 }
 
 }  // namespace Ardos

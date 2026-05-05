@@ -24,6 +24,7 @@ class StateServer;
 class ClientAgent;
 class DatabaseServer;
 class DatabaseStateServer;
+class WebPanel;
 
 class MessageDirector : public AMQP::ConnectionHandler {
  public:
@@ -73,6 +74,7 @@ class MessageDirector : public AMQP::ConnectionHandler {
   std::unique_ptr<ClientAgent> _clientAgent;
   std::unique_ptr<DatabaseServer> _db;
   std::unique_ptr<DatabaseStateServer> _dbss;
+  std::unique_ptr<WebPanel> _webPanel;
 
   std::unordered_set<ChannelSubscriber*> _subscribers;
   std::unordered_set<ChannelSubscriber*> _leavingSubscribers;

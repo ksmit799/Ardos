@@ -5,13 +5,16 @@ Checks: >
   concurrency-*,
   modernize-*,
   readability-*,
-  
+
   -readability-identifier-length,
   -readability-magic-numbers,
   -readability-implicit-bool-conversion,
   -readability-convert-member-functions-to-static,
   -modernize-use-trailing-return-type,
   -bugprone-easily-swappable-parameters,
+
+CheckOptions:
+  readability-function-cognitive-complexity.Threshold: 150
 
 WarningsAsErrors: ''
 
