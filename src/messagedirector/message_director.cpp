@@ -306,8 +306,14 @@ void MessageDirector::DeliverLocally(const std::string& routingKey,
   // dispatch entirely if no binding in this MD could match.
   uint64_t channel = ChannelSubscriber::ChannelFromRoutingKey(routingKey);
   uint64_t bucket = channel >> kChannelBucketShift;
-  if (!ChannelSubscriber::_globalChannels.contains(channel) &&
-      !ChannelSubscriber::_globalBuckets.contains(bucket)) {
+  bool hasCh = ChannelSubscriber::_globalChannels.contains(channel);
+  bool hasBkt = ChannelSubscriber::_globalBuckets.contains(bucket);
+
+  spdlog::get("md")->debug(
+      "DeliverLocally chan={} bucket={} hasCh={} hasBkt={} subs={}", channel,
+      bucket, hasCh, hasBkt, _subscribers.size());
+
+  if (!hasCh && !hasBkt) {
     return;
   }
 

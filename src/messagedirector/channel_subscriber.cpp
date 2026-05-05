@@ -1,5 +1,7 @@
 #include "channel_subscriber.h"
 
+#include <spdlog/spdlog.h>
+
 #include "../net/datagram_iterator.h"
 #include "message_director.h"
 
@@ -77,6 +79,8 @@ void ChannelSubscriber::SubscribeChannel(const uint64_t& channel) {
 
   // ... and register it as a newly opened global channel.
   _globalChannels[channel] = 1;
+
+  spdlog::get("md")->debug("Subscribe channel {} (binding new)", channel);
 }
 
 void ChannelSubscriber::UnsubscribeChannel(const uint64_t& channel) {
@@ -119,6 +123,9 @@ void ChannelSubscriber::SubscribeRange(const uint64_t& min,
                                 BuildBucketRoutingPattern(bucket));
     }
   }
+
+  spdlog::get("md")->debug("Subscribe range [{}, {}] (buckets {}..{})", min,
+                           max, minBucket, maxBucket);
 }
 
 void ChannelSubscriber::UnsubscribeRange(const uint64_t& min,
@@ -159,6 +166,9 @@ void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram>& dg) {
     uint64_t channel = dgi.GetUint64();
     std::string routingKey = BuildChannelRoutingKey(channel);
 
+    spdlog::get("md")->debug("Publish chan={} bucket={} size={}B", channel,
+                             channel >> kChannelBucketShift, dg->Size());
+
     // Deliver to in-process subscribers. Avoids the subscribe-then-publish
     // race (async bindQueue not yet live) and skips the broker round-trip
     // for traffic that never needed to leave this MD. DeliverLocally no-ops
@@ -178,8 +188,15 @@ void ChannelSubscriber::HandleUpdate(const std::string& routingKey,
   // once for both the set lookup and the range check.
   uint64_t channel = ChannelFromRoutingKey(routingKey);
 
+  bool inLocal = _localChannels.contains(channel);
+  bool inRange = !inLocal && WithinLocalRange(channel);
+
+  spdlog::get("md")->debug(
+      "HandleUpdate chan={} sub={} inLocal={} inRange={}", channel,
+      static_cast<const void*>(this), inLocal, inRange);
+
   // First, check if this ChannelSubscriber cares about the message.
-  if (!_localChannels.contains(channel) && !WithinLocalRange(channel)) {
+  if (!inLocal && !inRange) {
     return;
   }
 
