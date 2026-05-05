@@ -152,8 +152,8 @@ std::string MessageDirector::GetLocalQueue() const { return _localQueue; }
  */
 void MessageDirector::onData(AMQP::Connection* connection, const char* buffer,
                              const size_t size) {
-  // NOLINTNEXTLINE(modernize-avoid-c-arrays): runtime-sized buffer for uvw
-  // write
+  // runtime-sized buffer for uvw write:
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays)
   auto sendBuffer = std::unique_ptr<char[]>(new char[size]);
   if (size != 0) {
     std::memcpy(sendBuffer.get(), buffer, size);
