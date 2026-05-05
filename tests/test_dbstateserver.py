@@ -9,7 +9,11 @@ from tests.common.ardos import Datagram, DatagramIterator
 from tests.common.dc import class_id, field_id
 from tests.common.msgtypes import (
     DBSERVER_CREATE_OBJECT,
+    DBSERVER_OBJECT_GET_ALL,
+    DBSERVER_OBJECT_GET_ALL_RESP,
     DBSS_OBJECT_ACTIVATE_WITH_DEFAULTS,
+    DBSS_OBJECT_ACTIVATE_WITH_DEFAULTS_OTHER,
+    DBSS_OBJECT_DELETE_DISK,
     DBSS_OBJECT_GET_ACTIVATED,
     DBSS_OBJECT_GET_ACTIVATED_RESP,
     STATESERVER_OBJECT_GET_ALL,
@@ -74,3 +78,75 @@ class TestActivate:
         assert it.read_uint32() == 11
         assert it.read_uint32() == do_id
         assert it.read_uint8() == 0  # not activated
+
+
+class TestDBSSDelete:
+    """Disk-deletion + activate-with-other lifecycle on the DBSS."""
+
+    def test_delete_disk_removes_from_db(self, dbss, channel_conn):
+        """DBSS_OBJECT_DELETE_DISK on an inactive (DB-only) object purges it
+        from MongoDB. A follow-up DBSERVER_OBJECT_GET_ALL returns failure."""
+        sender = channel_conn(SENDER)
+        sender.flush()
+        do_id = _seed_player(sender, "victim")
+
+        # Send DELETE_DISK at the DBSS (the object's channel forwards into
+        # the DBSS handler when not active in RAM).
+        dg = (
+            Datagram.create([do_id], sender=SENDER, msgtype=DBSS_OBJECT_DELETE_DISK)
+            .add_uint32(do_id)
+        )
+        sender.send(dg)
+
+        # Probe the DB directly for the object — should now fail.
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_GET_ALL)
+            .add_uint32(0xDD).add_uint32(do_id)
+        )
+        sender.send(dg)
+        it = DatagramIterator(sender.recv(timeout=5.0))
+        _, _, mt = it.read_header()
+        assert mt == DBSERVER_OBJECT_GET_ALL_RESP
+        assert it.read_uint32() == 0xDD
+        assert it.read_uint8() == 0  # success=false on deleted object
+
+    def test_activate_with_defaults_other(self, dbss, channel_conn):
+        """ACTIVATE_WITH_DEFAULTS_OTHER carries an extra
+        [dcId][fieldCount][fieldId, value]+ payload that becomes the object's
+        ram fields on activation."""
+        sender = channel_conn(SENDER)
+        sender.flush()
+        do_id = _seed_player(sender, "activator-other")
+
+        cls = class_id("test.dc", "DistributedPlayer")
+        # setLocation is `broadcast ownsend` — not ram, so use a different
+        # field. DistributedPlayer doesn't have a ram-only field aside from
+        # setName (which is required). Pass setName via the `other` payload —
+        # the DBSS only stores ram fields, but the wire format coverage still
+        # exercises the parser even when the field is required.
+        setname = field_id("test.dc", "DistributedPlayer", "setName")
+        dg = (
+            Datagram.create([do_id], sender=SENDER, msgtype=DBSS_OBJECT_ACTIVATE_WITH_DEFAULTS_OTHER)
+            .add_uint32(do_id).add_uint32(0).add_uint32(0)
+            .add_uint16(cls)
+            .add_uint16(1)            # field count
+            .add_uint16(setname)
+            .add_string("override")
+        )
+        sender.send(dg)
+
+        # Confirm the object is now alive in the SS.
+        sender.wait_object_alive(do_id, sender=SENDER, timeout=5.0)
+
+        dg = (
+            Datagram.create([do_id], sender=SENDER, msgtype=STATESERVER_OBJECT_GET_ALL)
+            .add_uint32(0xAA).add_uint32(do_id)
+        )
+        sender.send(dg)
+        it = DatagramIterator(sender.recv(timeout=5.0))
+        _, _, mt = it.read_header()
+        assert mt == STATESERVER_OBJECT_GET_ALL_RESP
+
+    @pytest.mark.skip(reason="DBSS_OBJECT_DELETE_FIELD_RAM / DELETE_FIELDS_RAM have no handler in database_state_server.cpp")
+    def test_delete_field_ram(self, dbss, channel_conn):
+        pass

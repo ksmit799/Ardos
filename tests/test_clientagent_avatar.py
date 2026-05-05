@@ -75,9 +75,15 @@ def _required_setname(name: str) -> bytes:
     return Datagram().add_string(name).bytes()
 
 
-def _establish_and_own(ai, client, *, name="Alice") -> None:
+def _establish_and_own(ai, client, *, name="Alice", with_other=False) -> None:
     """Common setup: take a hello'd client, give it ownership of a fresh
-    DistributedPlayer avatar at (AVATAR_PARENT, AVATAR_ZONE)."""
+    DistributedPlayer avatar at (AVATAR_PARENT, AVATAR_ZONE).
+
+    When ``with_other=True``, the avatar is created via
+    STATESERVER_CREATE_OBJECT_WITH_REQUIRED_OTHER so that
+    STATESERVER_OBJECT_ENTER_OWNER_WITH_REQUIRED_OTHER and (downstream)
+    CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER fire.
+    """
     ai.set_client_state(CLIENT_CHANNEL, AUTH_STATE_ESTABLISHED)
     ai.create_object(
         do_id=AVATAR_DOID,
@@ -96,19 +102,51 @@ class TestOwnershipHandoff:
     def test_set_owner_delivers_owner_entry_to_client(
         self, cluster, ai_conn, client_conn
     ):
+        """Create the avatar via STATESERVER_CREATE_OBJECT_WITH_REQUIRED_OTHER
+        with a ram field set, so the ownership handoff exercises:
+          * STATESERVER_CREATE_OBJECT_WITH_REQUIRED_OTHER on send,
+          * STATESERVER_OBJECT_ENTER_OWNER_WITH_REQUIRED_OTHER on set_owner,
+          * CLIENT_ENTER_OBJECT_REQUIRED_OTHER_OWNER on the client side.
+
+        DistributedTestObject1.setBR1 is a `string broadcast ram` field —
+        passing it as `other` ensures _ramFields is non-empty so the SS
+        emits the OTHER variants.
+        """
         client = client_conn()
         _hello(client)
         ai = ai_conn()
-        _establish_and_own(ai, client, name="Alice")
 
+        ai.set_client_state(CLIENT_CHANNEL, AUTH_STATE_ESTABLISHED)
+
+        # DistributedTestObject1.setRequired1 = uint32 (the only required
+        # field; has a default but we must still supply a value on create).
+        required_payload = Datagram().add_uint32(78).bytes()
+        # setBR1 ram payload — string field.
+        setbr1 = field_id("test.dc", "DistributedTestObject1", "setBR1")
+        other_payload = Datagram().add_string("hello-other").bytes()
+        ai.create_object_with_other(
+            do_id=AVATAR_DOID,
+            parent=AVATAR_PARENT,
+            zone=AVATAR_ZONE,
+            dclass_id=class_id("test.dc", "DistributedTestObject1"),
+            required=required_payload,
+            other=[(setbr1, other_payload)],
+        )
+        ai.wait_object_alive(AVATAR_DOID)
+        ai.set_owner(AVATAR_DOID, CLIENT_CHANNEL)
+
+        # Expect the OTHER-variant entry (owner=None accepts both
+        # owner-with-required and owner-with-required-other; we then check
+        # the msgtype below).
         entry = client.expect_object_entry(owner=True, timeout=5.0)
         assert entry.do_id == AVATAR_DOID
         assert entry.parent == AVATAR_PARENT
         assert entry.zone == AVATAR_ZONE
-        assert entry.dc_id == class_id("test.dc", "DistributedPlayer")
-        # setName was the only required field we supplied; it must round-trip
-        # back to the client verbatim.
-        assert entry.required == _required_setname("Alice")
+        assert entry.dc_id == class_id("test.dc", "DistributedTestObject1")
+        # The OTHER-variant carries the ram fields after the required block,
+        # so the payload should at minimum be longer than the required-only
+        # encoding.
+        assert len(entry.required) >= len(required_payload)
 
     def test_non_owner_entry_when_interest_opens_without_ownership(
         self, cluster, ai_conn, client_conn

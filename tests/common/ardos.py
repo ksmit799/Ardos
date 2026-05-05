@@ -49,6 +49,7 @@ from .msgtypes import (
     CONTROL_CHANNEL,
     CONTROL_REMOVE_CHANNEL,
     STATESERVER_CREATE_OBJECT_WITH_REQUIRED,
+    STATESERVER_CREATE_OBJECT_WITH_REQUIRED_OTHER,
     STATESERVER_OBJECT_DELETE_RAM,
     STATESERVER_OBJECT_GET_LOCATION,
     STATESERVER_OBJECT_GET_LOCATION_RESP,
@@ -666,7 +667,12 @@ class ClientConnection(MDConnection):
         return ClientFieldUpdate(do_id=received_id, field_id=field_id, payload=payload)
 
     def expect_eject(self, *, reason: Optional[int] = None, timeout: float = 2.0):
-        """Wait for a CLIENT_EJECT and return (reason, message)."""
+        """Wait for a CLIENT_EJECT and return (reason, message).
+
+        Records the disconnect reason in the coverage tracker so the
+        ClientDisconnects enum gets exercised — reasons are read as raw
+        uint16s otherwise and the tracker would never see them.
+        """
         got = self.recv(timeout=timeout)
         it = DatagramIterator(got)
         mt = it.read_client_msgtype()
@@ -675,6 +681,7 @@ class ClientConnection(MDConnection):
                 f"expected CLIENT_EJECT; got {mt} ({symbol_for(mt)})"
             )
         got_reason = it.read_uint16()
+        tracker.record_recv(got_reason)
         msg = it.read_string()
         if reason is not None and got_reason != reason:
             raise AssertionError(
@@ -870,6 +877,38 @@ class AIConnection(ChannelConnection):
             .add_uint16(dclass_id)
             .add_raw(required)
         )
+        self.send(dg)
+
+    def create_object_with_other(
+        self,
+        do_id: int,
+        parent: int,
+        zone: int,
+        dclass_id: int,
+        required: bytes = b"",
+        other: Sequence = (),
+    ) -> None:
+        """Create a DistributedObject with both required and ram (`other`)
+        fields. Wire format adds [uint16 otherCount][fieldId, value]+ after
+        the required block — see StateServerImplementation::HandleGenerate.
+
+        ``other`` is a sequence of ``(field_id, packed_value_bytes)`` tuples.
+        Pack each value with a Datagram builder and call ``.bytes()``.
+        """
+        dg = (
+            Datagram.create(
+                [self.ss_channel], sender=self.ai_channel,
+                msgtype=STATESERVER_CREATE_OBJECT_WITH_REQUIRED_OTHER,
+            )
+            .add_uint32(do_id)
+            .add_uint32(parent)
+            .add_uint32(zone)
+            .add_uint16(dclass_id)
+            .add_raw(required)
+            .add_uint16(len(other))
+        )
+        for field_id_, payload in other:
+            dg.add_uint16(field_id_).add_raw(payload)
         self.send(dg)
 
 

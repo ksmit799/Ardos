@@ -10,7 +10,10 @@ from tests.common.ardos import Datagram, DatagramIterator
 from tests.common.msgtypes import (
     CONTROL_ADD_POST_REMOVE,
     CONTROL_CLEAR_POST_REMOVES,
+    CONTROL_LOG_MESSAGE,
     CONTROL_REMOVE_RANGE,
+    CONTROL_SET_CON_NAME,
+    CONTROL_SET_CON_URL,
 )
 
 CH_A = 1_000_100
@@ -129,3 +132,60 @@ class TestPostRemove:
         victim.close()
 
         watcher.expect_none(timeout=1.0)
+
+
+class TestMDControl:
+    """Wire-format coverage for the remaining control messages.
+
+    These messages either set internal state on the MDParticipant
+    (CONTROL_SET_CON_NAME) or are accepted but currently no-op
+    (CONTROL_SET_CON_URL, CONTROL_LOG_MESSAGE — no handler in
+    md_participant.cpp). Just exercise the send path.
+    """
+
+    def test_set_con_name(self, md, channel_conn):
+        sub = channel_conn()
+        sub.send(
+            Datagram.create_control(CONTROL_SET_CON_NAME)
+            .add_string("test-debug-name")
+        )
+        # Round-trip a normal message to confirm the connection is still
+        # alive after the control message.
+        sub.subscribe(CH_A)
+        sender = channel_conn()
+        sender.send(Datagram.create([CH_A], sender=0, msgtype=4321))
+        got = sub.recv(timeout=2.0)
+        _, _, mt = DatagramIterator(got).read_header()
+        assert mt == 4321
+
+    def test_set_con_url(self, md, channel_conn):
+        """No handler exists for CONTROL_SET_CON_URL in md_participant.cpp;
+        the MD logs an unknown-control-message warning. Send the message to
+        record wire-format coverage; subsequent traffic should still flow."""
+        sub = channel_conn()
+        sub.send(
+            Datagram.create_control(CONTROL_SET_CON_URL)
+            .add_string("http://debug.local")
+        )
+        sub.subscribe(CH_A)
+        sender = channel_conn()
+        sender.send(Datagram.create([CH_A], sender=0, msgtype=4322))
+        got = sub.recv(timeout=2.0)
+        _, _, mt = DatagramIterator(got).read_header()
+        assert mt == 4322
+
+    def test_log_message(self, md, channel_conn):
+        """CONTROL_LOG_MESSAGE is currently a no-op. Just exercise the
+        wire-format path — the MD should warn and continue."""
+        sub = channel_conn()
+        sub.send(
+            Datagram.create_control(CONTROL_LOG_MESSAGE)
+            .add_string("test log line")
+        )
+        # Confirm normal traffic still flows.
+        sub.subscribe(CH_A)
+        sender = channel_conn()
+        sender.send(Datagram.create([CH_A], sender=0, msgtype=4323))
+        got = sub.recv(timeout=2.0)
+        _, _, mt = DatagramIterator(got).read_header()
+        assert mt == 4323

@@ -11,11 +11,22 @@ from tests.common.msgtypes import (
     DBSERVER_CREATE_OBJECT,
     DBSERVER_CREATE_OBJECT_RESP,
     DBSERVER_OBJECT_DELETE,
+    DBSERVER_OBJECT_DELETE_FIELD,
+    DBSERVER_OBJECT_DELETE_FIELDS,
     DBSERVER_OBJECT_GET_ALL,
     DBSERVER_OBJECT_GET_ALL_RESP,
     DBSERVER_OBJECT_GET_FIELD,
     DBSERVER_OBJECT_GET_FIELD_RESP,
+    DBSERVER_OBJECT_GET_FIELDS,
+    DBSERVER_OBJECT_GET_FIELDS_RESP,
     DBSERVER_OBJECT_SET_FIELD,
+    DBSERVER_OBJECT_SET_FIELDS,
+    DBSERVER_OBJECT_SET_FIELD_IF_EMPTY,
+    DBSERVER_OBJECT_SET_FIELD_IF_EMPTY_RESP,
+    DBSERVER_OBJECT_SET_FIELD_IF_EQUALS,
+    DBSERVER_OBJECT_SET_FIELD_IF_EQUALS_RESP,
+    DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS,
+    DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS_RESP,
 )
 
 DB_CHANNEL = 4003
@@ -121,3 +132,200 @@ class TestDelete:
         assert mt == DBSERVER_OBJECT_GET_ALL_RESP
         assert it.read_uint32() == 9
         assert it.read_uint8() == 0
+
+
+class TestDBMultiField:
+    """Multi-field and conditional set/get/delete on the DB.
+
+    Wire formats from src/database/database_server.cpp:
+      - GET_FIELDS:     [ctx][doId][count][fieldId]+
+      - SET_FIELDS:     [doId][count][fieldId, value]+
+      - SET_FIELD_IF_EMPTY:    [ctx][doId][fieldId][value]
+      - SET_FIELD_IF_EQUALS:   [ctx][doId][fieldId][expected][newValue]
+      - SET_FIELDS_IF_EQUALS:  [ctx][doId][count][fieldId, expected, newValue]+
+      - DELETE_FIELD:   [doId][fieldId]
+      - DELETE_FIELDS:  [doId][count][fieldId]+
+    """
+
+    def _create_and_get_id(self, sender, name="multi") -> int:
+        sender.send(_create_player(name))
+        it = DatagramIterator(sender.recv(timeout=5.0))
+        it.read_header(); it.read_uint32()
+        return it.read_uint32()
+
+    def _setname_field(self) -> int:
+        return field_id("test.dc", "DistributedPlayer", "setName")
+
+    def test_get_fields_round_trip(self, db, channel_conn):
+        sender = channel_conn(SENDER)
+        sender.flush()
+        do_id = self._create_and_get_id(sender, "alpha")
+
+        setname = self._setname_field()
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_GET_FIELDS)
+            .add_uint32(50).add_uint32(do_id).add_uint16(1).add_uint16(setname)
+        )
+        sender.send(dg)
+        it = DatagramIterator(sender.recv(timeout=5.0))
+        _, _, mt = it.read_header()
+        assert mt == DBSERVER_OBJECT_GET_FIELDS_RESP
+        assert it.read_uint32() == 50
+        assert it.read_uint8() == 1   # success
+        assert it.read_uint16() == 1  # count
+
+    def test_set_fields_round_trip(self, db, channel_conn):
+        sender = channel_conn(SENDER)
+        sender.flush()
+        do_id = self._create_and_get_id(sender, "beta")
+
+        setname = self._setname_field()
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_SET_FIELDS)
+            .add_uint32(do_id).add_uint16(1).add_uint16(setname).add_string("beta-set")
+        )
+        sender.send(dg)
+
+        # Verify with a follow-up GET_FIELD.
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_GET_FIELD)
+            .add_uint32(60).add_uint32(do_id).add_uint16(setname)
+        )
+        sender.send(dg)
+        it = DatagramIterator(sender.recv(timeout=5.0))
+        it.read_header(); it.read_uint32(); assert it.read_uint8() == 1
+        it.read_uint16()
+        assert it.read_string() == "beta-set"
+
+    def test_set_field_if_empty_when_present(self, db, channel_conn):
+        """When the field already exists, SET_FIELD_IF_EMPTY responds with
+        failure and includes the existing field."""
+        sender = channel_conn(SENDER)
+        sender.flush()
+        do_id = self._create_and_get_id(sender, "gamma")
+
+        setname = self._setname_field()
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_SET_FIELD_IF_EMPTY)
+            .add_uint32(70).add_uint32(do_id).add_uint16(setname).add_string("not-applied")
+        )
+        sender.send(dg)
+
+        # No reply is sent on success/failure for SET_FIELD_IF_EMPTY in the
+        # current implementation — verify via GET_FIELD that name is unchanged.
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_GET_FIELD)
+            .add_uint32(71).add_uint32(do_id).add_uint16(setname)
+        )
+        sender.send(dg)
+        it = DatagramIterator(sender.recv(timeout=5.0))
+        it.read_header(); it.read_uint32(); assert it.read_uint8() == 1
+        it.read_uint16()
+        assert it.read_string() == "gamma"
+
+    def test_set_field_if_equals_match(self, db, channel_conn):
+        """When the expected value matches, SET_FIELD_IF_EQUALS replies with
+        success=true and updates the field."""
+        sender = channel_conn(SENDER)
+        sender.flush()
+        do_id = self._create_and_get_id(sender, "delta")
+
+        setname = self._setname_field()
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_SET_FIELD_IF_EQUALS)
+            .add_uint32(80).add_uint32(do_id).add_uint16(setname)
+            .add_string("delta")        # expected
+            .add_string("delta-2")      # new value
+        )
+        sender.send(dg)
+        it = DatagramIterator(sender.recv(timeout=5.0))
+        _, _, mt = it.read_header()
+        assert mt == DBSERVER_OBJECT_SET_FIELD_IF_EQUALS_RESP
+        assert it.read_uint32() == 80
+        assert it.read_uint8() == 1  # success
+
+    def test_set_field_if_equals_mismatch(self, db, channel_conn):
+        """When expected mismatches, RESP carries success=false and the
+        actual stored field."""
+        sender = channel_conn(SENDER)
+        sender.flush()
+        do_id = self._create_and_get_id(sender, "epsilon")
+
+        setname = self._setname_field()
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_SET_FIELD_IF_EQUALS)
+            .add_uint32(90).add_uint32(do_id).add_uint16(setname)
+            .add_string("WRONG")
+            .add_string("never-applied")
+        )
+        sender.send(dg)
+        it = DatagramIterator(sender.recv(timeout=5.0))
+        _, _, mt = it.read_header()
+        assert mt == DBSERVER_OBJECT_SET_FIELD_IF_EQUALS_RESP
+        assert it.read_uint32() == 90
+        assert it.read_uint8() == 0  # failure
+
+    def test_set_fields_if_equals_match(self, db, channel_conn):
+        sender = channel_conn(SENDER)
+        sender.flush()
+        do_id = self._create_and_get_id(sender, "zeta")
+
+        setname = self._setname_field()
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS)
+            .add_uint32(100).add_uint32(do_id).add_uint16(1)
+            .add_uint16(setname).add_string("zeta").add_string("zeta-2")
+        )
+        sender.send(dg)
+        it = DatagramIterator(sender.recv(timeout=5.0))
+        _, _, mt = it.read_header()
+        assert mt == DBSERVER_OBJECT_SET_FIELDS_IF_EQUALS_RESP
+        assert it.read_uint32() == 100
+        assert it.read_uint8() == 1
+
+    def test_delete_field(self, db, channel_conn):
+        sender = channel_conn(SENDER)
+        sender.flush()
+        do_id = self._create_and_get_id(sender, "eta")
+
+        setname = self._setname_field()
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_DELETE_FIELD)
+            .add_uint32(do_id).add_uint16(setname)
+        )
+        sender.send(dg)
+
+        # Verify: GET_FIELD on the deleted field — the DB falls back to the
+        # default value. setName has no default so the GET should still
+        # respond (success may be true with default, or false if no fallback).
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_GET_FIELD)
+            .add_uint32(110).add_uint32(do_id).add_uint16(setname)
+        )
+        sender.send(dg)
+        it = DatagramIterator(sender.recv(timeout=5.0))
+        _, _, mt = it.read_header()
+        assert mt == DBSERVER_OBJECT_GET_FIELD_RESP
+        assert it.read_uint32() == 110
+
+    def test_delete_fields(self, db, channel_conn):
+        sender = channel_conn(SENDER)
+        sender.flush()
+        do_id = self._create_and_get_id(sender, "theta")
+
+        setname = self._setname_field()
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_DELETE_FIELDS)
+            .add_uint32(do_id).add_uint16(1).add_uint16(setname)
+        )
+        sender.send(dg)
+        # No response message; verify via a follow-up GET_FIELD round trip.
+        dg = (
+            Datagram.create([DB_CHANNEL], sender=SENDER, msgtype=DBSERVER_OBJECT_GET_FIELD)
+            .add_uint32(120).add_uint32(do_id).add_uint16(setname)
+        )
+        sender.send(dg)
+        it = DatagramIterator(sender.recv(timeout=5.0))
+        _, _, mt = it.read_header()
+        assert mt == DBSERVER_OBJECT_GET_FIELD_RESP
+        assert it.read_uint32() == 120
