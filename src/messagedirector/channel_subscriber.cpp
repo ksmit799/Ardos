@@ -79,7 +79,7 @@ void ChannelSubscriber::SubscribeChannel(const uint64_t& channel) {
   // ... and register it as a newly opened global channel.
   _globalChannels[channel] = 1;
 
-  spdlog::get("md")->debug("Subscribe channel {} (binding new)", channel);
+  spdlog::get("md")->trace("Subscribe channel {} (binding new)", channel);
 }
 
 void ChannelSubscriber::UnsubscribeChannel(const uint64_t& channel) {
@@ -122,7 +122,7 @@ void ChannelSubscriber::SubscribeRange(const uint64_t& min,
     }
   }
 
-  spdlog::get("md")->debug("Subscribe range [{}, {}] (buckets {}..{})", min,
+  spdlog::get("md")->trace("Subscribe range [{}, {}] (buckets {}..{})", min,
                            max, minBucket, maxBucket);
 }
 
@@ -164,7 +164,7 @@ void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram>& dg) {
     uint64_t channel = dgi.GetUint64();
     std::string routingKey = BuildChannelRoutingKey(channel);
 
-    spdlog::get("md")->debug("Publish chan={} bucket={} size={}B", channel,
+    spdlog::get("md")->trace("Publish chan={} bucket={} size={}B", channel,
                              channel >> kChannelBucketShift, dg->Size());
 
     // Deliver to in-process subscribers. Avoids the subscribe-then-publish
@@ -189,7 +189,7 @@ void ChannelSubscriber::HandleUpdate(const std::string& routingKey,
   bool inLocal = _localChannels.contains(channel);
   bool inRange = !inLocal && WithinLocalRange(channel);
 
-  spdlog::get("md")->debug("HandleUpdate chan={} sub={} inLocal={} inRange={}",
+  spdlog::get("md")->trace("HandleUpdate chan={} sub={} inLocal={} inRange={}",
                            channel, static_cast<const void*>(this), inLocal,
                            inRange);
 

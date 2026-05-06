@@ -1,5 +1,5 @@
 # Global console output log level.
-# Options are debug, info, warn, error or none.
+# Options are trace, debug, info, warn, error or none.
 log-level: info
 
 # DC (Distributed Class) file paths.

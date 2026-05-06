@@ -119,7 +119,7 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram>& dg) {
 }
 
 void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
-  spdlog::get("md")->debug("MDP '{}' forwarding {}B to socket", _connName,
+  spdlog::get("md")->trace("MDP '{}' forwarding {}B to socket", _connName,
                            dg->Size());
   // Forward messages from the MD to the connected participant.
   SendDatagram(dg);

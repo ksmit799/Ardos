@@ -325,7 +325,7 @@ void MessageDirector::DeliverLocally(const std::string& routingKey,
   bool hasCh = ChannelSubscriber::_globalChannels.contains(channel);
   bool hasBkt = ChannelSubscriber::_globalBuckets.contains(bucket);
 
-  spdlog::get("md")->debug(
+  spdlog::get("md")->trace(
       "DeliverLocally chan={} bucket={} hasCh={} hasBkt={} subs={}", channel,
       bucket, hasCh, hasBkt, _subscribers.size());
 
