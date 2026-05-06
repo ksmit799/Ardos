@@ -329,22 +329,26 @@ void MessageDirector::DeliverLocally(const std::string& routingKey,
       "DeliverLocally chan={} bucket={} hasCh={} hasBkt={} subs={}", channel,
       bucket, hasCh, hasBkt, _subscribers.size());
 
+  ++_dispatchDepth;
+
   if (hasCh || hasBkt) {
     // Snapshot before iterating: a handler may construct a new
     // ChannelSubscriber (whose ctor inserts into _subscribers and may
-    // rehash). Iterating a separate vector keeps us safe from that.
-    _dispatchBuffer.assign(_subscribers.begin(), _subscribers.end());
-    for (auto* subscriber : _dispatchBuffer) {
+    // rehash). Stack-local vector -- a member buffer would be clobbered
+    // by re-entrant DeliverLocally calls from cascaded handlers.
+    std::vector<ChannelSubscriber*> snapshot(_subscribers.begin(),
+                                             _subscribers.end());
+    for (auto* subscriber : snapshot) {
       subscriber->HandleUpdate(routingKey, dg);
     }
   }
 
-  // Drain unconditionally -- even a no-op DeliverLocally (no matching
-  // subscribers) is a chance to garbage-collect torn-down subscribers
-  // queued via RemoveSubscriber. Without this, a daemon whose only
-  // traffic is loopback (single-MD test, or just a quiet cluster) leaks
-  // every disconnected DO/CP/MDP indefinitely.
-  DrainLeavingSubscribers();
+  // Drain only at the outermost dispatch. Nested cascades must defer --
+  // otherwise the inner drain deletes subscribers still referenced by
+  // an outer call's snapshot.
+  if (--_dispatchDepth == 0) {
+    DrainLeavingSubscribers();
+  }
 }
 
 /**
@@ -486,16 +490,24 @@ void MessageDirector::StartConsuming() {
         // Forward the message to channel subscribers. Snapshot before
         // iterating -- a handler can synchronously construct a new
         // ChannelSubscriber (rehashes _subscribers and invalidates the
-        // active iterator). If they're not subscribed to the channel,
-        // they'll ignore it.
-        _dispatchBuffer.assign(_subscribers.begin(), _subscribers.end());
-        for (auto* subscriber : _dispatchBuffer) {
-          subscriber->HandleUpdate(message.routingkey(), dg);
+        // active iterator). Stack-local: nested DeliverLocally calls
+        // would clobber a shared buffer. If they're not subscribed to
+        // the channel, they'll ignore it.
+        ++_dispatchDepth;
+        {
+          std::vector<ChannelSubscriber*> snapshot(_subscribers.begin(),
+                                                   _subscribers.end());
+          for (auto* subscriber : snapshot) {
+            subscriber->HandleUpdate(message.routingkey(), dg);
+          }
         }
 
-        // Delete any subscribers that were annihilated while handling the
-        // message.
-        DrainLeavingSubscribers();
+        // Delete any subscribers that were annihilated while handling
+        // the message. Only drain at the outermost dispatch to avoid
+        // freeing subscribers still referenced by nested call snapshots.
+        if (--_dispatchDepth == 0) {
+          DrainLeavingSubscribers();
+        }
       })
       .onCancelled([](const std::string& consumerTag) {
         spdlog::get("md")->error("Channel consuming cancelled unexpectedly.");
