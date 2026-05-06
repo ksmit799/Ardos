@@ -43,7 +43,7 @@ def generate_config(
     ca: bool = False,
     db: bool = False,
     dbss: bool = False,
-    log_level: str = "debug",
+    log_level: str = "trace",
     md_port: int = 7100,
     ca_port: int = 6667,
     ss_channel: int = 1000,
