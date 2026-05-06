@@ -1,5 +1,7 @@
 #include <dcFile.h>
 
+#include <algorithm>
+
 #include "../net/message_types.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
@@ -11,12 +13,10 @@ static bool ZoneInConfiguredSet(const ClientAgent* agent, uint32_t zoneId) {
   if (agent->GetInterestZones().contains(zoneId)) {
     return true;
   }
-  for (const auto& [lo, hi] : agent->GetInterestZoneRanges()) {
-    if (zoneId >= lo && zoneId <= hi) {
-      return true;
-    }
-  }
-  return false;
+  return std::ranges::any_of(agent->GetInterestZoneRanges(),
+                             [zoneId](const auto& r) {
+                               return zoneId >= r.first && zoneId <= r.second;
+                             });
 }
 
 void ClientParticipant::HandleClientAddInterest(DatagramIterator& dgi,
@@ -188,9 +188,9 @@ void ClientParticipant::AddInterest(Interest& i, const uint32_t& context,
 
   // Create and store a new interest operation for the incoming objects from the
   // state server.
-  auto iop = new InterestOperation(this, _clientAgent->GetInterestTimeout(),
-                                   i.id, context, requestContext, i.parent,
-                                   newZones, caller);
+  auto* iop = new InterestOperation(this, _clientAgent->GetInterestTimeout(),
+                                    i.id, context, requestContext, i.parent,
+                                    newZones, caller);
   _pendingInterests[requestContext] = iop;
 
   auto dg = std::make_shared<Datagram>(i.parent, _channel,
@@ -376,7 +376,9 @@ void ClientParticipant::RequestParentClass(const uint32_t& parentId) {
   entry.timeout->on<uvw::timer_event>(
       [this, context, alive = _alive](const uvw::timer_event&,
                                       uvw::timer_handle&) {
-        if (!*alive) return;
+        if (!*alive) {
+          return;
+        }
         HandleParentClassLookupTimeout(context);
       });
   entry.timeout->start(
@@ -452,7 +454,8 @@ void ClientParticipant::HandleGetClassResp(DatagramIterator& dgi) {
   if (!TryParseParentingRule(parentClass, rule)) {
     // Parse failure or no rule => Stated-equivalent. Record the parent so
     // A->B->A dedupe still works, but don't open anything.
-    _avatarParentRule = AvatarParentRule{requestedParent, ParentingRule{}, 0};
+    _avatarParentRule = AvatarParentRule{
+        .parentId = requestedParent, .rule = ParentingRule{}, .interestId = 0};
     return;
   }
 
@@ -514,7 +517,8 @@ void ClientParticipant::ApplyAvatarParentRule(const uint32_t& parentId,
       rule.kind == ParentingRuleKind::Auto) {
     // Auto is a per-interest-open rule, not an avatar-parent one, so for
     // the purposes of tracking the avatar's parent it behaves like Stated.
-    _avatarParentRule = AvatarParentRule{parentId, rule, 0};
+    _avatarParentRule =
+        AvatarParentRule{.parentId = parentId, .rule = rule, .interestId = 0};
     return;
   }
 
@@ -528,7 +532,8 @@ void ClientParticipant::ApplyAvatarParentRule(const uint32_t& parentId,
   }
 
   uint16_t id = AllocateInternalInterestId();
-  _avatarParentRule = AvatarParentRule{parentId, rule, id};
+  _avatarParentRule =
+      AvatarParentRule{.parentId = parentId, .rule = rule, .interestId = id};
 
   if (zones.empty()) {
     // Off-grid or no avatar zone yet; nothing to open, but keep the slot

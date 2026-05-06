@@ -13,7 +13,7 @@
 
 namespace Ardos {
 
-enum AuthState {
+enum AuthState : std::uint8_t {
   AUTH_STATE_NEW,
   AUTH_STATE_ANONYMOUS,
   AUTH_STATE_ESTABLISHED,

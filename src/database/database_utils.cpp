@@ -16,7 +16,7 @@ bool DatabaseUtils::UnpackFields(DatagramIterator& dgi,
                                  const bool& clearFields) {
   for (uint16_t i = 0; i < fieldCount; ++i) {
     uint16_t fieldId = dgi.GetUint16();
-    auto field = g_dc_file->get_field_by_index(fieldId);
+    auto* field = g_dc_file->get_field_by_index(fieldId);
     if (!field) {
       spdlog::get("db")->error("Attempted to unpack invalid field ID: {}",
                                fieldId);
@@ -64,7 +64,7 @@ bool DatabaseUtils::UnpackFields(DatagramIterator& dgi,
                                  FieldMap& expectedOut) {
   for (uint16_t i = 0; i < fieldCount; ++i) {
     uint16_t fieldId = dgi.GetUint16();
-    auto field = g_dc_file->get_field_by_index(fieldId);
+    auto* field = g_dc_file->get_field_by_index(fieldId);
     if (!field) {
       spdlog::get("db")->error("Attempted to unpack invalid field ID: {}",
                                fieldId);
@@ -101,7 +101,8 @@ void DatabaseUtils::FieldToBson(
     bsoncxx::builder::stream::single_context builder, DCPacker& packer) {
   // Check if we have an atomic field.
   // If we do, recursively unpack into an array.
-  auto atomicField = packer.get_current_field()->as_field()->as_atomic_field();
+  const auto* atomicField =
+      packer.get_current_field()->as_field()->as_atomic_field();
   if (atomicField != nullptr) {
     auto arrayBuilder = builder << bsoncxx::builder::stream::open_array;
 
@@ -151,12 +152,15 @@ void DatabaseUtils::FieldToBson(
         // bson gets upset if passed a nullptr here, but it's valid for
         // vector.data() to return nullptr if it's empty, so we just insert
         // nothing:
-        builder << bsoncxx::types::b_binary{bsoncxx::binary_sub_type::k_binary,
-                                            0, (const uint8_t*)1};
+        builder << bsoncxx::types::b_binary{
+            .sub_type = bsoncxx::binary_sub_type::k_binary,
+            .size = 0,
+            .bytes = (const uint8_t*)1};
       } else {
-        builder << bsoncxx::types::b_binary{bsoncxx::binary_sub_type::k_binary,
-                                            static_cast<uint32_t>(blob.size()),
-                                            blob.data()};
+        builder << bsoncxx::types::b_binary{
+            .sub_type = bsoncxx::binary_sub_type::k_binary,
+            .size = static_cast<uint32_t>(blob.size()),
+            .bytes = blob.data()};
       }
       break;
     }
@@ -339,7 +343,7 @@ void DatabaseUtils::BsonToField(const DCSubatomicType& fieldType,
         auto arrLength = std::distance(arr.begin(), arr.end());
 
         dg.AddUint16(arrLength);
-        for (size_t i = 0; i < arrLength;) {
+        for (auto i = decltype(arrLength){0}; i < arrLength;) {
           dg.AddUint32(BsonToNumber<uint32_t>(
               value.get_array().value[i].get_value(), divisor));
           dg.AddUint8(BsonToNumber<uint8_t>(
@@ -365,7 +369,7 @@ void DatabaseUtils::BsonToField(const DCSubatomicType& fieldType,
 void DatabaseUtils::PackField(const DCField* field,
                               const bsoncxx::types::bson_value::view& value,
                               Datagram& dg) {
-  auto atomicField = field->as_atomic_field();
+  const auto* atomicField = field->as_atomic_field();
   if (atomicField != nullptr) {
     // We have an atomic field.
     // E.g. setName(string);
@@ -378,11 +382,11 @@ void DatabaseUtils::PackField(const DCField* field,
     return;
   }
 
-  auto fieldParameter = field->as_parameter();
+  const auto* fieldParameter = field->as_parameter();
 
   // Do we have a simple field (atomic) field type?
   // E.g. string, int32, uint32array, etc.
-  auto fieldSimple = fieldParameter->as_simple_parameter();
+  const auto* fieldSimple = fieldParameter->as_simple_parameter();
   if (fieldSimple != nullptr) {
     DatabaseUtils::BsonToField(fieldSimple->get_type(), field->get_name(),
                                value, fieldSimple->get_divisor(), dg);
@@ -390,17 +394,17 @@ void DatabaseUtils::PackField(const DCField* field,
 
   // Do we have a class field type?
   // E.g. MyClass, AccountInfo, etc.
-  auto fieldClass = fieldParameter->as_class_parameter();
+  const auto* fieldClass = fieldParameter->as_class_parameter();
   if (fieldClass != nullptr) {
     DatabaseUtils::BsonToClass(fieldClass, value, dg);
   }
 
   // Do we have an array field type?
   // E.g. int32[], uint8[], MyClass[], etc.
-  auto fieldArray = fieldParameter->as_array_parameter();
+  const auto* fieldArray = fieldParameter->as_array_parameter();
   if (fieldArray != nullptr) {
     // Do we have an array of a simple (atomic) type?
-    auto elemParamSimple =
+    auto* elemParamSimple =
         fieldArray->get_element_type()->as_simple_parameter();
     if (elemParamSimple) {
       auto fieldType = elemParamSimple->get_type();
@@ -416,7 +420,7 @@ void DatabaseUtils::PackField(const DCField* field,
     }
 
     // Do we have an array of a class type?
-    auto elemParamClass = fieldArray->get_element_type()->as_class_parameter();
+    auto* elemParamClass = fieldArray->get_element_type()->as_class_parameter();
     if (elemParamClass) {
       Datagram arrDg;
 
@@ -434,7 +438,7 @@ void DatabaseUtils::BsonToClass(const DCClassParameter* dclass,
                                 Datagram& dg) {
   auto numFields = dclass->get_num_nested_fields();
   for (int i = 0; i < numFields; i++) {
-    auto field = dclass->get_nested_field(i)->as_field();
+    auto* field = dclass->get_nested_field(i)->as_field();
     PackField(field, value.get_document().value[field->get_name()].get_value(),
               dg);
   }

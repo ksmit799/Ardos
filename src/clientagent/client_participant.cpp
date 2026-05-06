@@ -48,7 +48,9 @@ ClientParticipant::ClientParticipant(
     _heartbeatTimer = g_loop->resource<uvw::timer_handle>();
     _heartbeatTimer->on<uvw::timer_event>(
         [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
-          if (!*alive) return;
+          if (!*alive) {
+            return;
+          }
           HandleHeartbeatTimeout();
         });
   }
@@ -58,7 +60,9 @@ ClientParticipant::ClientParticipant(
     _authTimer = g_loop->resource<uvw::timer_handle>();
     _authTimer->on<uvw::timer_event>(
         [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
-          if (!*alive) return;
+          if (!*alive) {
+            return;
+          }
           HandleAuthTimeout();
         });
 
@@ -71,7 +75,9 @@ ClientParticipant::ClientParticipant(
     _historicalTimer = g_loop->resource<uvw::timer_handle>();
     _historicalTimer->on<uvw::timer_event>(
         [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
-          if (!*alive) return;
+          if (!*alive) {
+            return;
+          }
           CleanupHistorical();
         });
 

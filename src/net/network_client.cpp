@@ -95,6 +95,7 @@ void NetworkClient::HandleClose(uv_errno_t code) {
   HandleDisconnect(code);
 }
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays): unique_ptr<char[]> from uvw read
 void NetworkClient::HandleData(const std::unique_ptr<char[]>& data,
                                size_t size) {
   // We can't directly handle datagrams as it's possible that multiple have been
@@ -153,11 +154,13 @@ void NetworkClient::SendDatagram(const std::shared_ptr<Datagram>& dg) {
   }
 
   const size_t sendSize = sizeof(uint16_t) + dg->Size();
+  // runtime-sized buffer for uvw write:
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays)
   auto sendBuffer = std::unique_ptr<char[]>(new char[sendSize]);
 
   const uint16_t dgSize = dg->Size();
 
-  const auto sendPtr = &sendBuffer.get()[0];
+  auto* const sendPtr = &sendBuffer.get()[0];
   // Datagram size tag.
   memcpy(sendPtr, &dgSize, sizeof(uint16_t));
   // Datagram data.

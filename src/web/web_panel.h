@@ -17,9 +17,9 @@ class WebPanel {
 
   static WebPanel* Instance;
 
-  typedef struct {
+  struct ClientData {
     bool authed;
-  } ClientData;
+  };
 
  private:
   void HandleData(ws28::Client* client, const std::string& data);

@@ -74,12 +74,12 @@ WebPanel::WebPanel() {
     if (SSL_CTX_use_certificate_file(ctx, _cert.c_str(), SSL_FILETYPE_PEM) <=
         0) {
       spdlog::get("web")->error("Failed to load cert file: {}", _cert);
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
 
     if (SSL_CTX_use_PrivateKey_file(ctx, _key.c_str(), SSL_FILETYPE_PEM) <= 0) {
       spdlog::get("web")->error("Failed to load private key file: {}", _cert);
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
 
     _server = std::make_unique<ws28::Server>(g_loop->raw(), ctx);
@@ -144,7 +144,7 @@ void WebPanel::HandleData(ws28::Client* client, const std::string& data) {
 
   // Parse the request data and client data.
   nlohmann::json message = nlohmann::json::parse(data);
-  auto clientData = (ClientData*)client->GetUserData();
+  auto* clientData = (ClientData*)client->GetUserData();
 
   // Make sure the request is valid.
   if (!message.contains("type") || !message["type"].is_string()) {
@@ -189,7 +189,7 @@ void WebPanel::HandleData(ws28::Client* client, const std::string& data) {
     MessageDirector::Instance()->HandleWeb(client, message);
   } else if (messageType == "ss") {
     // Handle the request on the State Server.
-    auto ss = MessageDirector::Instance()->GetStateServer();
+    auto* ss = MessageDirector::Instance()->GetStateServer();
     if (ss) {
       ss->HandleWeb(client, message);
     } else {
@@ -200,7 +200,7 @@ void WebPanel::HandleData(ws28::Client* client, const std::string& data) {
     }
   } else if (messageType == "ca") {
     // Handle the request on the Client Agent.
-    auto ca = MessageDirector::Instance()->GetClientAgent();
+    auto* ca = MessageDirector::Instance()->GetClientAgent();
     if (ca) {
       ca->HandleWeb(client, message);
     } else {
@@ -211,7 +211,7 @@ void WebPanel::HandleData(ws28::Client* client, const std::string& data) {
     }
   } else if (messageType == "db") {
     // Handle the request on the Database Server.
-    auto db = MessageDirector::Instance()->GetDbServer();
+    auto* db = MessageDirector::Instance()->GetDbServer();
     if (db) {
       db->HandleWeb(client, message);
     } else {
@@ -222,7 +222,7 @@ void WebPanel::HandleData(ws28::Client* client, const std::string& data) {
     }
   } else if (messageType == "dbss") {
     // Handle the request on the Database State Server.
-    auto dbss = MessageDirector::Instance()->GetDbStateServer();
+    auto* dbss = MessageDirector::Instance()->GetDbStateServer();
     if (dbss) {
       dbss->HandleWeb(client, message);
     } else {

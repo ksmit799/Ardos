@@ -24,7 +24,9 @@ InterestOperation::InterestOperation(
   _timeout = g_loop->resource<uvw::timer_handle>();
   _timeout->on<uvw::timer_event>(
       [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
-        if (!*alive) return;
+        if (!*alive) {
+          return;
+        }
         HandleInterestTimeout();
       });
 
