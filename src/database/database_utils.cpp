@@ -349,7 +349,7 @@ void DatabaseUtils::BsonToField(const DCSubatomicType& fieldType,
         break;
       }
       case ST_char:
-        if (value.type() != bsoncxx::type::k_string &&
+        if (value.type() != bsoncxx::type::k_string ||
             value.get_string().value.length() != 1) {
           throw ConversionException("Expected char");
         }

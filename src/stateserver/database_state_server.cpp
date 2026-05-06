@@ -340,12 +340,11 @@ void DatabaseStateServer::HandleGetField(DatagramIterator& dgi,
       dbDg->AddUint16(dbFields.size());
     }
     for (const auto& field : dbFields) {
-      dg->AddUint16(field->get_number());
+      dbDg->AddUint16(field->get_number());
     }
     PublishDatagram(dbDg);
-  } else if (!ramFields.empty() && ramFields.back()->has_default_value()) {
-    // If no database fields exist, and we have a RAM field with a default
-    // value...
+  } else if (!ramFields.empty()) {
+    // If no database fields exist, and we have a RAM fields...
     auto dg = std::make_shared<Datagram>(sender, doId, responseType);
     dg->AddUint32(ctx);
     dg->AddBool(true);

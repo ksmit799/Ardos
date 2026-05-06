@@ -68,6 +68,8 @@ class MessageDirector : public AMQP::ConnectionHandler {
 
   void StartConsuming();
 
+  void DrainLeavingSubscribers();
+
   static MessageDirector* _instance;
 
   std::unique_ptr<StateServer> _stateServer;
@@ -79,6 +81,14 @@ class MessageDirector : public AMQP::ConnectionHandler {
   std::unordered_set<ChannelSubscriber*> _subscribers;
   std::unordered_set<ChannelSubscriber*> _leavingSubscribers;
   std::unordered_set<MDParticipant*> _participants;
+
+  // Reusable snapshot buffer for safe iteration over _subscribers. A
+  // handler can synchronously construct a new ChannelSubscriber (e.g. SS
+  // handling a generate spawns a DistributedObject whose ctor inserts
+  // into _subscribers), which would rehash mid-iteration and invalidate
+  // the active iterator. Iterating a vector copy avoids the issue;
+  // making it a member reuses the heap allocation across dispatches.
+  std::vector<ChannelSubscriber*> _dispatchBuffer;
 
   std::shared_ptr<uvw::tcp_handle> _connectHandle;
   std::shared_ptr<uvw::tcp_handle> _listenHandle;

@@ -329,13 +329,35 @@ void MessageDirector::DeliverLocally(const std::string& routingKey,
       "DeliverLocally chan={} bucket={} hasCh={} hasBkt={} subs={}", channel,
       bucket, hasCh, hasBkt, _subscribers.size());
 
-  if (!hasCh && !hasBkt) {
-    return;
+  if (hasCh || hasBkt) {
+    // Snapshot before iterating: a handler may construct a new
+    // ChannelSubscriber (whose ctor inserts into _subscribers and may
+    // rehash). Iterating a separate vector keeps us safe from that.
+    _dispatchBuffer.assign(_subscribers.begin(), _subscribers.end());
+    for (auto* subscriber : _dispatchBuffer) {
+      subscriber->HandleUpdate(routingKey, dg);
+    }
   }
 
-  for (const auto& subscriber : _subscribers) {
-    subscriber->HandleUpdate(routingKey, dg);
+  // Drain unconditionally -- even a no-op DeliverLocally (no matching
+  // subscribers) is a chance to garbage-collect torn-down subscribers
+  // queued via RemoveSubscriber. Without this, a daemon whose only
+  // traffic is loopback (single-MD test, or just a quiet cluster) leaks
+  // every disconnected DO/CP/MDP indefinitely.
+  DrainLeavingSubscribers();
+}
+
+/**
+ * Erases every subscriber queued by RemoveSubscriber, freeing the heap
+ * allocation. Must NEVER run during _subscribers iteration -- callers
+ * invoke this only after their dispatch loop has finished.
+ */
+void MessageDirector::DrainLeavingSubscribers() {
+  for (const auto& it : _leavingSubscribers) {
+    _subscribers.erase(it);
+    delete it;
   }
+  _leavingSubscribers.clear();
 }
 
 /**
@@ -420,7 +442,10 @@ void MessageDirector::StartConsuming() {
         // Drop loopback copies. PublishDatagram tags every outgoing message
         // with our local queue name and delivers synchronously in-process;
         // the broker still fans the message out to us, so ignore that copy.
+        // Still drain leaving subscribers though -- otherwise loopback-only
+        // traffic never gets a chance to clean them up.
         if (message.hasAppID() && message.appID() == _localQueue) {
+          DrainLeavingSubscribers();
           return;
         }
 
@@ -438,6 +463,7 @@ void MessageDirector::StartConsuming() {
         uint64_t bucket = channel >> kChannelBucketShift;
         if (!ChannelSubscriber::_globalChannels.contains(channel) &&
             !ChannelSubscriber::_globalBuckets.contains(bucket)) {
+          DrainLeavingSubscribers();
           return;
         }
 
@@ -457,20 +483,19 @@ void MessageDirector::StartConsuming() {
             reinterpret_cast<const uint8_t*>(message.body()),
             message.bodySize());
 
-        // Forward the message to channel subscribers.
-        // If they're not subscribed to the channel, they'll ignore it.
-        for (const auto& subscriber : _subscribers) {
+        // Forward the message to channel subscribers. Snapshot before
+        // iterating -- a handler can synchronously construct a new
+        // ChannelSubscriber (rehashes _subscribers and invalidates the
+        // active iterator). If they're not subscribed to the channel,
+        // they'll ignore it.
+        _dispatchBuffer.assign(_subscribers.begin(), _subscribers.end());
+        for (auto* subscriber : _dispatchBuffer) {
           subscriber->HandleUpdate(message.routingkey(), dg);
         }
 
         // Delete any subscribers that were annihilated while handling the
         // message.
-        for (const auto& it : _leavingSubscribers) {
-          _subscribers.erase(it);
-          delete it;
-        }
-
-        _leavingSubscribers.clear();
+        DrainLeavingSubscribers();
       })
       .onCancelled([](const std::string& consumerTag) {
         spdlog::get("md")->error("Channel consuming cancelled unexpectedly.");

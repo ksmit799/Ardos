@@ -13,6 +13,12 @@ namespace Ardos {
 
 WebPanel* WebPanel::Instance = nullptr;
 
+WebPanel::~WebPanel() {
+  if (Instance == this) {
+    Instance = nullptr;
+  }
+}
+
 WebPanel::WebPanel() {
   spdlog::info("Starting Web Panel component...");
 
@@ -112,7 +118,9 @@ WebPanel::WebPanel() {
 
   _server->SetClientDataCallback(
       [](ws28::Client* client, char* data, size_t len, int opcode) {
-        Instance->HandleData(client, {data, len});
+        if (Instance != nullptr) {
+          Instance->HandleData(client, {data, len});
+        }
       });
 
   // Start listening!

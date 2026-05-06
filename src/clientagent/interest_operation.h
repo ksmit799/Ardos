@@ -49,6 +49,11 @@ class InterestOperation {
 
   std::vector<std::shared_ptr<Datagram>> _pendingGenerates;
   std::vector<std::shared_ptr<Datagram>> _pendingDatagrams;
+
+  // Liveness flag captured by the timeout lambda. Survives `delete this` in
+  // Finish(); set to false there so a late-firing timer event becomes a
+  // no-op rather than a use-after-free on the destroyed IOP.
+  std::shared_ptr<bool> _alive = std::make_shared<bool>(true);
 };
 
 }  // namespace Ardos

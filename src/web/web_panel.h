@@ -11,6 +11,7 @@ namespace Ardos {
 class WebPanel {
  public:
   WebPanel();
+  ~WebPanel();
 
   static void Send(ws28::Client* client, const nlohmann::json& data);
 
