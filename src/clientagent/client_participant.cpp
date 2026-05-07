@@ -47,7 +47,10 @@ ClientParticipant::ClientParticipant(
     // Set up the heartbeat timeout timer.
     _heartbeatTimer = g_loop->resource<uvw::timer_handle>();
     _heartbeatTimer->on<uvw::timer_event>(
-        [this](const uvw::timer_event&, uvw::timer_handle&) {
+        [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
+          if (!*alive) {
+            return;
+          }
           HandleHeartbeatTimeout();
         });
   }
@@ -56,7 +59,10 @@ ClientParticipant::ClientParticipant(
     // Set up the auth timeout timer.
     _authTimer = g_loop->resource<uvw::timer_handle>();
     _authTimer->on<uvw::timer_event>(
-        [this](const uvw::timer_event&, uvw::timer_handle&) {
+        [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
+          if (!*alive) {
+            return;
+          }
           HandleAuthTimeout();
         });
 
@@ -68,7 +74,10 @@ ClientParticipant::ClientParticipant(
     // Set up the historical object TTL timer.
     _historicalTimer = g_loop->resource<uvw::timer_handle>();
     _historicalTimer->on<uvw::timer_event>(
-        [this](const uvw::timer_event&, uvw::timer_handle&) {
+        [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
+          if (!*alive) {
+            return;
+          }
           CleanupHistorical();
         });
 
@@ -94,6 +103,12 @@ void ClientParticipant::Shutdown() {
   if (_disconnected) {
     return;
   }
+
+  // Mark this participant dead before tearing anything down. Any timer or
+  // async callback that races our cleanup (uvw close() is async; events
+  // queued before close still dispatch) will see *_alive == false and
+  // short-circuit instead of touching half-destroyed state.
+  *_alive = false;
 
   // Kill the network connection.
   NetworkClient::Shutdown();
@@ -192,6 +207,10 @@ void ClientParticipant::HandleDisconnect(uv_errno_t code) {
  * @param dg
  */
 void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
+  if (Disconnected()) {
+    return;
+  }
+
   DatagramIterator dgi(dg);
   dgi.SeekPayload();
 
@@ -239,9 +258,17 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
       uint32_t context = _nextContext++;
 
       uint16_t id = dgi.GetUint16();
-      Interest& i = _interests[id];
+      auto it = _interests.find(id);
+      if (it == _interests.end()) {
+        spdlog::get("ca")->warn(
+            "Client: {} received CLIENTAGENT_REMOVE_INTEREST for "
+            "unknown id: {}",
+            _channel, id);
+        break;
+      }
+
       HandleRemoveInterest(id, context);
-      RemoveInterest(i, context, sender);
+      RemoveInterest(it->second, context, sender);
       break;
     }
     case CLIENTAGENT_SET_CLIENT_ID: {

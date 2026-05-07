@@ -1,0 +1,99 @@
+// Test DC file for Ardos Python test harness.
+// Kept minimal but exercises every field kind/keyword pair we assert on
+// in tests.
+
+dclass DistributedTestObject1 {
+	setRequired1(uint32 r = 78) required broadcast ram;
+	setB1(uint8 x) broadcast;
+	setBA1(uint16 y) broadcast airecv;
+	setBR1(string z) broadcast ram;
+	setBRA1(uint32 BRA) broadcast ram airecv;
+	setBRO1(uint32 BRO) broadcast ram ownrecv;
+};
+
+dclass DistributedTestObject2 {
+	setB2(uint32 test) broadcast;
+	setBRam2(uint32 test) broadcast ram;
+};
+
+dclass DistributedTestObject3 : DistributedTestObject1 {
+	setDb3(string data) ram db;
+	setRDB3(uint32 rdb) required broadcast db;
+	setADb3(string data) ram db airecv;
+};
+
+dclass DistributedTestObject4 {
+	setX(uint32 x) broadcast required;
+	setY(uint32 y) broadcast required;
+	setUnrelated(uint32 lol) broadcast required;
+	setZ(uint32 z) broadcast required;
+
+	setXyz : setX, setY, setZ;
+
+	setOne(uint8 one) broadcast ram;
+	setTwo(uint8 two) broadcast ram;
+	setThree(uint8 three) broadcast ram;
+
+	set123 : setOne, setTwo, setThree;
+};
+
+dclass DistributedTestObject5 : DistributedTestObject3 {
+	setRDbD5(uint8 rdbd = 20) required db;
+	setFoo(uint16 foo) db;
+};
+
+// Avatar-class target for setParentingRules coverage.
+dclass DistributedPlayer {
+	setName(string name) required broadcast ram db;
+	setLocation(uint32 parent, uint32 zone) broadcast ownsend;
+	sendChat(string msg) clsend broadcast;
+};
+
+dclass AuthManager {
+	login(string token) clsend;
+	loginResp(uint32 avId) ownrecv;
+};
+
+dclass ChatManager {
+	tell(uint32 recipient, string msg) clsend;
+};
+
+dclass FriendsManager {
+	requestFriend(uint32 avId) clsend;
+};
+
+dclass DistributedClientTestObject {
+	setName(string name) required;
+	setColor(uint8 r, uint8 g, uint8 b) required broadcast ownsend;
+	requestKill() clsend airecv;
+	sendMessage(string msg) clsend ownrecv;
+};
+
+// --- setParentingRules coverage. Each class below exercises one branch of
+// Ardos::TryParseParentingRule (see src/clientagent/parenting_rule.cpp).
+// The CA parses these at startup; valid defaults must not emit warnings,
+// malformed defaults must be warn-and-continue.
+
+dclass DistributedAvatarStated : DistributedPlayer {
+	setParentingRules(string type = "Stated", string Rule = "") required;
+};
+
+dclass DistributedAvatarFollow : DistributedPlayer {
+	setParentingRules(string type = "Follow", string Rule = "") required;
+};
+
+dclass DistributedAvatarCartesian : DistributedPlayer {
+	// startZone=1000, gridSize=4, radius=1.
+	setParentingRules(string type = "Cartesian", string Rule = "1000:4:1") required;
+};
+
+dclass DistributedAvatarAuto : DistributedPlayer {
+	// originZone=2000, extra zones 2001|2002|2003.
+	setParentingRules(string type = "Auto", string Rule = "2000:2001|2002|2003") required;
+};
+
+// Used only by the negative-path test. CA should warn and fall back to
+// Stated rather than crash.
+dclass DistributedAvatarBadCartesian : DistributedPlayer {
+	setParentingRules(string type = "Cartesian", string Rule = "not:a:number") required;
+};

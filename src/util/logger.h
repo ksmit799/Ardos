@@ -8,21 +8,28 @@ namespace Ardos {
 class Logger {
  public:
   static spdlog::level::level_enum LevelFromString(const std::string& level) {
-    if (level == "debug" || level == "verbose") {
+    if (level == "trace") {
+      return spdlog::level::trace;
+    }
+    if (level == "debug") {
       return spdlog::level::debug;
-    } else if (level == "info") {
+    }
+    if (level == "info") {
       return spdlog::level::info;
-    } else if (level == "warning" || level == "warn") {
-      return spdlog::level::warn;
-    } else if (level == "error") {
-      return spdlog::level::err;
-    } else if (level == "none") {
-      return spdlog::level::off;
-    } else {
-      spdlog::error("Invalid config log-level `{}`, defaulting to warn...",
-                    level);
+    }
+    if (level == "warning" || level == "warn") {
       return spdlog::level::warn;
     }
+    if (level == "error") {
+      return spdlog::level::err;
+    }
+    if (level == "none") {
+      return spdlog::level::off;
+    }
+
+    spdlog::error("Invalid config log-level `{}`, defaulting to warn...",
+                  level);
+    return spdlog::level::warn;
   }
 };
 

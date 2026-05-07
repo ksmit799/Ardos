@@ -95,6 +95,7 @@ void NetworkClient::HandleClose(uv_errno_t code) {
   HandleDisconnect(code);
 }
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays): unique_ptr<char[]> from uvw read
 void NetworkClient::HandleData(const std::unique_ptr<char[]>& data,
                                size_t size) {
   // We can't directly handle datagrams as it's possible that multiple have been
@@ -104,7 +105,8 @@ void NetworkClient::HandleData(const std::unique_ptr<char[]>& data,
   if (_data_buf.empty() && size >= sizeof(uint16_t)) {
     // Ok, we at least have a size header. Let's check if we have the full
     // datagram.
-    uint16_t datagramSize = *reinterpret_cast<uint16_t*>(data.get());
+    uint16_t datagramSize;
+    std::memcpy(&datagramSize, data.get(), sizeof(datagramSize));
     if (datagramSize == size - sizeof(uint16_t)) {
       // We have a complete datagram, lets handle it.
       auto dg = std::make_shared<Datagram>(
@@ -123,7 +125,8 @@ void NetworkClient::HandleData(const std::unique_ptr<char[]>& data,
 void NetworkClient::ProcessBuffer() {
   while (_data_buf.size() > sizeof(uint16_t)) {
     // We have enough data to know the expected length of the datagram.
-    uint16_t dataSize = *reinterpret_cast<uint16_t*>(&_data_buf[0]);
+    uint16_t dataSize;
+    std::memcpy(&dataSize, _data_buf.data(), sizeof(dataSize));
     if (_data_buf.size() >= dataSize + sizeof(uint16_t)) {
       // We have a complete datagram!
       auto dg = std::make_shared<Datagram>(
@@ -151,11 +154,13 @@ void NetworkClient::SendDatagram(const std::shared_ptr<Datagram>& dg) {
   }
 
   const size_t sendSize = sizeof(uint16_t) + dg->Size();
+  // runtime-sized buffer for uvw write:
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays)
   auto sendBuffer = std::unique_ptr<char[]>(new char[sendSize]);
 
   const uint16_t dgSize = dg->Size();
 
-  const auto sendPtr = &sendBuffer.get()[0];
+  auto* const sendPtr = &sendBuffer.get()[0];
   // Datagram size tag.
   memcpy(sendPtr, &dgSize, sizeof(uint16_t));
   // Datagram data.

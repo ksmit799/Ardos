@@ -23,7 +23,10 @@ InterestOperation::InterestOperation(
   // Interest operations can time out if the state server is taking too long.
   _timeout = g_loop->resource<uvw::timer_handle>();
   _timeout->on<uvw::timer_event>(
-      [this](const uvw::timer_event&, uvw::timer_handle&) {
+      [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
+        if (!*alive) {
+          return;
+        }
         HandleInterestTimeout();
       });
 
@@ -48,6 +51,11 @@ void InterestOperation::HandleInterestTimeout() {
 }
 
 void InterestOperation::Finish(const bool& isTimeout) {
+  // Mark dead before tearing down the timer. Late-firing timer events
+  // captured _alive by value, so they'll see false and bail before
+  // touching this freed IOP.
+  *_alive = false;
+
   // Stop and release the time-out timer.
   if (_timeout) {
     _timeout->stop();

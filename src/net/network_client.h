@@ -30,6 +30,7 @@ class NetworkClient {
 
  private:
   void HandleClose(uv_errno_t code);
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays): unique_ptr<char[]> from uvw read
   void HandleData(const std::unique_ptr<char[]>& data, size_t size);
   void ProcessBuffer();
 

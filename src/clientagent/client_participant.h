@@ -13,7 +13,7 @@
 
 namespace Ardos {
 
-enum AuthState {
+enum AuthState : std::uint8_t {
   AUTH_STATE_NEW,
   AUTH_STATE_ANONYMOUS,
   AUTH_STATE_ESTABLISHED,
@@ -207,6 +207,12 @@ class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
   std::shared_ptr<uvw::timer_handle> _heartbeatTimer;
   std::shared_ptr<uvw::timer_handle> _authTimer;
   std::shared_ptr<uvw::timer_handle> _historicalTimer;
+
+  // Liveness flag captured by every timer/async lambda. uvw close() is async
+  // and a callback queued before close can still fire after Shutdown returns.
+  // Setting *_alive = false in Shutdown turns those late callbacks into
+  // no-ops, sidestepping use-after-destroy on `this`.
+  std::shared_ptr<bool> _alive = std::make_shared<bool>(true);
 
   AuthState _authState = AUTH_STATE_NEW;
   bool _cleanDisconnect = false;

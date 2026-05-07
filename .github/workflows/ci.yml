@@ -24,11 +24,11 @@ jobs:
       - name: Build
         if: github.event_name == 'pull_request'
         run: |
-          cmake -B build \
+          cmake -B cmake-build-release \
             -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-          cmake --build build
+          cmake --build cmake-build-release
 
       - uses: cpp-linter/cpp-linter-action@v2
         if: github.event_name == 'pull_request'
@@ -39,6 +39,7 @@ jobs:
           style: 'file'  # Use .clang-format config file
           tidy-checks: '' # Use .clang-tidy config file
           ignore: 'libs'
+          database: 'cmake-build-release'
           # only 'update' a single comment in a pull request thread.
           thread-comments: ${{ github.event_name == 'pull_request' && 'update' }}
 
@@ -48,3 +49,103 @@ jobs:
 
       - name: Build Docker image
         run: docker build .
+
+  tests:
+    runs-on: ubuntu-latest
+
+    services:
+      rabbitmq:
+        image: rabbitmq:3-management
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake tar git zip unzip curl pkg-config
+
+      - name: Build with coverage
+        run: |
+          cmake -B cmake-build-debug \
+            -DCMAKE_TOOLCHAIN_FILE=libs/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DARDOS_COVERAGE=ON
+          cmake --build cmake-build-debug
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Install test deps
+        run: pip install -r tests/requirements-test.txt
+
+      - name: Check test formatting
+        run: black --check tests/
+
+      - name: Run tests
+        env:
+          ARDOS_BINARY: ${{ github.workspace }}/cmake-build-debug/bin/ardos
+        run: |
+          pytest tests/ -v --junitxml=junit.xml \
+            --ignore=tests/benchmarks \
+            --timeout=60
+
+      - name: Generate coverage report
+        if: always()
+        run: |
+          mkdir -p coverage
+          gcovr -r . \
+            --exclude 'libs/.*' \
+            --exclude 'tests/.*' \
+            --gcov-exclude 'libs/.*' \
+            --gcov-ignore-errors=source_not_found \
+            --gcov-ignore-errors=output_error \
+            --html-details coverage/index.html \
+            --xml coverage.xml \
+            --print-summary
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: |
+            coverage/
+            coverage.xml
+            tests/logs/message-coverage.txt
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: daemon-logs
+          path: tests/logs/
+
+      - name: Upload JUnit
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit
+          path: junit.xml

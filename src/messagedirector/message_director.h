@@ -24,13 +24,14 @@ class StateServer;
 class ClientAgent;
 class DatabaseServer;
 class DatabaseStateServer;
+class WebPanel;
 
 class MessageDirector : public AMQP::ConnectionHandler {
  public:
   static MessageDirector* Instance();
 
-  AMQP::Channel* GetGlobalChannel();
-  std::string GetLocalQueue();
+  [[nodiscard]] AMQP::Channel* GetGlobalChannel() const;
+  [[nodiscard]] std::string GetLocalQueue() const;
 
   void onData(AMQP::Connection* connection, const char* buffer,
               size_t size) override;
@@ -49,10 +50,16 @@ class MessageDirector : public AMQP::ConnectionHandler {
 
   void HandleWeb(ws28::Client* client, nlohmann::json& data);
 
-  StateServer* GetStateServer() { return _stateServer.get(); }
-  ClientAgent* GetClientAgent() { return _clientAgent.get(); }
-  DatabaseServer* GetDbServer() { return _db.get(); }
-  DatabaseStateServer* GetDbStateServer() { return _dbss.get(); }
+  [[nodiscard]] StateServer* GetStateServer() const {
+    return _stateServer.get();
+  }
+  [[nodiscard]] ClientAgent* GetClientAgent() const {
+    return _clientAgent.get();
+  }
+  [[nodiscard]] DatabaseServer* GetDbServer() const { return _db.get(); }
+  [[nodiscard]] DatabaseStateServer* GetDbStateServer() const {
+    return _dbss.get();
+  }
 
  private:
   MessageDirector();
@@ -61,16 +68,26 @@ class MessageDirector : public AMQP::ConnectionHandler {
 
   void StartConsuming();
 
+  void DrainLeavingSubscribers();
+
   static MessageDirector* _instance;
 
   std::unique_ptr<StateServer> _stateServer;
   std::unique_ptr<ClientAgent> _clientAgent;
   std::unique_ptr<DatabaseServer> _db;
   std::unique_ptr<DatabaseStateServer> _dbss;
+  std::unique_ptr<WebPanel> _webPanel;
 
   std::unordered_set<ChannelSubscriber*> _subscribers;
   std::unordered_set<ChannelSubscriber*> _leavingSubscribers;
   std::unordered_set<MDParticipant*> _participants;
+
+  // Re-entrancy depth for DeliverLocally / onReceived. A handler may
+  // cascade synchronously into another DeliverLocally; we must avoid
+  // draining _leavingSubscribers from a nested call (which would delete
+  // entries the outer iteration's snapshot still references). Drain only
+  // when the depth returns to 0.
+  int _dispatchDepth = 0;
 
   std::shared_ptr<uvw::tcp_handle> _connectHandle;
   std::shared_ptr<uvw::tcp_handle> _listenHandle;

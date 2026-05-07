@@ -9,7 +9,7 @@
 namespace Ardos {
 
 MDParticipant::MDParticipant(const std::shared_ptr<uvw::tcp_handle>& socket)
-    : NetworkClient(socket), ChannelSubscriber() {
+    : NetworkClient(socket) {
   auto address = GetRemoteAddress();
   spdlog::get("md")->info("Participant connected from {}:{}", address.ip,
                           address.port);
@@ -76,17 +76,24 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram>& dg) {
         case CONTROL_REMOVE_CHANNEL:
           UnsubscribeChannel(dgi.GetUint64());
           break;
-        case CONTROL_ADD_RANGE:
-          SubscribeRange(dgi.GetUint64(), dgi.GetUint64());
+        case CONTROL_ADD_RANGE: {
+          uint64_t min = dgi.GetUint64();
+          uint64_t max = dgi.GetUint64();
+          SubscribeRange(min, max);
           break;
-        case CONTROL_REMOVE_RANGE:
-          UnsubscribeRange(dgi.GetUint64(), dgi.GetUint64());
+        }
+        case CONTROL_REMOVE_RANGE: {
+          uint64_t min = dgi.GetUint64();
+          uint64_t max = dgi.GetUint64();
+          UnsubscribeRange(min, max);
           break;
+        }
         case CONTROL_ADD_POST_REMOVE:
           dgi.GetUint64();  // Sender channel.
           _postRemoves.emplace_back(dgi.GetDatagram());
           break;
-        case CONTROL_CLEAR_POST_REMOVES:
+        case CONTROL_CLEAR_POST_REMOVES:  // NOLINT(bugprone-branch-clone):
+                                          // Weird clang bug.
           _postRemoves.clear();
           break;
         case CONTROL_SET_CON_NAME:
@@ -112,6 +119,8 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram>& dg) {
 }
 
 void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
+  spdlog::get("md")->trace("MDP '{}' forwarding {}B to socket", _connName,
+                           dg->Size());
   // Forward messages from the MD to the connected participant.
   SendDatagram(dg);
 }

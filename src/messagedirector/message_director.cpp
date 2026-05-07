@@ -81,7 +81,7 @@ MessageDirector::MessageDirector() {
         // Just die on error, the message director always needs a connection to
         // RabbitMQ.
         spdlog::get("md")->error("Socket error: {}", event.what());
-        exit(1);
+        exit(1);  // NOLINT(concurrency-mt-unsafe)
       });
 
   _connectHandle->on<uvw::connect_event>(
@@ -93,24 +93,36 @@ MessageDirector::MessageDirector() {
         _connectHandle->read();
       });
 
-  _connectHandle->on<uvw::data_event>([this](const uvw::data_event& event,
-                                             uvw::tcp_handle&) {
-    // We've received a frame from RabbitMQ.
-    // It may be a partial frame, so we need to do buffering ourselves.
-    // See:
-    // https://github.com/CopernicaMarketingSoftware/AMQP-CPP#parsing-incoming-data
-    _frameBuffer.insert(_frameBuffer.end(), event.data.get(),
-                        event.data.get() + event.length);
+  _connectHandle->on<uvw::data_event>(
+      [this](const uvw::data_event& event, uvw::tcp_handle&) {
+        // We've received bytes from RabbitMQ. The buffer may contain zero
+        // or more complete frames followed by a partial frame. AMQP-CPP
+        // does no buffering of its own:
+        //
+        //   * parse() returns the number of bytes consumed (i.e. the
+        //     prefix length of complete frames it was able to decode).
+        //   * Whatever it didn't consume is the start of the next frame
+        //     and must be re-presented unchanged on the next call,
+        //     prepended to any newly-arrived bytes.
+        //
+        // See:
+        // https://github.com/CopernicaMarketingSoftware/AMQP-CPP#parsing-incoming-data
+        _frameBuffer.insert(_frameBuffer.end(), event.data.get(),
+                            event.data.get() + event.length);
 
-    auto processed = _connection->parse(&_frameBuffer[0], _frameBuffer.size());
-
-    // If we have processed at least one complete frame, we can clear the buffer
-    // ready for new data. In the event no bytes were processed (an in-complete
-    // frame), AMQP expects both the old data and any new data in the buffer.
-    if (processed != 0) {
-      _frameBuffer.clear();
-    }
-  });
+        while (!_frameBuffer.empty()) {
+          const size_t processed =
+              _connection->parse(_frameBuffer.data(), _frameBuffer.size());
+          if (processed == 0) {
+            // Partial frame; wait for more bytes before retrying.
+            break;
+          }
+          _frameBuffer.erase(_frameBuffer.begin(),
+                             // parse() can't return more than size:
+                             // NOLINTNEXTLINE(bugprone-narrowing-conversions)
+                             _frameBuffer.begin() + processed);
+        }
+      });
 
   // Initialize metrics.
   InitMetrics();
@@ -125,13 +137,15 @@ MessageDirector::MessageDirector() {
  * Returns the "global" channel used for routing messages.
  * @return
  */
-AMQP::Channel* MessageDirector::GetGlobalChannel() { return _globalChannel; }
+AMQP::Channel* MessageDirector::GetGlobalChannel() const {
+  return _globalChannel;
+}
 
 /**
  * Returns the local messaging queue for this message director.
  * @return
  */
-std::string MessageDirector::GetLocalQueue() { return _localQueue; }
+std::string MessageDirector::GetLocalQueue() const { return _localQueue; }
 
 /**
  *  Method that is called by AMQP-CPP when data has to be sent over the
@@ -148,6 +162,8 @@ std::string MessageDirector::GetLocalQueue() { return _localQueue; }
  */
 void MessageDirector::onData(AMQP::Connection* connection, const char* buffer,
                              const size_t size) {
+  // runtime-sized buffer for uvw write:
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays)
   auto sendBuffer = std::unique_ptr<char[]>(new char[size]);
   if (size != 0) {
     std::memcpy(sendBuffer.get(), buffer, size);
@@ -200,7 +216,7 @@ void MessageDirector::onReady(AMQP::Connection* connection) {
                 spdlog::get("md")->error(
                     "want-database was set to true but Ardos was "
                     "built without ARDOS_WANT_DB_SERVER");
-                exit(1);
+                exit(1);  // NOLINT(concurrency-mt-unsafe)
 #endif
               }
 
@@ -209,7 +225,7 @@ void MessageDirector::onReady(AMQP::Connection* connection) {
               }
 
               if (Config::Instance()->GetBool("want-web-panel")) {
-                new WebPanel();
+                _webPanel = std::make_unique<WebPanel>();
               }
 
               // Start listening for incoming connections.
@@ -221,13 +237,13 @@ void MessageDirector::onReady(AMQP::Connection* connection) {
             .onError([](const char* message) {
               spdlog::get("md")->error("Failed to declare local queue: {}",
                                        message);
-              exit(1);
+              exit(1);  // NOLINT(concurrency-mt-unsafe)
             });
       })
       .onError([](const char* message) {
         spdlog::get("md")->error("Failed to declare global exchange: {}",
                                  message);
-        exit(1);
+        exit(1);  // NOLINT(concurrency-mt-unsafe)
       });
 }
 
@@ -247,7 +263,7 @@ void MessageDirector::onError(AMQP::Connection* connection,
   // The connection is dead at this point.
   // Log out an exception and shut everything down.
   spdlog::get("md")->error("RabbitMQ error: {}", message);
-  exit(1);
+  exit(1);  // NOLINT(concurrency-mt-unsafe)
 }
 
 /**
@@ -306,14 +322,46 @@ void MessageDirector::DeliverLocally(const std::string& routingKey,
   // dispatch entirely if no binding in this MD could match.
   uint64_t channel = ChannelSubscriber::ChannelFromRoutingKey(routingKey);
   uint64_t bucket = channel >> kChannelBucketShift;
-  if (!ChannelSubscriber::_globalChannels.contains(channel) &&
-      !ChannelSubscriber::_globalBuckets.contains(bucket)) {
-    return;
+  bool hasCh = ChannelSubscriber::_globalChannels.contains(channel);
+  bool hasBkt = ChannelSubscriber::_globalBuckets.contains(bucket);
+
+  spdlog::get("md")->trace(
+      "DeliverLocally chan={} bucket={} hasCh={} hasBkt={} subs={}", channel,
+      bucket, hasCh, hasBkt, _subscribers.size());
+
+  ++_dispatchDepth;
+
+  if (hasCh || hasBkt) {
+    // Snapshot before iterating: a handler may construct a new
+    // ChannelSubscriber (whose ctor inserts into _subscribers and may
+    // rehash). Stack-local vector -- a member buffer would be clobbered
+    // by re-entrant DeliverLocally calls from cascaded handlers.
+    std::vector<ChannelSubscriber*> snapshot(_subscribers.begin(),
+                                             _subscribers.end());
+    for (auto* subscriber : snapshot) {
+      subscriber->HandleUpdate(routingKey, dg);
+    }
   }
 
-  for (const auto& subscriber : _subscribers) {
-    subscriber->HandleUpdate(routingKey, dg);
+  // Drain only at the outermost dispatch. Nested cascades must defer --
+  // otherwise the inner drain deletes subscribers still referenced by
+  // an outer call's snapshot.
+  if (--_dispatchDepth == 0) {
+    DrainLeavingSubscribers();
   }
+}
+
+/**
+ * Erases every subscriber queued by RemoveSubscriber, freeing the heap
+ * allocation. Must NEVER run during _subscribers iteration -- callers
+ * invoke this only after their dispatch loop has finished.
+ */
+void MessageDirector::DrainLeavingSubscribers() {
+  for (const auto& it : _leavingSubscribers) {
+    _subscribers.erase(it);
+    delete it;
+  }
+  _leavingSubscribers.clear();
 }
 
 /**
@@ -398,7 +446,10 @@ void MessageDirector::StartConsuming() {
         // Drop loopback copies. PublishDatagram tags every outgoing message
         // with our local queue name and delivers synchronously in-process;
         // the broker still fans the message out to us, so ignore that copy.
+        // Still drain leaving subscribers though -- otherwise loopback-only
+        // traffic never gets a chance to clean them up.
         if (message.hasAppID() && message.appID() == _localQueue) {
+          DrainLeavingSubscribers();
           return;
         }
 
@@ -416,6 +467,7 @@ void MessageDirector::StartConsuming() {
         uint64_t bucket = channel >> kChannelBucketShift;
         if (!ChannelSubscriber::_globalChannels.contains(channel) &&
             !ChannelSubscriber::_globalBuckets.contains(bucket)) {
+          DrainLeavingSubscribers();
           return;
         }
 
@@ -435,20 +487,27 @@ void MessageDirector::StartConsuming() {
             reinterpret_cast<const uint8_t*>(message.body()),
             message.bodySize());
 
-        // Forward the message to channel subscribers.
-        // If they're not subscribed to the channel, they'll ignore it.
-        for (const auto& subscriber : _subscribers) {
-          subscriber->HandleUpdate(message.routingkey(), dg);
+        // Forward the message to channel subscribers. Snapshot before
+        // iterating -- a handler can synchronously construct a new
+        // ChannelSubscriber (rehashes _subscribers and invalidates the
+        // active iterator). Stack-local: nested DeliverLocally calls
+        // would clobber a shared buffer. If they're not subscribed to
+        // the channel, they'll ignore it.
+        ++_dispatchDepth;
+        {
+          std::vector<ChannelSubscriber*> snapshot(_subscribers.begin(),
+                                                   _subscribers.end());
+          for (auto* subscriber : snapshot) {
+            subscriber->HandleUpdate(message.routingkey(), dg);
+          }
         }
 
-        // Delete any subscribers that were annihilated while handling the
-        // message.
-        for (const auto& it : _leavingSubscribers) {
-          _subscribers.erase(it);
-          delete it;
+        // Delete any subscribers that were annihilated while handling
+        // the message. Only drain at the outermost dispatch to avoid
+        // freeing subscribers still referenced by nested call snapshots.
+        if (--_dispatchDepth == 0) {
+          DrainLeavingSubscribers();
         }
-
-        _leavingSubscribers.clear();
       })
       .onCancelled([](const std::string& consumerTag) {
         spdlog::get("md")->error("Channel consuming cancelled unexpectedly.");
