@@ -15,6 +15,7 @@ import pytest
 from tests.common.ardos import Datagram, DatagramIterator
 from tests.common.dc import class_id, field_id
 from tests.common.msgtypes import (
+    CONTROL_ADD_POST_REMOVE,
     STATESERVER_CREATE_OBJECT_WITH_REQUIRED,
     STATESERVER_DELETE_AI_OBJECTS,
     STATESERVER_OBJECT_CHANGING_LOCATION,
@@ -522,6 +523,63 @@ class TestSSBulkDelete:
 
         # Verify: GET_LOCATION on the deleted object should yield nothing.
         sender.send(
+            Datagram.create(
+                [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION
+            ).add_uint32(0xBEEF)
+        )
+        watcher.expect_none(timeout=1.0)
+
+    def test_post_remove_fires_delete_ai_objects(self, ss, channel_conn):
+        """End-to-end post-remove flow: AI registers a DELETE_AI_OBJECTS
+        post-remove on its channel, has a DO assigned to it, then drops
+        its TCP connection. The MD's MDParticipant::Shutdown should fire
+        the queued post-remove, the SS should consume it, and the DO
+        should be gone — the canonical AI-crash-recovery path.
+
+        Distinct from test_delete_ai_objects_removes_ai_owned (which
+        sends DELETE_AI_OBJECTS directly): this exercises the registration
+        + disconnect + replay chain across the MD and SS.
+        """
+        ai_channel = 9_998_222
+
+        # creator builds the DO and assigns it to ai_channel; watcher is
+        # subscribed to ch.5 to probe DO existence after the AI drops.
+        creator = channel_conn()
+        watcher = channel_conn(5)
+
+        creator.send(_create_required())
+        watcher.wait_object_alive(DO_ID, sender=5)
+        watcher.flush()
+
+        # SET_AI flips _aiExplicitlySet so HandleDeleteAI picks it up.
+        creator.send(
+            Datagram.create(
+                [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_SET_AI
+            ).add_channel(ai_channel)
+        )
+
+        # AI connects, registers the post-remove containing
+        # DELETE_AI_OBJECTS targeted at the SS. This is what real AI
+        # servers do at startup so a crash gets cleaned up automatically.
+        ai = channel_conn(ai_channel)
+        delete_ai = Datagram.create(
+            [SS_CHANNEL], sender=ai_channel, msgtype=STATESERVER_DELETE_AI_OBJECTS
+        ).add_channel(ai_channel)
+        ai.send(
+            Datagram.create_control(CONTROL_ADD_POST_REMOVE)
+            .add_channel(ai_channel)
+            .add_blob(delete_ai.bytes())
+        )
+
+        # Drop the AI socket. MDParticipant::Shutdown publishes the
+        # queued post-remove on the way out.
+        ai.close()
+
+        # Verify: DO is gone. GET_LOCATION on a dead DO yields no
+        # response on ch.5; if the post-remove failed to fire (or the
+        # SS failed to handle DELETE_AI_OBJECTS), GET_LOCATION_RESP
+        # would arrive and watcher.expect_none would fail.
+        creator.send(
             Datagram.create(
                 [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION
             ).add_uint32(0xBEEF)
