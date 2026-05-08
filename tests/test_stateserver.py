@@ -541,15 +541,23 @@ class TestSSBulkDelete:
         + disconnect + replay chain across the MD and SS.
         """
         ai_channel = 9_998_222
+        loc_ch = (PARENT << 32) | ZONE
 
-        # creator builds the DO and assigns it to ai_channel; watcher is
-        # subscribed to ch.5 to probe DO existence after the AI drops.
+        # creator builds the DO; watcher is on ch.5 for the
+        # GET_LOCATION_RESP probe; loc_watch is on the DO's location
+        # channel so we can observe the SS's DELETE_RAM broadcast and
+        # use it as a barrier (without it the GET_LOCATION below races
+        # the post-remove dispatch — different sockets, no ordering
+        # guarantees, the daemon may answer GET_LOCATION before the
+        # AI's EOF gets processed).
         creator = channel_conn()
         watcher = channel_conn(5)
+        loc_watch = channel_conn(loc_ch)
 
         creator.send(_create_required())
         watcher.wait_object_alive(DO_ID, sender=5)
         watcher.flush()
+        loc_watch.flush()
 
         # SET_AI flips _aiExplicitlySet so HandleDeleteAI picks it up.
         creator.send(
@@ -575,10 +583,21 @@ class TestSSBulkDelete:
         # queued post-remove on the way out.
         ai.close()
 
-        # Verify: DO is gone. GET_LOCATION on a dead DO yields no
-        # response on ch.5; if the post-remove failed to fire (or the
-        # SS failed to handle DELETE_AI_OBJECTS), GET_LOCATION_RESP
-        # would arrive and watcher.expect_none would fail.
+        # Wait for the SS's DELETE_RAM broadcast on the DO's location
+        # channel — the synchronization barrier that proves the
+        # post-remove fired and the DO has been Annihilated.
+        def is_delete_ram(dg):
+            try:
+                it = DatagramIterator(dg)
+                _, _, mt = it.read_header()
+                return mt == STATESERVER_OBJECT_DELETE_RAM
+            except Exception:
+                return False
+
+        loc_watch.wait_for(is_delete_ram, timeout=2.0)
+
+        # Now confirm the DO is truly gone — GET_LOCATION should yield
+        # no response on ch.5.
         creator.send(
             Datagram.create(
                 [DO_ID], sender=5, msgtype=STATESERVER_OBJECT_GET_LOCATION
