@@ -182,7 +182,8 @@ std::vector<uint8_t> DatagramIterator::GetData(const size_t& size) {
  * @return
  */
 std::shared_ptr<Datagram> DatagramIterator::GetDatagram() {
-  uint16_t length = GetUint16();
+  const uint16_t length = GetUint16();
+  EnsureLength(length);
   auto dg = std::make_shared<Datagram>(_dg->GetData() + _offset, length);
   _offset += length;
   return dg;

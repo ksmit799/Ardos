@@ -13,33 +13,50 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle>& socket)
   _remoteAddress = _socket->peer();
   _localAddress = _socket->sock();
 
-  // Setup event listeners.
+  // Setup event listeners. Each lambda captures `_alive` so a late
+  // event firing on a destroyed `this` no-ops instead of derefing
+  // freed memory (uvw close() is async).
   _socket->on<uvw::error_event>(
-      [this](const uvw::error_event& event, uvw::tcp_handle&) {
+      [this, alive = _alive](const uvw::error_event& event, uvw::tcp_handle&) {
+        if (!*alive) {
+          return;
+        }
         HandleClose((uv_errno_t)event.code());
       });
 
   _socket->on<uvw::end_event>(
-      [this](const uvw::end_event&, uvw::tcp_handle&) { HandleClose(UV_EOF); });
+      [this, alive = _alive](const uvw::end_event&, uvw::tcp_handle&) {
+        if (!*alive) {
+          return;
+        }
+        HandleClose(UV_EOF);
+      });
 
   _socket->on<uvw::close_event>(
-      [this](const uvw::close_event&, uvw::tcp_handle&) {
+      [this, alive = _alive](const uvw::close_event&, uvw::tcp_handle&) {
+        if (!*alive) {
+          return;
+        }
         HandleClose(UV_EOF);
       });
 
   _socket->on<uvw::data_event>(
-      [this](const uvw::data_event& event, uvw::tcp_handle&) {
+      [this, alive = _alive](const uvw::data_event& event, uvw::tcp_handle&) {
+        if (!*alive) {
+          return;
+        }
         HandleData(event.data, event.length);
       });
 
   _socket->on<uvw::write_event>(
-      [this](const uvw::write_event& event, uvw::tcp_handle&) {
+      [this, alive = _alive](const uvw::write_event& event, uvw::tcp_handle&) {
+        if (!*alive) {
+          return;
+        }
         if (_disconnected && !_socketClosed) {
           _socket->close();
-
           _socketClosed = true;
         }
-
         _isWriting = false;
       });
 
@@ -75,6 +92,9 @@ void NetworkClient::Shutdown() {
     return;
   }
 
+  // Mark dead before the async close so any late-firing uvw event
+  // short-circuits on the captured _alive flag.
+  *_alive = false;
   _disconnected = true;
 
   if (!_isWriting && !_socketClosed) {

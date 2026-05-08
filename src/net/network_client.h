@@ -41,6 +41,10 @@ class NetworkClient {
 
   bool _isWriting = false;
   bool _socketClosed = false;
+
+  // Captured by every socket-event lambda. Set false in Shutdown so a
+  // late-firing event after `this` is destroyed becomes a no-op.
+  std::shared_ptr<bool> _alive = std::make_shared<bool>(true);
 };
 
 }  // namespace Ardos

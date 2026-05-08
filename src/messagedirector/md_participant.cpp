@@ -35,17 +35,27 @@ void MDParticipant::Shutdown() {
   // Kill the network connection.
   NetworkClient::Shutdown();
 
-  // Unsubscribe from all channels so post removes aren't accidentally routed to
-  // us.
-  ChannelSubscriber::Shutdown();
-
   spdlog::get("md")->debug("Routing {} post-remove(s) for '{}'",
                            _postRemoves.size(), _connName);
 
-  // Route any post remove datagrams we might have stored.
+  // Route any post remove datagrams we might have stored. Publish
+  // before ChannelSubscriber::Shutdown queues us for deletion.
   for (const auto& dg : _postRemoves) {
-    PublishDatagram(dg);
+    try {
+      PublishDatagram(dg);
+    } catch (const DatagramIteratorEOF& e) {
+      spdlog::get("md")->warn(
+          "Participant '{}' had a truncated post-remove; dropping: {}",
+          _connName, e.what());
+    } catch (const DatagramOverflow& e) {
+      spdlog::get("md")->warn(
+          "Participant '{}' had an oversized post-remove; dropping: {}",
+          _connName, e.what());
+    }
   }
+
+  // Unsubscribe from all channels and queue ourselves for deletion.
+  ChannelSubscriber::Shutdown();
 }
 
 /**

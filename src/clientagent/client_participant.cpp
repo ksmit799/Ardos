@@ -104,10 +104,7 @@ void ClientParticipant::Shutdown() {
     return;
   }
 
-  // Mark this participant dead before tearing anything down. Any timer or
-  // async callback that races our cleanup (uvw close() is async; events
-  // queued before close still dispatch) will see *_alive == false and
-  // short-circuit instead of touching half-destroyed state.
+  // Mark dead so any late-firing timer/uvw callback short-circuits.
   *_alive = false;
 
   // Kill the network connection.
@@ -134,30 +131,6 @@ void ClientParticipant::Shutdown() {
     _historicalTimer.reset();
   }
 
-  // Unsubscribe from all channels so DELETE messages aren't sent back to us.
-  ChannelSubscriber::Shutdown();
-  _clientAgent->FreeChannel(_allocatedChannel);
-
-  // Delete all session objects.
-  while (!_sessionObjects.empty()) {
-    uint32_t doId = *_sessionObjects.begin();
-    _sessionObjects.erase(doId);
-    spdlog::get("ca")->debug("Client: {} exited, deleting session object: {}",
-                             _channel, doId);
-
-    auto dg = std::make_shared<Datagram>(doId, _channel,
-                                         STATESERVER_OBJECT_DELETE_RAM);
-    dg->AddUint32(doId);
-    PublishDatagram(dg);
-  }
-
-  // Clear out all pending interest operations.
-  // Note: PendingInterests delete themselves on Finish, so we have to be
-  // careful how we advance 'it'.
-  for (auto it = _pendingInterests.begin(); it != _pendingInterests.end();) {
-    (it++)->second->Finish();
-  }
-
   // Cancel any in-flight parent-class lookups so their timers don't fire
   // after we've been destroyed. A response landing after shutdown would be
   // dropped anyway (the stale-parent check would fail), but leaving live
@@ -177,13 +150,48 @@ void ClientParticipant::Shutdown() {
   // that the other end doesn't care about (the CP is going away).
   _avatarParentRule.reset();
 
+  // Clear out all pending interest operations.
+  // Note: PendingInterests delete themselves on Finish, so we have to be
+  // careful how we advance 'it'.
+  for (auto it = _pendingInterests.begin(); it != _pendingInterests.end();) {
+    (it++)->second->Finish();
+  }
+
+  // Delete all session objects. Publish before ChannelSubscriber::Shutdown
+  // queues us for deletion, otherwise a cascade could `delete this` mid-loop.
+  while (!_sessionObjects.empty()) {
+    uint32_t doId = *_sessionObjects.begin();
+    _sessionObjects.erase(doId);
+    spdlog::get("ca")->debug("Client: {} exited, deleting session object: {}",
+                             _channel, doId);
+
+    auto dg = std::make_shared<Datagram>(doId, _channel,
+                                         STATESERVER_OBJECT_DELETE_RAM);
+    dg->AddUint32(doId);
+    PublishDatagram(dg);
+  }
+
   spdlog::get("ca")->debug("Routing {} post-remove(s) for '{}'",
                            _postRemoves.size(), _channel);
 
   // Route any post remove datagrams we might have stored.
   for (const auto& dg : _postRemoves) {
-    PublishDatagram(dg);
+    try {
+      PublishDatagram(dg);
+    } catch (const DatagramIteratorEOF& e) {
+      spdlog::get("ca")->warn(
+          "Client: {} had a truncated post-remove; dropping: {}", _channel,
+          e.what());
+    } catch (const DatagramOverflow& e) {
+      spdlog::get("ca")->warn(
+          "Client: {} had an oversized post-remove; dropping: {}", _channel,
+          e.what());
+    }
   }
+
+  // Unsubscribe from all channels so DELETE messages aren't sent back to us.
+  ChannelSubscriber::Shutdown();
+  _clientAgent->FreeChannel(_allocatedChannel);
 }
 
 /**
