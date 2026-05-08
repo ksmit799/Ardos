@@ -288,7 +288,7 @@ void DatagramIterator::SeekPayload() {
   _offset = 0;
 
   const uint8_t channels = GetUint8();
-  for (int i = 0; i < channels; ++i) {
+  for (uint8_t i = 0; i < channels; ++i) {
     GetUint64();
   }
 }
