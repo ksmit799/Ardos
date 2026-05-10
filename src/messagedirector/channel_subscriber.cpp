@@ -1,5 +1,9 @@
 #include "channel_subscriber.h"
 
+#include <spdlog/spdlog.h>
+
+#include <algorithm>
+
 #include "../net/datagram_iterator.h"
 #include "message_director.h"
 
@@ -42,13 +46,10 @@ ChannelSubscriber::ChannelSubscriber() {
 void ChannelSubscriber::Shutdown() {
   MessageDirector::Instance()->RemoveSubscriber(this);
 
-  // Cleanup our local channel subscriptions. Unsubscribe* pops from the local
-  // list itself and also decrements the shared ref counts / tears down the
-  // RabbitMQ binding when the last subscriber drops -- so we must NOT pop
-  // beforehand, or the early-return on "not in _localChannels" kicks in and
-  // leaks the global state.
+  // Cleanup our local channel subscriptions.
   while (!_localChannels.empty()) {
-    UnsubscribeChannel(*_localChannels.begin());
+    uint64_t channel = *_localChannels.begin();
+    UnsubscribeChannel(channel);
   }
 
   // Same pattern for ranges.
@@ -77,6 +78,8 @@ void ChannelSubscriber::SubscribeChannel(const uint64_t& channel) {
 
   // ... and register it as a newly opened global channel.
   _globalChannels[channel] = 1;
+
+  spdlog::get("md")->trace("Subscribe channel {} (binding new)", channel);
 }
 
 void ChannelSubscriber::UnsubscribeChannel(const uint64_t& channel) {
@@ -101,8 +104,7 @@ void ChannelSubscriber::SubscribeRange(const uint64_t& min,
                                        const uint64_t& max) {
   // Make sure we're not adding a duplicate range.
   auto range = std::make_pair(min, max);
-  if (std::find(_localRanges.begin(), _localRanges.end(), range) !=
-      _localRanges.end()) {
+  if (std::ranges::find(_localRanges, range) != _localRanges.end()) {
     return;
   }
 
@@ -119,13 +121,16 @@ void ChannelSubscriber::SubscribeRange(const uint64_t& min,
                                 BuildBucketRoutingPattern(bucket));
     }
   }
+
+  spdlog::get("md")->trace("Subscribe range [{}, {}] (buckets {}..{})", min,
+                           max, minBucket, maxBucket);
 }
 
 void ChannelSubscriber::UnsubscribeRange(const uint64_t& min,
                                          const uint64_t& max) {
   auto range = std::make_pair(min, max);
 
-  auto position = std::find(_localRanges.begin(), _localRanges.end(), range);
+  auto position = std::ranges::find(_localRanges, range);
   if (position == _localRanges.end()) {
     return;
   }
@@ -159,6 +164,9 @@ void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram>& dg) {
     uint64_t channel = dgi.GetUint64();
     std::string routingKey = BuildChannelRoutingKey(channel);
 
+    spdlog::get("md")->trace("Publish chan={} bucket={} size={}B", channel,
+                             channel >> kChannelBucketShift, dg->Size());
+
     // Deliver to in-process subscribers. Avoids the subscribe-then-publish
     // race (async bindQueue not yet live) and skips the broker round-trip
     // for traffic that never needed to leave this MD. DeliverLocally no-ops
@@ -178,8 +186,15 @@ void ChannelSubscriber::HandleUpdate(const std::string& routingKey,
   // once for both the set lookup and the range check.
   uint64_t channel = ChannelFromRoutingKey(routingKey);
 
+  bool inLocal = _localChannels.contains(channel);
+  bool inRange = !inLocal && WithinLocalRange(channel);
+
+  spdlog::get("md")->trace("HandleUpdate chan={} sub={} inLocal={} inRange={}",
+                           channel, static_cast<const void*>(this), inLocal,
+                           inRange);
+
   // First, check if this ChannelSubscriber cares about the message.
-  if (!_localChannels.contains(channel) && !WithinLocalRange(channel)) {
+  if (!inLocal && !inRange) {
     return;
   }
 
@@ -188,9 +203,9 @@ void ChannelSubscriber::HandleUpdate(const std::string& routingKey,
 }
 
 bool ChannelSubscriber::WithinLocalRange(uint64_t channel) {
-  return std::any_of(
-      _localRanges.begin(), _localRanges.end(),
-      [channel](auto i) { return channel >= i.first && channel <= i.second; });
+  return std::ranges::any_of(_localRanges, [channel](auto i) {
+    return channel >= i.first && channel <= i.second;
+  });
 }
 
 }  // namespace Ardos

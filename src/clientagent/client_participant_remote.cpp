@@ -12,6 +12,10 @@ namespace Ardos {
  */
 void ClientParticipant::HandleClientDatagram(
     const std::shared_ptr<Datagram>& dg) {
+  if (Disconnected()) {
+    return;
+  }
+
   DatagramIterator dgi(dg);
 
   // Metrics.

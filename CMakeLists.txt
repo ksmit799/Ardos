@@ -40,6 +40,17 @@ if (ARDOS_USE_LEGACY_CLIENT)
     add_definitions(-DARDOS_USE_LEGACY_CLIENT)
 endif ()
 
+# Coverage instrumentation for the Python test harness.
+set(ARDOS_COVERAGE OFF CACHE BOOL "If on, build with gcov instrumentation for coverage reporting.")
+if (ARDOS_COVERAGE)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        add_compile_options(--coverage -O0 -g)
+        add_link_options(--coverage)
+    else ()
+        message(WARNING "ARDOS_COVERAGE is only supported on GCC/Clang; ignoring.")
+    endif ()
+endif ()
+
 # TODO: Don't use glob recurse.
 # Each source directory should have its own CMAKE file.
 file(GLOB_RECURSE ARDOS_SOURCES "${PROJECT_SOURCE_DIR}/src/*.cpp" "${PROJECT_SOURCE_DIR}/src/*.c")

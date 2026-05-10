@@ -30,6 +30,7 @@ class NetworkClient {
 
  private:
   void HandleClose(uv_errno_t code);
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays): unique_ptr<char[]> from uvw read
   void HandleData(const std::unique_ptr<char[]>& data, size_t size);
   void ProcessBuffer();
 
@@ -40,6 +41,10 @@ class NetworkClient {
 
   bool _isWriting = false;
   bool _socketClosed = false;
+
+  // Captured by every socket-event lambda. Set false in Shutdown so a
+  // late-firing event after `this` is destroyed becomes a no-op.
+  std::shared_ptr<bool> _alive = std::make_shared<bool>(true);
 };
 
 }  // namespace Ardos

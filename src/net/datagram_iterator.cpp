@@ -182,7 +182,8 @@ std::vector<uint8_t> DatagramIterator::GetData(const size_t& size) {
  * @return
  */
 std::shared_ptr<Datagram> DatagramIterator::GetDatagram() {
-  uint16_t length = GetUint16();
+  const uint16_t length = GetUint16();
+  EnsureLength(length);
   auto dg = std::make_shared<Datagram>(_dg->GetData() + _offset, length);
   _offset += length;
   return dg;
@@ -287,7 +288,7 @@ void DatagramIterator::SeekPayload() {
   _offset = 0;
 
   const uint8_t channels = GetUint8();
-  for (int i = 0; i < channels; ++i) {
+  for (uint8_t i = 0; i < channels; ++i) {
     GetUint64();
   }
 }

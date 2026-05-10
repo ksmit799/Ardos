@@ -9,7 +9,7 @@
 namespace Ardos {
 
 MDParticipant::MDParticipant(const std::shared_ptr<uvw::tcp_handle>& socket)
-    : NetworkClient(socket), ChannelSubscriber() {
+    : NetworkClient(socket) {
   auto address = GetRemoteAddress();
   spdlog::get("md")->info("Participant connected from {}:{}", address.ip,
                           address.port);
@@ -35,17 +35,27 @@ void MDParticipant::Shutdown() {
   // Kill the network connection.
   NetworkClient::Shutdown();
 
-  // Unsubscribe from all channels so post removes aren't accidentally routed to
-  // us.
-  ChannelSubscriber::Shutdown();
-
   spdlog::get("md")->debug("Routing {} post-remove(s) for '{}'",
                            _postRemoves.size(), _connName);
 
-  // Route any post remove datagrams we might have stored.
+  // Route any post remove datagrams we might have stored. Publish
+  // before ChannelSubscriber::Shutdown queues us for deletion.
   for (const auto& dg : _postRemoves) {
-    PublishDatagram(dg);
+    try {
+      PublishDatagram(dg);
+    } catch (const DatagramIteratorEOF& e) {
+      spdlog::get("md")->warn(
+          "Participant '{}' had a truncated post-remove; dropping: {}",
+          _connName, e.what());
+    } catch (const DatagramOverflow& e) {
+      spdlog::get("md")->warn(
+          "Participant '{}' had an oversized post-remove; dropping: {}",
+          _connName, e.what());
+    }
   }
+
+  // Unsubscribe from all channels and queue ourselves for deletion.
+  ChannelSubscriber::Shutdown();
 }
 
 /**
@@ -76,17 +86,24 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram>& dg) {
         case CONTROL_REMOVE_CHANNEL:
           UnsubscribeChannel(dgi.GetUint64());
           break;
-        case CONTROL_ADD_RANGE:
-          SubscribeRange(dgi.GetUint64(), dgi.GetUint64());
+        case CONTROL_ADD_RANGE: {
+          uint64_t min = dgi.GetUint64();
+          uint64_t max = dgi.GetUint64();
+          SubscribeRange(min, max);
           break;
-        case CONTROL_REMOVE_RANGE:
-          UnsubscribeRange(dgi.GetUint64(), dgi.GetUint64());
+        }
+        case CONTROL_REMOVE_RANGE: {
+          uint64_t min = dgi.GetUint64();
+          uint64_t max = dgi.GetUint64();
+          UnsubscribeRange(min, max);
           break;
+        }
         case CONTROL_ADD_POST_REMOVE:
           dgi.GetUint64();  // Sender channel.
           _postRemoves.emplace_back(dgi.GetDatagram());
           break;
-        case CONTROL_CLEAR_POST_REMOVES:
+        case CONTROL_CLEAR_POST_REMOVES:  // NOLINT(bugprone-branch-clone):
+                                          // Weird clang bug.
           _postRemoves.clear();
           break;
         case CONTROL_SET_CON_NAME:
@@ -112,6 +129,8 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram>& dg) {
 }
 
 void MDParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
+  spdlog::get("md")->trace("MDP '{}' forwarding {}B to socket", _connName,
+                           dg->Size());
   // Forward messages from the MD to the connected participant.
   SendDatagram(dg);
 }

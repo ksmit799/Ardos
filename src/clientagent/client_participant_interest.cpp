@@ -1,5 +1,7 @@
 #include <dcFile.h>
 
+#include <algorithm>
+
 #include "../net/message_types.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
@@ -11,12 +13,10 @@ static bool ZoneInConfiguredSet(const ClientAgent* agent, uint32_t zoneId) {
   if (agent->GetInterestZones().contains(zoneId)) {
     return true;
   }
-  for (const auto& [lo, hi] : agent->GetInterestZoneRanges()) {
-    if (zoneId >= lo && zoneId <= hi) {
-      return true;
-    }
-  }
-  return false;
+  return std::ranges::any_of(agent->GetInterestZoneRanges(),
+                             [zoneId](const auto& r) {
+                               return zoneId >= r.first && zoneId <= r.second;
+                             });
 }
 
 void ClientParticipant::HandleClientAddInterest(DatagramIterator& dgi,
@@ -188,9 +188,9 @@ void ClientParticipant::AddInterest(Interest& i, const uint32_t& context,
 
   // Create and store a new interest operation for the incoming objects from the
   // state server.
-  auto iop = new InterestOperation(this, _clientAgent->GetInterestTimeout(),
-                                   i.id, context, requestContext, i.parent,
-                                   newZones, caller);
+  auto* iop = new InterestOperation(this, _clientAgent->GetInterestTimeout(),
+                                    i.id, context, requestContext, i.parent,
+                                    newZones, caller);
   _pendingInterests[requestContext] = iop;
 
   auto dg = std::make_shared<Datagram>(i.parent, _channel,
@@ -294,25 +294,28 @@ void ClientParticipant::HandleRemoveInterest(const uint16_t& interestId,
 
 void ClientParticipant::RemoveInterest(Interest& i, const uint32_t& context,
                                        const uint64_t& caller) {
+  const uint16_t interestId = i.id;
+  const uint32_t parent = i.parent;
+
   std::unordered_set<uint32_t> killedZones;
   for (const auto& zone : i.zones) {
-    if (LookupInterests(i.parent, zone).size() == 1) {
+    if (LookupInterests(parent, zone).size() == 1) {
       // We're the only interest who can see this zone, so let's kill it.
       killedZones.insert(zone);
     }
   }
 
   // Now that we know which zones to kill, let's get to it.
-  if (!CloseZones(i.parent, killedZones)) {
+  if (!CloseZones(parent, killedZones)) {
     // This can happen if a zone containing one of our session objects is
     // closed. At this point, we'll be disconnected.
     return;
   }
 
-  NotifyInterestDone(i.id, caller);
-  HandleInterestDone(i.id, context);
+  NotifyInterestDone(interestId, caller);
+  HandleInterestDone(interestId, context);
 
-  _interests.erase(i.id);
+  _interests.erase(interestId);
 }
 
 bool ClientParticipant::CloseZones(
@@ -371,7 +374,11 @@ void ClientParticipant::RequestParentClass(const uint32_t& parentId) {
   entry.parentId = parentId;
   entry.timeout = g_loop->resource<uvw::timer_handle>();
   entry.timeout->on<uvw::timer_event>(
-      [this, context](const uvw::timer_event&, uvw::timer_handle&) {
+      [this, context, alive = _alive](const uvw::timer_event&,
+                                      uvw::timer_handle&) {
+        if (!*alive) {
+          return;
+        }
         HandleParentClassLookupTimeout(context);
       });
   entry.timeout->start(
@@ -447,7 +454,8 @@ void ClientParticipant::HandleGetClassResp(DatagramIterator& dgi) {
   if (!TryParseParentingRule(parentClass, rule)) {
     // Parse failure or no rule => Stated-equivalent. Record the parent so
     // A->B->A dedupe still works, but don't open anything.
-    _avatarParentRule = AvatarParentRule{requestedParent, ParentingRule{}, 0};
+    _avatarParentRule = AvatarParentRule{
+        .parentId = requestedParent, .rule = ParentingRule{}, .interestId = 0};
     return;
   }
 
@@ -509,7 +517,8 @@ void ClientParticipant::ApplyAvatarParentRule(const uint32_t& parentId,
       rule.kind == ParentingRuleKind::Auto) {
     // Auto is a per-interest-open rule, not an avatar-parent one, so for
     // the purposes of tracking the avatar's parent it behaves like Stated.
-    _avatarParentRule = AvatarParentRule{parentId, rule, 0};
+    _avatarParentRule =
+        AvatarParentRule{.parentId = parentId, .rule = rule, .interestId = 0};
     return;
   }
 
@@ -523,7 +532,8 @@ void ClientParticipant::ApplyAvatarParentRule(const uint32_t& parentId,
   }
 
   uint16_t id = AllocateInternalInterestId();
-  _avatarParentRule = AvatarParentRule{parentId, rule, id};
+  _avatarParentRule =
+      AvatarParentRule{.parentId = parentId, .rule = rule, .interestId = id};
 
   if (zones.empty()) {
     // Off-grid or no avatar zone yet; nothing to open, but keep the slot

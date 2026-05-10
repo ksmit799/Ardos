@@ -10,7 +10,7 @@
 
 namespace Ardos {
 
-DatabaseStateServer::DatabaseStateServer() : ChannelSubscriber() {
+DatabaseStateServer::DatabaseStateServer() {
   spdlog::info("Starting Database State Server component...");
 
   // Database State Server configuration.
@@ -35,7 +35,7 @@ DatabaseStateServer::DatabaseStateServer() : ChannelSubscriber() {
 
   if (!config["database"]) {
     spdlog::get("dbss")->error("Missing or invalid database channel!");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
   // Start listening to our broadcast channel.
@@ -191,7 +191,7 @@ void DatabaseStateServer::HandleDeleteDisk(DatagramIterator& dgi,
 
   // If the object is loaded in memory, broadcast a delete message.
   if (_distObjs.contains(doId)) {
-    auto distObj = _distObjs[doId];
+    auto* distObj = _distObjs[doId];
     std::unordered_set<uint64_t> targets;
 
     // Add location to broadcast.
@@ -232,16 +232,16 @@ void DatabaseStateServer::HandleSetField(DatagramIterator& dgi,
     return;
   }
 
-  auto fieldCount = multiple ? dgi.GetUint16() : 1;
+  uint16_t fieldCount = multiple ? dgi.GetUint16() : 1;
 
   auto responseType =
       multiple ? DBSERVER_OBJECT_SET_FIELDS : DBSERVER_OBJECT_SET_FIELD;
 
   FieldMap objectFields;
-  for (size_t i = 0; i < fieldCount; ++i) {
+  for (uint16_t i = 0; i < fieldCount; ++i) {
     auto fieldId = dgi.GetUint16();
 
-    auto field = g_dc_file->get_field_by_index(fieldId);
+    auto* field = g_dc_file->get_field_by_index(fieldId);
     if (!field) {
       spdlog::get("dbss")->warn(
           "Distributed object: {} received set "
@@ -284,17 +284,17 @@ void DatabaseStateServer::HandleGetField(DatagramIterator& dgi,
     return;
   }
 
-  auto fieldCount = multiple ? dgi.GetUint16() : 1;
+  uint16_t fieldCount = multiple ? dgi.GetUint16() : 1;
 
   auto responseType = multiple ? STATESERVER_OBJECT_GET_FIELDS_RESP
                                : STATESERVER_OBJECT_GET_FIELD_RESP;
 
   std::vector<DCField*> dbFields;
   std::vector<DCField*> ramFields;
-  for (size_t i = 0; i < fieldCount; ++i) {
+  for (uint16_t i = 0; i < fieldCount; ++i) {
     auto fieldId = dgi.GetUint16();
 
-    auto field = g_dc_file->get_field_by_index(fieldId);
+    auto* field = g_dc_file->get_field_by_index(fieldId);
     if (!field) {
       auto dg = std::make_shared<Datagram>(sender, doId, responseType);
       dg->AddUint32(ctx);
@@ -340,12 +340,11 @@ void DatabaseStateServer::HandleGetField(DatagramIterator& dgi,
       dbDg->AddUint16(dbFields.size());
     }
     for (const auto& field : dbFields) {
-      dg->AddUint16(field->get_number());
+      dbDg->AddUint16(field->get_number());
     }
     PublishDatagram(dbDg);
-  } else if (!ramFields.empty() && ramFields.back()->has_default_value()) {
-    // If no database fields exist, and we have a RAM field with a default
-    // value...
+  } else if (!ramFields.empty()) {
+    // If no database fields exist, and we have a RAM fields...
     auto dg = std::make_shared<Datagram>(sender, doId, responseType);
     dg->AddUint32(ctx);
     dg->AddBool(true);
@@ -444,7 +443,7 @@ bool UnpackDBFields(DatagramIterator& dgi, DCClass* dclass, FieldMap& required,
   for (size_t i = 0; i < fieldCount; ++i) {
     auto fieldId = dgi.GetUint16();
 
-    auto field = dclass->get_field_by_index(fieldId);
+    auto* field = dclass->get_field_by_index(fieldId);
     if (!field) {
       return false;
     }
@@ -495,7 +494,7 @@ void DatabaseStateServer::HandleWeb(ws28::Client* client,
       return;
     }
 
-    auto distObj = _distObjs[doId];
+    auto* distObj = _distObjs[doId];
 
     // Build an array of explicitly set RAM fields.
     nlohmann::json ramFields = nlohmann::json::array();

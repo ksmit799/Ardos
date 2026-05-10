@@ -13,33 +13,50 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle>& socket)
   _remoteAddress = _socket->peer();
   _localAddress = _socket->sock();
 
-  // Setup event listeners.
+  // Setup event listeners. Each lambda captures `_alive` so a late
+  // event firing on a destroyed `this` no-ops instead of derefing
+  // freed memory (uvw close() is async).
   _socket->on<uvw::error_event>(
-      [this](const uvw::error_event& event, uvw::tcp_handle&) {
+      [this, alive = _alive](const uvw::error_event& event, uvw::tcp_handle&) {
+        if (!*alive) {
+          return;
+        }
         HandleClose((uv_errno_t)event.code());
       });
 
   _socket->on<uvw::end_event>(
-      [this](const uvw::end_event&, uvw::tcp_handle&) { HandleClose(UV_EOF); });
+      [this, alive = _alive](const uvw::end_event&, uvw::tcp_handle&) {
+        if (!*alive) {
+          return;
+        }
+        HandleClose(UV_EOF);
+      });
 
   _socket->on<uvw::close_event>(
-      [this](const uvw::close_event&, uvw::tcp_handle&) {
+      [this, alive = _alive](const uvw::close_event&, uvw::tcp_handle&) {
+        if (!*alive) {
+          return;
+        }
         HandleClose(UV_EOF);
       });
 
   _socket->on<uvw::data_event>(
-      [this](const uvw::data_event& event, uvw::tcp_handle&) {
+      [this, alive = _alive](const uvw::data_event& event, uvw::tcp_handle&) {
+        if (!*alive) {
+          return;
+        }
         HandleData(event.data, event.length);
       });
 
   _socket->on<uvw::write_event>(
-      [this](const uvw::write_event& event, uvw::tcp_handle&) {
+      [this, alive = _alive](const uvw::write_event& event, uvw::tcp_handle&) {
+        if (!*alive) {
+          return;
+        }
         if (_disconnected && !_socketClosed) {
           _socket->close();
-
           _socketClosed = true;
         }
-
         _isWriting = false;
       });
 
@@ -75,6 +92,9 @@ void NetworkClient::Shutdown() {
     return;
   }
 
+  // Mark dead before the async close so any late-firing uvw event
+  // short-circuits on the captured _alive flag.
+  *_alive = false;
   _disconnected = true;
 
   if (!_isWriting && !_socketClosed) {
@@ -95,6 +115,7 @@ void NetworkClient::HandleClose(uv_errno_t code) {
   HandleDisconnect(code);
 }
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays): unique_ptr<char[]> from uvw read
 void NetworkClient::HandleData(const std::unique_ptr<char[]>& data,
                                size_t size) {
   // We can't directly handle datagrams as it's possible that multiple have been
@@ -104,7 +125,8 @@ void NetworkClient::HandleData(const std::unique_ptr<char[]>& data,
   if (_data_buf.empty() && size >= sizeof(uint16_t)) {
     // Ok, we at least have a size header. Let's check if we have the full
     // datagram.
-    uint16_t datagramSize = *reinterpret_cast<uint16_t*>(data.get());
+    uint16_t datagramSize;
+    std::memcpy(&datagramSize, data.get(), sizeof(datagramSize));
     if (datagramSize == size - sizeof(uint16_t)) {
       // We have a complete datagram, lets handle it.
       auto dg = std::make_shared<Datagram>(
@@ -123,7 +145,8 @@ void NetworkClient::HandleData(const std::unique_ptr<char[]>& data,
 void NetworkClient::ProcessBuffer() {
   while (_data_buf.size() > sizeof(uint16_t)) {
     // We have enough data to know the expected length of the datagram.
-    uint16_t dataSize = *reinterpret_cast<uint16_t*>(&_data_buf[0]);
+    uint16_t dataSize;
+    std::memcpy(&dataSize, _data_buf.data(), sizeof(dataSize));
     if (_data_buf.size() >= dataSize + sizeof(uint16_t)) {
       // We have a complete datagram!
       auto dg = std::make_shared<Datagram>(
@@ -151,11 +174,13 @@ void NetworkClient::SendDatagram(const std::shared_ptr<Datagram>& dg) {
   }
 
   const size_t sendSize = sizeof(uint16_t) + dg->Size();
+  // runtime-sized buffer for uvw write:
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays)
   auto sendBuffer = std::unique_ptr<char[]>(new char[sendSize]);
 
   const uint16_t dgSize = dg->Size();
 
-  const auto sendPtr = &sendBuffer.get()[0];
+  auto* const sendPtr = &sendBuffer.get()[0];
   // Datagram size tag.
   memcpy(sendPtr, &dgSize, sizeof(uint16_t));
   // Datagram data.

@@ -47,7 +47,10 @@ ClientParticipant::ClientParticipant(
     // Set up the heartbeat timeout timer.
     _heartbeatTimer = g_loop->resource<uvw::timer_handle>();
     _heartbeatTimer->on<uvw::timer_event>(
-        [this](const uvw::timer_event&, uvw::timer_handle&) {
+        [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
+          if (!*alive) {
+            return;
+          }
           HandleHeartbeatTimeout();
         });
   }
@@ -56,7 +59,10 @@ ClientParticipant::ClientParticipant(
     // Set up the auth timeout timer.
     _authTimer = g_loop->resource<uvw::timer_handle>();
     _authTimer->on<uvw::timer_event>(
-        [this](const uvw::timer_event&, uvw::timer_handle&) {
+        [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
+          if (!*alive) {
+            return;
+          }
           HandleAuthTimeout();
         });
 
@@ -68,7 +74,10 @@ ClientParticipant::ClientParticipant(
     // Set up the historical object TTL timer.
     _historicalTimer = g_loop->resource<uvw::timer_handle>();
     _historicalTimer->on<uvw::timer_event>(
-        [this](const uvw::timer_event&, uvw::timer_handle&) {
+        [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
+          if (!*alive) {
+            return;
+          }
           CleanupHistorical();
         });
 
@@ -95,6 +104,9 @@ void ClientParticipant::Shutdown() {
     return;
   }
 
+  // Mark dead so any late-firing timer/uvw callback short-circuits.
+  *_alive = false;
+
   // Kill the network connection.
   NetworkClient::Shutdown();
 
@@ -119,30 +131,6 @@ void ClientParticipant::Shutdown() {
     _historicalTimer.reset();
   }
 
-  // Unsubscribe from all channels so DELETE messages aren't sent back to us.
-  ChannelSubscriber::Shutdown();
-  _clientAgent->FreeChannel(_allocatedChannel);
-
-  // Delete all session objects.
-  while (!_sessionObjects.empty()) {
-    uint32_t doId = *_sessionObjects.begin();
-    _sessionObjects.erase(doId);
-    spdlog::get("ca")->debug("Client: {} exited, deleting session object: {}",
-                             _channel, doId);
-
-    auto dg = std::make_shared<Datagram>(doId, _channel,
-                                         STATESERVER_OBJECT_DELETE_RAM);
-    dg->AddUint32(doId);
-    PublishDatagram(dg);
-  }
-
-  // Clear out all pending interest operations.
-  // Note: PendingInterests delete themselves on Finish, so we have to be
-  // careful how we advance 'it'.
-  for (auto it = _pendingInterests.begin(); it != _pendingInterests.end();) {
-    (it++)->second->Finish();
-  }
-
   // Cancel any in-flight parent-class lookups so their timers don't fire
   // after we've been destroyed. A response landing after shutdown would be
   // dropped anyway (the stale-parent check would fail), but leaving live
@@ -162,13 +150,48 @@ void ClientParticipant::Shutdown() {
   // that the other end doesn't care about (the CP is going away).
   _avatarParentRule.reset();
 
+  // Clear out all pending interest operations.
+  // Note: PendingInterests delete themselves on Finish, so we have to be
+  // careful how we advance 'it'.
+  for (auto it = _pendingInterests.begin(); it != _pendingInterests.end();) {
+    (it++)->second->Finish();
+  }
+
+  // Delete all session objects. Publish before ChannelSubscriber::Shutdown
+  // queues us for deletion, otherwise a cascade could `delete this` mid-loop.
+  while (!_sessionObjects.empty()) {
+    uint32_t doId = *_sessionObjects.begin();
+    _sessionObjects.erase(doId);
+    spdlog::get("ca")->debug("Client: {} exited, deleting session object: {}",
+                             _channel, doId);
+
+    auto dg = std::make_shared<Datagram>(doId, _channel,
+                                         STATESERVER_OBJECT_DELETE_RAM);
+    dg->AddUint32(doId);
+    PublishDatagram(dg);
+  }
+
   spdlog::get("ca")->debug("Routing {} post-remove(s) for '{}'",
                            _postRemoves.size(), _channel);
 
   // Route any post remove datagrams we might have stored.
   for (const auto& dg : _postRemoves) {
-    PublishDatagram(dg);
+    try {
+      PublishDatagram(dg);
+    } catch (const DatagramIteratorEOF& e) {
+      spdlog::get("ca")->warn(
+          "Client: {} had a truncated post-remove; dropping: {}", _channel,
+          e.what());
+    } catch (const DatagramOverflow& e) {
+      spdlog::get("ca")->warn(
+          "Client: {} had an oversized post-remove; dropping: {}", _channel,
+          e.what());
+    }
   }
+
+  // Unsubscribe from all channels so DELETE messages aren't sent back to us.
+  ChannelSubscriber::Shutdown();
+  _clientAgent->FreeChannel(_allocatedChannel);
 }
 
 /**
@@ -192,6 +215,10 @@ void ClientParticipant::HandleDisconnect(uv_errno_t code) {
  * @param dg
  */
 void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
+  if (Disconnected()) {
+    return;
+  }
+
   DatagramIterator dgi(dg);
   dgi.SeekPayload();
 
@@ -239,9 +266,17 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
       uint32_t context = _nextContext++;
 
       uint16_t id = dgi.GetUint16();
-      Interest& i = _interests[id];
+      auto it = _interests.find(id);
+      if (it == _interests.end()) {
+        spdlog::get("ca")->warn(
+            "Client: {} received CLIENTAGENT_REMOVE_INTEREST for "
+            "unknown id: {}",
+            _channel, id);
+        break;
+      }
+
       HandleRemoveInterest(id, context);
-      RemoveInterest(i, context, sender);
+      RemoveInterest(it->second, context, sender);
       break;
     }
     case CLIENTAGENT_SET_CLIENT_ID: {

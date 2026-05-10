@@ -13,15 +13,14 @@ DistributedObject::DistributedObject(StateServerImplementation* stateServer,
                                      const uint32_t& parentId,
                                      const uint32_t& zoneId, DCClass* dclass,
                                      DatagramIterator& dgi, const bool& other)
-    : ChannelSubscriber(),
-      _stateServer(stateServer),
+    : _stateServer(stateServer),
       _doId(doId),
       _parentId(INVALID_DO_ID),
       _zoneId(INVALID_DO_ID),
       _dclass(dclass) {
   // Unpack required fields.
   for (int i = 0; i < _dclass->get_num_inherited_fields(); ++i) {
-    auto field = _dclass->get_inherited_field(i);
+    auto* field = _dclass->get_inherited_field(i);
     if (field->is_required() && !field->as_molecular_field()) {
       dgi.UnpackField(field, _requiredFields[field]);
     }
@@ -30,9 +29,9 @@ DistributedObject::DistributedObject(StateServerImplementation* stateServer,
   // Unpack extra fields if supplied.
   if (other) {
     uint16_t count = dgi.GetUint16();
-    for (int i = 0; i < count; ++i) {
+    for (uint16_t i = 0; i < count; ++i) {
       uint16_t fieldId = dgi.GetUint16();
-      auto field = _dclass->get_field_by_index(fieldId);
+      auto* field = _dclass->get_field_by_index(fieldId);
       if (!field) {
         spdlog::get("ss")->error(
             "Received generated with unknown field id: {} for DoId: {}",
@@ -68,8 +67,7 @@ DistributedObject::DistributedObject(StateServerImplementation* stateServer,
                                      const uint32_t& parentId,
                                      const uint32_t& zoneId, DCClass* dclass,
                                      FieldMap& reqFields, FieldMap& ramFields)
-    : ChannelSubscriber(),
-      _stateServer(stateServer),
+    : _stateServer(stateServer),
       _doId(doId),
       _parentId(INVALID_DO_ID),
       _zoneId(INVALID_DO_ID),
@@ -299,10 +297,11 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram>& dgIn) {
             break;  // No change, so do nothing.
           }
 
-          auto& children = _zoneObjects[zoneId];
-          children.erase(childId);
-          if (children.empty()) {
-            _zoneObjects.erase(zoneId);
+          if (auto it = _zoneObjects.find(zoneId); it != _zoneObjects.end()) {
+            it->second.erase(childId);
+            if (it->second.empty()) {
+              _zoneObjects.erase(it);
+            }
           }
         }
 
@@ -314,10 +313,11 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram>& dgIn) {
         dg->AddUint32(newZone);
         PublishDatagram(dg);
       } else if (doId == _doId) {
-        auto& children = _zoneObjects[zoneId];
-        children.erase(childId);
-        if (children.empty()) {
-          _zoneObjects.erase(zoneId);
+        if (auto it = _zoneObjects.find(zoneId); it != _zoneObjects.end()) {
+          it->second.erase(childId);
+          if (it->second.empty()) {
+            _zoneObjects.erase(it);
+          }
         }
       } else {
         spdlog::get("ss")->warn(
@@ -444,7 +444,7 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram>& dgIn) {
 
       // Read our requested fields into a sorted set.
       std::set<uint16_t> requestedFields;
-      for (int i = 0; i < fieldCount; ++i) {
+      for (uint16_t i = 0; i < fieldCount; ++i) {
         uint16_t fieldId = dgi.GetUint16();
         if (!requestedFields.insert(fieldId).second) {
           DCField* field = _dclass->get_field_by_index(i);
@@ -559,7 +559,7 @@ void DistributedObject::HandleDatagram(const std::shared_ptr<Datagram>& dgIn) {
         dg->AddUint16(zoneCount);
 
         // Get all zones requested.
-        for (int i = 0; i < zoneCount; ++i) {
+        for (uint16_t i = 0; i < zoneCount; ++i) {
           uint32_t zone = dgi.GetUint32();
           childCount += _zoneObjects[zone].size();
           dg->AddUint32(zone);
@@ -798,7 +798,7 @@ void DistributedObject::AppendRequiredData(const std::shared_ptr<Datagram>& dg,
   dg->AddLocation(_parentId, _zoneId);
   dg->AddUint16(_dclass->get_number());
 
-  size_t fieldCount = _dclass->get_num_inherited_fields();
+  int fieldCount = _dclass->get_num_inherited_fields();
   for (int i = 0; i < fieldCount; ++i) {
     DCField* field = _dclass->get_inherited_field(i);
     if (field->is_required() && !field->as_molecular_field() &&
@@ -936,12 +936,12 @@ bool DistributedObject::HandleOneGet(const std::shared_ptr<Datagram>& dg,
     return true;
   }
 
-  if (_requiredFields.count(field)) {
+  if (_requiredFields.contains(field)) {
     if (!isSubfield) {
       dg->AddUint16(fieldId);
     }
     dg->AddData(_requiredFields[field]);
-  } else if (_ramFields.count(field)) {
+  } else if (_ramFields.contains(field)) {
     if (!isSubfield) {
       dg->AddUint16(fieldId);
     }
