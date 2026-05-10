@@ -69,5 +69,5 @@ jobs:
         env:
           ARDOS_BINARY: ${{ github.workspace }}/cmake-build-release/bin/ardos
         with:
-          mode: simulation
+          mode: walltime
           run: pytest tests/benchmarks/ --codspeed -v --timeout=120
