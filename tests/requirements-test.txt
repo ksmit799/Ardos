@@ -1,5 +1,6 @@
 pytest>=7.4
 pytest-benchmark>=4.0
+pytest-codspeed>=3.0
 pytest-timeout>=2.2
 panda3d>=1.10
 pyyaml>=6.0
