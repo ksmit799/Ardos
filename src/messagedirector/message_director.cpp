@@ -333,30 +333,48 @@ void MessageDirector::RemoveSubscriber(ChannelSubscriber* subscriber) {
  */
 void MessageDirector::DeliverLocally(const std::string& routingKey,
                                      const std::shared_ptr<Datagram>& dg) {
-  // Mirror the safety-net check in StartConsuming's onReceived: skip the
-  // dispatch entirely if no binding in this MD could match.
   uint64_t channel = ChannelSubscriber::ChannelFromRoutingKey(routingKey);
   uint64_t bucket = channel >> kChannelBucketShift;
-  bool hasCh = ChannelSubscriber::_globalChannels.contains(channel);
-  bool hasBkt = ChannelSubscriber::_globalBuckets.contains(bucket);
 
-  spdlog::get("md")->trace(
-      "DeliverLocally chan={} bucket={} hasCh={} hasBkt={} subs={}", channel,
-      bucket, hasCh, hasBkt, _subscribers.size());
+  // Look up the interested subscribers via the routing-key index. Point
+  // subscribers (SubscribeChannel) hit _channelIndex directly; range
+  // subscribers (SubscribeRange) are indexed by bucket but a bucket can
+  // span channels outside the [min, max] they actually want, so we still
+  // call WithinLocalRange on those candidates.
+  //
+  // unordered_set dedupes the rare case where a subscriber has both a
+  // point sub on `channel` AND a range covering it, which previously
+  // resulted in one delivery via HandleUpdate's OR.
+  std::unordered_set<std::shared_ptr<ChannelSubscriber>> interested;
 
-  if (!hasCh && !hasBkt) {
+  if (auto it = ChannelSubscriber::_channelIndex.find(channel);
+      it != ChannelSubscriber::_channelIndex.end()) {
+    interested.insert(it->second.begin(), it->second.end());
+  }
+  if (auto it = ChannelSubscriber::_bucketIndex.find(bucket);
+      it != ChannelSubscriber::_bucketIndex.end()) {
+    for (const auto& sub : it->second) {
+      if (sub->WithinLocalRange(channel)) {
+        interested.insert(sub);
+      }
+    }
+  }
+
+  if (interested.empty()) {
     return;
   }
 
-  // Snapshot before iterating: a handler may synchronously construct a new
-  // ChannelSubscriber (which inserts into _subscribers and may rehash) or
-  // remove an existing one. Copying shared_ptrs into a stack-local vector
-  // keeps every iterated subscriber alive for the duration of this loop
-  // regardless of who drops the "live" ref mid-dispatch.
-  std::vector<std::shared_ptr<ChannelSubscriber>> snapshot(_subscribers.begin(),
-                                                           _subscribers.end());
+  spdlog::get("md")->trace(
+      "DeliverLocally chan={} bucket={} matched={} subs={}", channel, bucket,
+      interested.size(), _subscribers.size());
+
+  // Snapshot into a vector. Shared_ptr copies keep every iterated
+  // subscriber alive across the loop even if a handler triggers
+  // RemoveSubscriber or UnsubscribeChannel for one of its peers.
+  std::vector<std::shared_ptr<ChannelSubscriber>> snapshot(interested.begin(),
+                                                           interested.end());
   for (const auto& subscriber : snapshot) {
-    subscriber->HandleUpdate(routingKey, dg);
+    subscriber->HandleDatagram(dg);
   }
 }
 
@@ -479,16 +497,36 @@ void MessageDirector::StartConsuming() {
             reinterpret_cast<const uint8_t*>(message.body()),
             message.bodySize());
 
-        // Snapshot before iterating. Shared_ptr copies keep every
-        // iterated subscriber alive across the loop even if a handler
-        // synchronously triggers RemoveSubscriber. A handler can also
-        // construct a new ChannelSubscriber (which inserts into
-        // _subscribers and may rehash); we iterate the snapshot, not
-        // the live set, so neither case invalidates iteration.
+        // Look up interested subscribers via the routing-key index. Same
+        // shape as DeliverLocally: point subs by channel, range subs by
+        // bucket (filtered by WithinLocalRange because a bucket spans
+        // channels outside any given [min, max]). unordered_set dedupes
+        // the rare case where a subscriber has both flavors covering
+        // this channel.
+        std::unordered_set<std::shared_ptr<ChannelSubscriber>> interested;
+        if (auto it = ChannelSubscriber::_channelIndex.find(channel);
+            it != ChannelSubscriber::_channelIndex.end()) {
+          interested.insert(it->second.begin(), it->second.end());
+        }
+        if (auto it = ChannelSubscriber::_bucketIndex.find(bucket);
+            it != ChannelSubscriber::_bucketIndex.end()) {
+          for (const auto& sub : it->second) {
+            if (sub->WithinLocalRange(channel)) {
+              interested.insert(sub);
+            }
+          }
+        }
+        if (interested.empty()) {
+          return;
+        }
+
+        // Snapshot into a vector. Shared_ptr copies keep every iterated
+        // subscriber alive across the loop even if a handler triggers
+        // RemoveSubscriber or UnsubscribeChannel.
         std::vector<std::shared_ptr<ChannelSubscriber>> snapshot(
-            _subscribers.begin(), _subscribers.end());
+            interested.begin(), interested.end());
         for (const auto& subscriber : snapshot) {
-          subscriber->HandleUpdate(message.routingkey(), dg);
+          subscriber->HandleDatagram(dg);
         }
       })
       .onCancelled([](const std::string& consumerTag) {
