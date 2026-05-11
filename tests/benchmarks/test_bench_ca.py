@@ -32,6 +32,7 @@ Implementation notes:
 
 from __future__ import annotations
 
+import os
 import selectors
 import socket
 import time
@@ -206,6 +207,12 @@ def populated_cluster(request, ardos, ai_conn, client_conn):
         ss=True,
         ca=True,
         overrides={
+            # Default to warn-level logging so per-message trace writes don't
+            # skew the measurement (trace emits one line per dispatch/subscribe
+            # /publish, which at pop=10k adds hundreds of ms of syscalls per
+            # step). Set ARDOS_BENCH_LOG_LEVEL=trace to crank it up for
+            # diagnostic runs.
+            "log-level": os.environ.get("ARDOS_BENCH_LOG_LEVEL", "warn"),
             "client-agent": {
                 "channels": {
                     "min": CLIENT_CHANNEL_BASE,
