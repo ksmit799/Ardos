@@ -512,10 +512,9 @@ void ClientAgent::HandleWeb(ws28::Client* client, nlohmann::json& data) {
     auto channel = std::stoull(data["channel"].template get<std::string>());
 
     // Try to find a matching client for the provided channel.
-    auto participant =
-        std::ranges::find_if(_participants, [&channel](const auto* p) {
-          return p->GetChannel() == channel;
-        });
+    auto participant = std::ranges::find_if(
+        _participants,
+        [&channel](const auto* p) { return p->GetChannel() == channel; });
     if (participant == _participants.end()) {
       WebPanel::Send(client, {
                                  {"type", "ca:client"},
