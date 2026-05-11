@@ -16,6 +16,12 @@ std::unordered_map<uint64_t, unsigned int> ChannelSubscriber::_globalChannels =
     std::unordered_map<uint64_t, unsigned int>();
 std::unordered_map<uint64_t, unsigned int> ChannelSubscriber::_globalBuckets =
     std::unordered_map<uint64_t, unsigned int>();
+std::unordered_map<uint64_t,
+                   std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
+    ChannelSubscriber::_channelIndex;
+std::unordered_map<uint64_t,
+                   std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
+    ChannelSubscriber::_bucketIndex;
 
 std::string ChannelSubscriber::BuildChannelRoutingKey(uint64_t channel) {
   return "chan." + std::to_string(channel >> kChannelBucketShift) + "." +
@@ -36,14 +42,50 @@ uint64_t ChannelSubscriber::ChannelFromRoutingKey(
 }
 
 ChannelSubscriber::ChannelSubscriber() {
-  // Fetch the global channel and our local queue.
+  // Fetch the global channel and our local queue. We can't register with the
+  // MessageDirector here because shared_from_this() is not valid yet --
+  // subclass factories call Init() immediately after make_shared returns.
   _globalChannel = MessageDirector::Instance()->GetGlobalChannel();
   _localQueue = MessageDirector::Instance()->GetLocalQueue();
+}
 
-  MessageDirector::Instance()->AddSubscriber(this);
+void ChannelSubscriber::Init() {
+  auto self = shared_from_this();
+  MessageDirector::Instance()->AddSubscriber(self);
+
+  // Backfill the routing-key index with any subscriptions that landed
+  // during construction (subclass ctors may call SubscribeChannel/
+  // SubscribeRange before shared_from_this is valid, in which case the
+  // SubscribeChannel call skipped its index update).
+  for (uint64_t channel : _localChannels) {
+    _channelIndex[channel].insert(self);
+  }
+  for (const auto& [lo, hi] : _localRanges) {
+    uint64_t minBucket = lo >> kChannelBucketShift;
+    uint64_t maxBucket = hi >> kChannelBucketShift;
+    for (uint64_t bucket = minBucket; bucket <= maxBucket; ++bucket) {
+      _bucketIndex[bucket].insert(self);
+    }
+  }
 }
 
 void ChannelSubscriber::Shutdown() {
+  // Hold a self-reference for the duration of Shutdown. MessageDirector's
+  // _subscribers and our own _channelIndex/_bucketIndex each store
+  // shared_ptrs to us; the RemoveSubscriber + UnsubscribeChannel/Range
+  // calls below drop each of those refs one at a time, and on the last
+  // drop the destructor would otherwise run synchronously inside the
+  // erase that triggered it -- leaving Shutdown executing on freed
+  // memory. Anchoring a local shared_ptr keeps us alive until the
+  // method returns.
+  //
+  // weak_from_this().lock() returns null only when this Shutdown was
+  // invoked from a destructor that's already running (refcount is
+  // already 0). In that case there's nothing in the indexes to clean
+  // up anyway -- the prior external Shutdown call drained them -- so
+  // the loops below are no-ops and the null self is harmless.
+  auto self = weak_from_this().lock();
+
   MessageDirector::Instance()->RemoveSubscriber(this);
 
   // Cleanup our local channel subscriptions.
@@ -65,8 +107,16 @@ void ChannelSubscriber::SubscribeChannel(const uint64_t& channel) {
     return;
   }
 
-  // Next, lets check if this channel is already being listened to elsewhere.
-  // If it is, increment the subscriber count.
+  // Update the dispatch index so DeliverLocally / onReceived can find us
+  // by channel without walking _subscribers. weak_from_this().lock()
+  // returns null when called from a ctor (no shared_ptr exists yet);
+  // Init() will backfill in that case.
+  if (auto self = weak_from_this().lock()) {
+    _channelIndex[channel].insert(self);
+  }
+
+  // If the channel is already bound at the broker (another subscriber in
+  // this process is listening), just bump the refcount.
   if (_globalChannels.contains(channel)) {
     _globalChannels[channel]++;
     return;
@@ -86,6 +136,23 @@ void ChannelSubscriber::UnsubscribeChannel(const uint64_t& channel) {
   // Make sure we've subscribed to this channel.
   if (!_localChannels.erase(channel)) {
     return;
+  }
+
+  // Remove ourselves from the dispatch index. Use find-by-pointer because
+  // we may not be able to obtain a shared_ptr (Shutdown can run from the
+  // destructor, where weak_from_this() is expired); the entry is keyed
+  // on shared_ptr identity though, so we have to scan.
+  if (auto idxIt = _channelIndex.find(channel); idxIt != _channelIndex.end()) {
+    auto& set = idxIt->second;
+    for (auto it = set.begin(); it != set.end(); ++it) {
+      if (it->get() == this) {
+        set.erase(it);
+        break;
+      }
+    }
+    if (set.empty()) {
+      _channelIndex.erase(idxIt);
+    }
   }
 
   // We can safely assume the channel exists in a global context.
@@ -110,11 +177,21 @@ void ChannelSubscriber::SubscribeRange(const uint64_t& min,
 
   _localRanges.push_back(range);
 
+  uint64_t minBucket = min >> kChannelBucketShift;
+  uint64_t maxBucket = max >> kChannelBucketShift;
+
+  // Index ourselves on every bucket the range overlaps. Same shared_ptr
+  // pattern as SubscribeChannel -- Init() backfills when the call lands
+  // before shared_from_this is valid.
+  if (auto self = weak_from_this().lock()) {
+    for (uint64_t bucket = minBucket; bucket <= maxBucket; ++bucket) {
+      _bucketIndex[bucket].insert(self);
+    }
+  }
+
   // Bind every bucket that overlaps this range. Over-delivery at the edges
   // (channels inside the end buckets but outside [min, max]) is dropped by
   // the client-side WithinLocalRange filter.
-  uint64_t minBucket = min >> kChannelBucketShift;
-  uint64_t maxBucket = max >> kChannelBucketShift;
   for (uint64_t bucket = minBucket; bucket <= maxBucket; ++bucket) {
     if (_globalBuckets[bucket]++ == 0) {
       _globalChannel->bindQueue(kGlobalExchange, _localQueue,
@@ -137,11 +214,34 @@ void ChannelSubscriber::UnsubscribeRange(const uint64_t& min,
 
   _localRanges.erase(position);
 
+  uint64_t minBucket = min >> kChannelBucketShift;
+  uint64_t maxBucket = max >> kChannelBucketShift;
+
+  // Drop ourselves from the bucket index for every bucket this range
+  // touched. Scan-by-pointer because Shutdown may run from the destructor
+  // (weak_from_this expired); the entry is keyed by shared_ptr identity
+  // so we have to find ourselves the hard way. Only the matching buckets
+  // are scanned -- typically a small constant.
+  for (uint64_t bucket = minBucket; bucket <= maxBucket; ++bucket) {
+    auto idxIt = _bucketIndex.find(bucket);
+    if (idxIt == _bucketIndex.end()) {
+      continue;
+    }
+    auto& set = idxIt->second;
+    for (auto it = set.begin(); it != set.end(); ++it) {
+      if (it->get() == this) {
+        set.erase(it);
+        break;
+      }
+    }
+    if (set.empty()) {
+      _bucketIndex.erase(idxIt);
+    }
+  }
+
   // Release each bucket this range was holding. We only unbind from RabbitMQ
   // once the per-bucket ref count drops to zero, so overlapping ranges from
   // other subscribers keep their bindings alive.
-  uint64_t minBucket = min >> kChannelBucketShift;
-  uint64_t maxBucket = max >> kChannelBucketShift;
   for (uint64_t bucket = minBucket; bucket <= maxBucket; ++bucket) {
     if (--_globalBuckets[bucket] == 0) {
       _globalBuckets.erase(bucket);
@@ -178,28 +278,6 @@ void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram>& dg) {
     envelope.setAppID(localQueue);
     _globalChannel->publish(kGlobalExchange, routingKey, envelope);
   }
-}
-
-void ChannelSubscriber::HandleUpdate(const std::string& routingKey,
-                                     const std::shared_ptr<Datagram>& dg) {
-  // Routing keys look like `chan.<bucket>.<channel>`; pull the channel out
-  // once for both the set lookup and the range check.
-  uint64_t channel = ChannelFromRoutingKey(routingKey);
-
-  bool inLocal = _localChannels.contains(channel);
-  bool inRange = !inLocal && WithinLocalRange(channel);
-
-  spdlog::get("md")->trace("HandleUpdate chan={} sub={} inLocal={} inRange={}",
-                           channel, static_cast<const void*>(this), inLocal,
-                           inRange);
-
-  // First, check if this ChannelSubscriber cares about the message.
-  if (!inLocal && !inRange) {
-    return;
-  }
-
-  // We do care about the message, handle it!
-  HandleDatagram(dg);
 }
 
 bool ChannelSubscriber::WithinLocalRange(uint64_t channel) {

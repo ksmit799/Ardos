@@ -8,8 +8,7 @@ LoadingObject::LoadingObject(DatabaseStateServer* stateServer,
                              const uint32_t& doId, const uint32_t& parentId,
                              const uint32_t& zoneId,
                              const std::unordered_set<uint32_t>& contexts)
-    : ChannelSubscriber(),
-      _stateServer(stateServer),
+    : _stateServer(stateServer),
       _doId(doId),
       _parentId(parentId),
       _zoneId(zoneId),
@@ -28,8 +27,7 @@ LoadingObject::LoadingObject(DatabaseStateServer* stateServer,
                              const uint32_t& zoneId, DCClass* dclass,
                              DatagramIterator& dgi,
                              const std::unordered_set<uint32_t>& contexts)
-    : ChannelSubscriber(),
-      _stateServer(stateServer),
+    : _stateServer(stateServer),
       _doId(doId),
       _parentId(parentId),
       _zoneId(zoneId),
@@ -44,7 +42,7 @@ LoadingObject::LoadingObject(DatabaseStateServer* stateServer,
   for (size_t i = 0; i < fieldCount; ++i) {
     auto fieldId = dgi.GetUint16();
 
-    auto field = _dclass->get_field_by_index(fieldId);
+    auto* field = _dclass->get_field_by_index(fieldId);
     if (!field) {
       spdlog::get("dbss")->error(
           "Loading object: {} received invalid "
@@ -85,7 +83,7 @@ void LoadingObject::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
   dgi.SeekPayload();
 
   try {
-    uint64_t sender = dgi.GetUint64();
+    dgi.GetUint64();  // sender -- unused
     uint16_t msgType = dgi.GetUint16();
     switch (msgType) {
       case DBSERVER_OBJECT_GET_ALL_RESP: {
@@ -115,7 +113,7 @@ void LoadingObject::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
         }
 
         uint16_t dcId = dgi.GetUint16();
-        auto dcClass = g_dc_file->get_class(dcId);
+        auto* dcClass = g_dc_file->get_class(dcId);
         if (!dcClass) {
           spdlog::get("dbss")->error(
               "Loading object: {} received invalid "
@@ -144,9 +142,9 @@ void LoadingObject::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
         }
 
         // Add default values and update values.
-        auto numFields = dcClass->get_num_inherited_fields();
-        for (size_t i = 0; i < numFields; ++i) {
-          auto field = dcClass->get_inherited_field(i);
+        int numFields = dcClass->get_num_inherited_fields();
+        for (int i = 0; i < numFields; ++i) {
+          auto* field = dcClass->get_inherited_field(i);
           if (!field->as_molecular_field()) {
             if (field->is_required()) {
               if (_fieldUpdates.contains(field)) {
@@ -162,14 +160,17 @@ void LoadingObject::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
           }
         }
 
-        // Create object on state server.
-        auto distObj = new DistributedObject(
+        // Create object on state server. The shared_ptr is owned by
+        // MessageDirector::_subscribers (registered by Init); DBSS keeps a
+        // non-owning raw pointer for doId lookup.
+        auto distObj = std::make_shared<DistributedObject>(
             _stateServer, _stateServer->_dbChannel, _doId, _parentId, _zoneId,
             dcClass, _requiredFields, _ramFields);
+        distObj->Init();
 
         // Tell DBSS about object and handle datagram queue.
-        _stateServer->ReceiveObject(distObj);
-        ReplayDatagrams(distObj);
+        _stateServer->ReceiveObject(distObj.get());
+        ReplayDatagrams(distObj.get());
 
         // Cleanup this loader.
         Finalize();

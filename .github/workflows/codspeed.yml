@@ -4,9 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
-  # `workflow_dispatch` allows CodSpeed to trigger backtest
-  # performance analysis in order to generate initial data.
   workflow_dispatch:
+    inputs:
+      log_level:
+        description: "Daemon log level for benchmark daemons"
+        type: choice
+        default: warn
+        options: [trace, debug, info, warn, error]
 
 permissions:
   contents: read
@@ -68,6 +72,7 @@ jobs:
         uses: CodSpeedHQ/action@v4
         env:
           ARDOS_BINARY: ${{ github.workspace }}/cmake-build-release/bin/ardos
+          ARDOS_BENCH_LOG_LEVEL: ${{ inputs.log_level || 'warn' }}
         with:
           mode: walltime
           # The 10k-population CA benchmarks open ~10k client sockets in the
@@ -78,3 +83,11 @@ jobs:
             ulimit -n 65535
             sudo sysctl -w net.core.somaxconn=4096
             pytest tests/benchmarks/ --codspeed -v --timeout=600
+
+      - name: Upload daemon logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daemon-logs
+          path: tests/logs/
+          if-no-files-found: ignore

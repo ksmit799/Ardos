@@ -20,6 +20,8 @@ Round-trip discipline (avoid measuring Python's send buffer):
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from tests.common.ardos import AIConnection, Datagram, DatagramIterator
@@ -54,7 +56,13 @@ def _required_payload() -> bytes:
 
 @pytest.fixture
 def ss(ardos):
-    return ardos(md=True, ss=True)
+    # warn-level logging by default so per-message trace writes don't skew
+    # the measurement. Set ARDOS_BENCH_LOG_LEVEL=trace for diagnostic runs.
+    return ardos(
+        md=True,
+        ss=True,
+        overrides={"log-level": os.environ.get("ARDOS_BENCH_LOG_LEVEL", "warn")},
+    )
 
 
 def test_ss_create_throughput(ss, ai_conn, benchmark):

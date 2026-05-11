@@ -2,6 +2,8 @@
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <algorithm>
+
 #include "../clientagent/client_agent.h"
 #ifdef ARDOS_WANT_DB_SERVER
 #include "../database/database_server.h"
@@ -73,7 +75,9 @@ MessageDirector::MessageDirector() {
         srv.accept(*client);
 
         // Create a new client for this connected participant.
-        _participants.insert(new MDParticipant(client));
+        auto participant = std::make_shared<MDParticipant>(client);
+        participant->Init();
+        _participants.insert(participant.get());
       });
 
   _connectHandle->on<uvw::error_event>(
@@ -200,9 +204,12 @@ void MessageDirector::onReady(AMQP::Connection* connection) {
               // TODO: We should probably have a callback for role startup to
               // happen in main.
 
-              // Startup configured roles.
+              // Startup configured roles. ChannelSubscriber subclasses get
+              // the make_shared + Init() factory dance; ClientAgent is the
+              // only role that isn't a ChannelSubscriber.
               if (Config::Instance()->GetBool("want-state-server")) {
-                _stateServer = std::make_unique<StateServer>();
+                _stateServer = std::make_shared<StateServer>();
+                _stateServer->Init();
               }
 
               if (Config::Instance()->GetBool("want-client-agent")) {
@@ -211,7 +218,8 @@ void MessageDirector::onReady(AMQP::Connection* connection) {
 
               if (Config::Instance()->GetBool("want-database")) {
 #ifdef ARDOS_WANT_DB_SERVER
-                _db = std::make_unique<DatabaseServer>();
+                _db = std::make_shared<DatabaseServer>();
+                _db->Init();
 #else
                 spdlog::get("md")->error(
                     "want-database was set to true but Ardos was "
@@ -221,7 +229,8 @@ void MessageDirector::onReady(AMQP::Connection* connection) {
               }
 
               if (Config::Instance()->GetBool("want-db-state-server")) {
-                _dbss = std::make_unique<DatabaseStateServer>();
+                _dbss = std::make_shared<DatabaseStateServer>();
+                _dbss->Init();
               }
 
               if (Config::Instance()->GetBool("want-web-panel")) {
@@ -284,25 +293,34 @@ void MessageDirector::onClosed(AMQP::Connection* connection) {
 
 /**
  * Adds a channel subscriber to start receiving consume messages.
- * @param subscriber
  */
-void MessageDirector::AddSubscriber(ChannelSubscriber* subscriber) {
-  _subscribers.insert(subscriber);
+void MessageDirector::AddSubscriber(
+    std::shared_ptr<ChannelSubscriber> subscriber) {
+  _subscribers.insert(std::move(subscriber));
 
-  // Increment subscribers metric.
   if (_subscribersGauge) {
     _subscribersGauge->Increment();
   }
 }
 
 /**
- * Removes a channel subscriber (no longer receives consume messages.)
- * @param subscriber
+ * Removes a channel subscriber. Drops the MD's owning reference; if no other
+ * shared_ptr holds it (e.g. a dispatch snapshot), the destructor runs now.
+ *
+ * Takes a raw pointer because ChannelSubscriber::Shutdown may be invoked
+ * from the destructor as a safety net, at which point shared_from_this()
+ * is no longer valid. Walking the set comparing by ::get() identity is
+ * O(N) but only hit on subscriber teardown, not in the dispatch path.
  */
 void MessageDirector::RemoveSubscriber(ChannelSubscriber* subscriber) {
-  _leavingSubscribers.insert(subscriber);
+  auto it = std::ranges::find_if(_subscribers, [subscriber](const auto& p) {
+    return p.get() == subscriber;
+  });
+  if (it == _subscribers.end()) {
+    return;
+  }
 
-  // Decrement subscribers metric.
+  _subscribers.erase(it);
   if (_subscribersGauge) {
     _subscribersGauge->Decrement();
   }
@@ -313,55 +331,52 @@ void MessageDirector::RemoveSubscriber(ChannelSubscriber* subscriber) {
  * RabbitMQ. Used by ChannelSubscriber::PublishDatagram so a subscribe-then-
  * publish on the same channel doesn't race the async bindQueue, and so
  * same-process traffic skips the broker round-trip entirely.
- * @param routingKey
- * @param dg
  */
 void MessageDirector::DeliverLocally(const std::string& routingKey,
                                      const std::shared_ptr<Datagram>& dg) {
-  // Mirror the safety-net check in StartConsuming's onReceived: skip the
-  // dispatch entirely if no binding in this MD could match.
   uint64_t channel = ChannelSubscriber::ChannelFromRoutingKey(routingKey);
   uint64_t bucket = channel >> kChannelBucketShift;
-  bool hasCh = ChannelSubscriber::_globalChannels.contains(channel);
-  bool hasBkt = ChannelSubscriber::_globalBuckets.contains(bucket);
 
-  spdlog::get("md")->trace(
-      "DeliverLocally chan={} bucket={} hasCh={} hasBkt={} subs={}", channel,
-      bucket, hasCh, hasBkt, _subscribers.size());
+  // Look up the interested subscribers via the routing-key index. Point
+  // subscribers (SubscribeChannel) hit _channelIndex directly; range
+  // subscribers (SubscribeRange) are indexed by bucket but a bucket can
+  // span channels outside the [min, max] they actually want, so we still
+  // call WithinLocalRange on those candidates.
+  //
+  // unordered_set dedupes the rare case where a subscriber has both a
+  // point sub on `channel` AND a range covering it, which previously
+  // resulted in one delivery via HandleUpdate's OR.
+  std::unordered_set<std::shared_ptr<ChannelSubscriber>> interested;
 
-  ++_dispatchDepth;
-
-  if (hasCh || hasBkt) {
-    // Snapshot before iterating: a handler may construct a new
-    // ChannelSubscriber (whose ctor inserts into _subscribers and may
-    // rehash). Stack-local vector -- a member buffer would be clobbered
-    // by re-entrant DeliverLocally calls from cascaded handlers.
-    std::vector<ChannelSubscriber*> snapshot(_subscribers.begin(),
-                                             _subscribers.end());
-    for (auto* subscriber : snapshot) {
-      subscriber->HandleUpdate(routingKey, dg);
+  if (auto it = ChannelSubscriber::_channelIndex.find(channel);
+      it != ChannelSubscriber::_channelIndex.end()) {
+    interested.insert(it->second.begin(), it->second.end());
+  }
+  if (auto it = ChannelSubscriber::_bucketIndex.find(bucket);
+      it != ChannelSubscriber::_bucketIndex.end()) {
+    for (const auto& sub : it->second) {
+      if (sub->WithinLocalRange(channel)) {
+        interested.insert(sub);
+      }
     }
   }
 
-  // Drain only at the outermost dispatch. Nested cascades must defer --
-  // otherwise the inner drain deletes subscribers still referenced by
-  // an outer call's snapshot.
-  if (--_dispatchDepth == 0) {
-    DrainLeavingSubscribers();
+  if (interested.empty()) {
+    return;
   }
-}
 
-/**
- * Erases every subscriber queued by RemoveSubscriber, freeing the heap
- * allocation. Must NEVER run during _subscribers iteration -- callers
- * invoke this only after their dispatch loop has finished.
- */
-void MessageDirector::DrainLeavingSubscribers() {
-  for (const auto& it : _leavingSubscribers) {
-    _subscribers.erase(it);
-    delete it;
+  spdlog::get("md")->trace(
+      "DeliverLocally chan={} bucket={} matched={} subs={}", channel, bucket,
+      interested.size(), _subscribers.size());
+
+  // Snapshot into a vector. Shared_ptr copies keep every iterated
+  // subscriber alive across the loop even if a handler triggers
+  // RemoveSubscriber or UnsubscribeChannel for one of its peers.
+  std::vector<std::shared_ptr<ChannelSubscriber>> snapshot(interested.begin(),
+                                                           interested.end());
+  for (const auto& subscriber : snapshot) {
+    subscriber->HandleDatagram(dg);
   }
-  _leavingSubscribers.clear();
 }
 
 /**
@@ -446,10 +461,7 @@ void MessageDirector::StartConsuming() {
         // Drop loopback copies. PublishDatagram tags every outgoing message
         // with our local queue name and delivers synchronously in-process;
         // the broker still fans the message out to us, so ignore that copy.
-        // Still drain leaving subscribers though -- otherwise loopback-only
-        // traffic never gets a chance to clean them up.
         if (message.hasAppID() && message.appID() == _localQueue) {
-          DrainLeavingSubscribers();
           return;
         }
 
@@ -467,7 +479,6 @@ void MessageDirector::StartConsuming() {
         uint64_t bucket = channel >> kChannelBucketShift;
         if (!ChannelSubscriber::_globalChannels.contains(channel) &&
             !ChannelSubscriber::_globalBuckets.contains(bucket)) {
-          DrainLeavingSubscribers();
           return;
         }
 
@@ -487,26 +498,36 @@ void MessageDirector::StartConsuming() {
             reinterpret_cast<const uint8_t*>(message.body()),
             message.bodySize());
 
-        // Forward the message to channel subscribers. Snapshot before
-        // iterating -- a handler can synchronously construct a new
-        // ChannelSubscriber (rehashes _subscribers and invalidates the
-        // active iterator). Stack-local: nested DeliverLocally calls
-        // would clobber a shared buffer. If they're not subscribed to
-        // the channel, they'll ignore it.
-        ++_dispatchDepth;
-        {
-          std::vector<ChannelSubscriber*> snapshot(_subscribers.begin(),
-                                                   _subscribers.end());
-          for (auto* subscriber : snapshot) {
-            subscriber->HandleUpdate(message.routingkey(), dg);
+        // Look up interested subscribers via the routing-key index. Same
+        // shape as DeliverLocally: point subs by channel, range subs by
+        // bucket (filtered by WithinLocalRange because a bucket spans
+        // channels outside any given [min, max]). unordered_set dedupes
+        // the rare case where a subscriber has both flavors covering
+        // this channel.
+        std::unordered_set<std::shared_ptr<ChannelSubscriber>> interested;
+        if (auto it = ChannelSubscriber::_channelIndex.find(channel);
+            it != ChannelSubscriber::_channelIndex.end()) {
+          interested.insert(it->second.begin(), it->second.end());
+        }
+        if (auto it = ChannelSubscriber::_bucketIndex.find(bucket);
+            it != ChannelSubscriber::_bucketIndex.end()) {
+          for (const auto& sub : it->second) {
+            if (sub->WithinLocalRange(channel)) {
+              interested.insert(sub);
+            }
           }
         }
+        if (interested.empty()) {
+          return;
+        }
 
-        // Delete any subscribers that were annihilated while handling
-        // the message. Only drain at the outermost dispatch to avoid
-        // freeing subscribers still referenced by nested call snapshots.
-        if (--_dispatchDepth == 0) {
-          DrainLeavingSubscribers();
+        // Snapshot into a vector. Shared_ptr copies keep every iterated
+        // subscriber alive across the loop even if a handler triggers
+        // RemoveSubscriber or UnsubscribeChannel.
+        std::vector<std::shared_ptr<ChannelSubscriber>> snapshot(
+            interested.begin(), interested.end());
+        for (const auto& subscriber : snapshot) {
+          subscriber->HandleDatagram(dg);
         }
       })
       .onCancelled([](const std::string& consumerTag) {

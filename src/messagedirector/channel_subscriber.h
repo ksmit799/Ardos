@@ -11,7 +11,7 @@
 
 namespace Ardos {
 
-typedef std::pair<uint64_t, uint64_t> ChannelRange;
+using ChannelRange = std::pair<uint64_t, uint64_t>;
 
 // Channels are bucketed by their upper bits so that range subscriptions can be
 // expressed as a small number of topic bindings of the form `chan.<bucket>.*`
@@ -19,12 +19,19 @@ typedef std::pair<uint64_t, uint64_t> ChannelRange;
 // 65,536 channels, so a 200M-channel range is ~3,050 bindings.
 constexpr unsigned int kChannelBucketShift = 16;
 
-class ChannelSubscriber {
+class ChannelSubscriber
+    : public std::enable_shared_from_this<ChannelSubscriber> {
  public:
   friend class MessageDirector;
 
   ChannelSubscriber();
   virtual ~ChannelSubscriber() = default;
+
+  // Register this subscriber with the MessageDirector. Must be called once,
+  // after construction, because shared_from_this() is not valid inside the
+  // constructor. Subclasses use a static Create<T>(...) factory that does
+  // make_shared<T>() and then calls Init().
+  virtual void Init();
 
   virtual void Shutdown();
 
@@ -48,20 +55,39 @@ class ChannelSubscriber {
   virtual void HandleDatagram(const std::shared_ptr<Datagram>& dg) = 0;
 
  private:
-  void HandleUpdate(const std::string& routingKey,
-                    const std::shared_ptr<Datagram>& dg);
-
+  // Called by MessageDirector's dispatch path (channel/bucket index lookup
+  // hits us). The index already determined "do I care?" so HandleDatagram
+  // is invoked directly; the per-subscriber filter check that used to live
+  // in HandleUpdate has been retired.
   bool WithinLocalRange(uint64_t channel);
 
   static std::string BuildChannelRoutingKey(uint64_t channel);
   static std::string BuildBucketRoutingPattern(uint64_t bucket);
   static uint64_t ChannelFromRoutingKey(const std::string& routingKey);
 
-  // A static map of globally registered channels.
+  // A static map of globally registered channels (refcount).
   static std::unordered_map<uint64_t, unsigned int> _globalChannels;
   // Ref-counted bucket bindings. Multiple range subscriptions may overlap on
   // the same bucket; we only unbind from RabbitMQ when the count hits zero.
   static std::unordered_map<uint64_t, unsigned int> _globalBuckets;
+
+  // Routing-key dispatch index. Maps a channel (or bucket, for range
+  // subscriptions) to the set of subscribers that care about it. Dispatch
+  // looks up the index directly instead of iterating every subscriber and
+  // asking each one -- this turns the in-process delivery loop from O(N)
+  // to O(matching subscribers) per message.
+  //
+  // Populated by SubscribeChannel/SubscribeRange and drained by their
+  // Unsubscribe counterparts. Storing shared_ptr (rather than weak_ptr)
+  // keeps the index entries trivially hashable in unordered_set and adds
+  // one atomic refcount inc per subscription -- mirrored by the entry
+  // _subscribers already holds, so memory cost is negligible.
+  static std::unordered_map<
+      uint64_t, std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
+      _channelIndex;
+  static std::unordered_map<
+      uint64_t, std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
+      _bucketIndex;
 
   // Channels this ChannelSubscriber is listening to. Hot-path membership
   // check for every delivered message, hence unordered_set.

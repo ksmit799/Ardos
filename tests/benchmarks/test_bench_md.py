@@ -4,6 +4,8 @@ Measures the cost of broadcasting a single datagram to N subscribers. Covers
 the RabbitMQ routing rework (commit 2948152).
 """
 
+import os
+
 import pytest
 
 from tests.common.ardos import Datagram, DatagramIterator
@@ -15,7 +17,12 @@ N_SUBSCRIBERS = [1, 8, 64]
 
 @pytest.fixture
 def md(ardos):
-    return ardos(md=True)
+    # warn-level logging by default so per-message trace writes don't skew
+    # the measurement. Set ARDOS_BENCH_LOG_LEVEL=trace for diagnostic runs.
+    return ardos(
+        md=True,
+        overrides={"log-level": os.environ.get("ARDOS_BENCH_LOG_LEVEL", "warn")},
+    )
 
 
 @pytest.mark.parametrize("n", N_SUBSCRIBERS)

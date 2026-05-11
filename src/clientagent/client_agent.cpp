@@ -2,6 +2,7 @@
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <algorithm>
 #include <string>
 
 #include "../util/config.h"
@@ -75,7 +76,7 @@ ClientAgent::ClientAgent() {
       spdlog::get("ca")->error(
           "UberDOG: {} Distributed Class: {} does not exist!",
           uberdog["id"].as<uint32_t>(), uberdog["class"].as<std::string>());
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
 
     Uberdog ud{};
@@ -129,7 +130,7 @@ ClientAgent::ClientAgent() {
           if (!zone.IsScalar()) {
             continue;
           }
-          std::string s = zone.as<std::string>();
+          auto s = zone.as<std::string>();
           size_t dash = s.find('-');
           if (dash != std::string::npos) {
             uint32_t lo = static_cast<uint32_t>(std::stoul(s.substr(0, dash)));
@@ -164,7 +165,7 @@ ClientAgent::ClientAgent() {
     if (!_avatarClass) {
       spdlog::get("ca")->error("Configured avatar class: {} does not exist!",
                                avatarClassParam.as<std::string>());
-      exit(1);
+      exit(1);  // NOLINT(concurrency-mt-unsafe)
     }
   }
 
@@ -194,8 +195,13 @@ ClientAgent::ClientAgent() {
             srv.parent().resource<uvw::tcp_handle>();
         srv.accept(*client);
 
-        // Create a new client for this connected participant.
-        _participants.insert(new ClientParticipant(this, client));
+        // Create a new client for this connected participant. The
+        // shared_ptr's ownership lives in MessageDirector::_subscribers
+        // (registered via Init); ClientAgent::_participants keeps a
+        // non-owning raw pointer for fast iteration.
+        auto participant = std::make_shared<ClientParticipant>(this, client);
+        participant->Init();
+        _participants.insert(participant.get());
       });
 
   // Initialize metrics.
@@ -220,7 +226,9 @@ uint64_t ClientAgent::AllocateChannel() {
     }
 
     return _nextChannel++;
-  } else if (!_freedChannels.empty()) {
+  }
+
+  if (!_freedChannels.empty()) {
     if (_freeChannelsGauge) {
       _freeChannelsGauge->Decrement();
     }
@@ -504,11 +512,9 @@ void ClientAgent::HandleWeb(ws28::Client* client, nlohmann::json& data) {
     auto channel = std::stoull(data["channel"].template get<std::string>());
 
     // Try to find a matching client for the provided channel.
-    auto participant =
-        std::find_if(_participants.begin(), _participants.end(),
-                     [&channel](ClientParticipant* participant) {
-                       return participant->GetChannel() == channel;
-                     });
+    auto participant = std::ranges::find_if(
+        _participants,
+        [&channel](const auto* p) { return p->GetChannel() == channel; });
     if (participant == _participants.end()) {
       WebPanel::Send(client, {
                                  {"type", "ca:client"},

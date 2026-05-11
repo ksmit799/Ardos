@@ -32,6 +32,7 @@ Implementation notes:
 
 from __future__ import annotations
 
+import os
 import selectors
 import socket
 import time
@@ -62,14 +63,13 @@ POPULATION_SIZES = [256, 1024]
 # Operations per step. Held constant so per-step time scales primarily with
 # population.
 ACTIVE = 4
-# Ceiling note: pop=1024 is intentional. Above ~2k subscribers,
-# MessageDirector::DeliverLocally turns quadratic — every dispatched message
-# iterates every ChannelSubscriber regardless of routing-key match
-# (src/messagedirector/message_director.cpp:339 and :498). Fixture setup at
-# pop=4096+ blows past the 80s timeout waiting for DONE_INTEREST_RESPs to
-# arrive. Tracked as part of the ChannelSubscriber shared_ptr migration —
-# once dispatch is indexed by routing key (O(1) lookup), bump this sweep
-# back up toward 10k.
+# pop=4096 and pop=10000 were attempted but the daemon stalls part-way through
+# the second timed-step iteration: iter-1 broadcasts complete end-to-end, but
+# at some point libuv stops processing AI messages and no further broadcasts
+# go out. The CA throughput indexes are fine -- iter 1 confirms routing
+# delivers to all 4096 subscribers. The hang is somewhere in the
+# uvw/AMQP-CPP/event-loop interaction at high N. Bump this back up once the
+# stall is diagnosed.
 
 CLIENT_CHANNEL_BASE = 1_000_000_000
 
@@ -214,6 +214,12 @@ def populated_cluster(request, ardos, ai_conn, client_conn):
         ss=True,
         ca=True,
         overrides={
+            # Default to warn-level logging so per-message trace writes don't
+            # skew the measurement (trace emits one line per dispatch/subscribe
+            # /publish, which at pop=10k adds hundreds of ms of syscalls per
+            # step). Set ARDOS_BENCH_LOG_LEVEL=trace to crank it up for
+            # diagnostic runs.
+            "log-level": os.environ.get("ARDOS_BENCH_LOG_LEVEL", "warn"),
             "client-agent": {
                 "channels": {
                     "min": CLIENT_CHANNEL_BASE,

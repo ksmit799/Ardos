@@ -39,7 +39,11 @@ class MessageDirector : public AMQP::ConnectionHandler {
   void onError(AMQP::Connection* connection, const char* message) override;
   void onClosed(AMQP::Connection* connection) override;
 
-  void AddSubscriber(ChannelSubscriber* subscriber);
+  void AddSubscriber(std::shared_ptr<ChannelSubscriber> subscriber);
+  // Raw-pointer overload: callable from ChannelSubscriber::~ at a point
+  // where shared_from_this() is no longer valid. Walks _subscribers and
+  // erases the matching shared_ptr by .get() identity. O(N) but only hit
+  // on subscriber teardown.
   void RemoveSubscriber(ChannelSubscriber* subscriber);
 
   void DeliverLocally(const std::string& routingKey,
@@ -57,6 +61,9 @@ class MessageDirector : public AMQP::ConnectionHandler {
     return _clientAgent.get();
   }
   [[nodiscard]] DatabaseServer* GetDbServer() const { return _db.get(); }
+  [[nodiscard]] std::shared_ptr<DatabaseServer> GetDbServerShared() const {
+    return _db;
+  }
   [[nodiscard]] DatabaseStateServer* GetDbStateServer() const {
     return _dbss.get();
   }
@@ -68,26 +75,27 @@ class MessageDirector : public AMQP::ConnectionHandler {
 
   void StartConsuming();
 
-  void DrainLeavingSubscribers();
-
   static MessageDirector* _instance;
 
-  std::unique_ptr<StateServer> _stateServer;
+  // The singletons that inherit from ChannelSubscriber (StateServer,
+  // DatabaseServer, DatabaseStateServer) are held by shared_ptr because
+  // they also live in _subscribers as shared_ptrs. Their lifetime is still
+  // effectively program-bound -- the MessageDirector holds the only owning
+  // ref outside _subscribers, so the second ref never causes confusion.
+  // ClientAgent does not inherit from ChannelSubscriber and stays unique.
+  std::shared_ptr<StateServer> _stateServer;
   std::unique_ptr<ClientAgent> _clientAgent;
-  std::unique_ptr<DatabaseServer> _db;
-  std::unique_ptr<DatabaseStateServer> _dbss;
+  std::shared_ptr<DatabaseServer> _db;
+  std::shared_ptr<DatabaseStateServer> _dbss;
   std::unique_ptr<WebPanel> _webPanel;
 
-  std::unordered_set<ChannelSubscriber*> _subscribers;
-  std::unordered_set<ChannelSubscriber*> _leavingSubscribers;
+  // Shared ownership: each subscriber subclass is heap-allocated via
+  // make_shared and registered here. Dispatch snapshots this set (cheap
+  // shared_ptr copies), so a handler can safely drop the last "owning"
+  // reference mid-dispatch -- the snapshot keeps the object alive for
+  // the remainder of the loop.
+  std::unordered_set<std::shared_ptr<ChannelSubscriber>> _subscribers;
   std::unordered_set<MDParticipant*> _participants;
-
-  // Re-entrancy depth for DeliverLocally / onReceived. A handler may
-  // cascade synchronously into another DeliverLocally; we must avoid
-  // draining _leavingSubscribers from a nested call (which would delete
-  // entries the outer iteration's snapshot still references). Drain only
-  // when the depth returns to 0.
-  int _dispatchDepth = 0;
 
   std::shared_ptr<uvw::tcp_handle> _connectHandle;
   std::shared_ptr<uvw::tcp_handle> _listenHandle;

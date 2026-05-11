@@ -148,12 +148,17 @@ void DatabaseStateServer::HandleActivate(DatagramIterator& dgi,
 
   // We're loading without any additional fields set.
   if (!other) {
+    std::shared_ptr<LoadingObject> obj;
     if (!_inactiveLoads.contains(doId)) {
-      _loadObjs[doId] = new LoadingObject(this, doId, parentId, zoneId);
-      _loadObjs[doId]->Start();
+      obj = std::make_shared<LoadingObject>(this, doId, parentId, zoneId);
+      obj->Init();
+      _loadObjs[doId] = obj.get();
+      obj->Start();
     } else {
-      _loadObjs[doId] =
-          new LoadingObject(this, doId, parentId, zoneId, _inactiveLoads[doId]);
+      obj = std::make_shared<LoadingObject>(this, doId, parentId, zoneId,
+                                            _inactiveLoads[doId]);
+      obj->Init();
+      _loadObjs[doId] = obj.get();
     }
     return;
   }
@@ -170,13 +175,18 @@ void DatabaseStateServer::HandleActivate(DatagramIterator& dgi,
     return;
   }
 
+  std::shared_ptr<LoadingObject> obj;
   if (!_inactiveLoads.contains(doId)) {
-    _loadObjs[doId] =
-        new LoadingObject(this, doId, parentId, zoneId, dcClass, dgi);
-    _loadObjs[doId]->Start();
+    obj = std::make_shared<LoadingObject>(this, doId, parentId, zoneId, dcClass,
+                                          dgi);
+    obj->Init();
+    _loadObjs[doId] = obj.get();
+    obj->Start();
   } else {
-    _loadObjs[doId] = new LoadingObject(this, doId, parentId, zoneId, dcClass,
-                                        dgi, _inactiveLoads[doId]);
+    obj = std::make_shared<LoadingObject>(this, doId, parentId, zoneId, dcClass,
+                                          dgi, _inactiveLoads[doId]);
+    obj->Init();
+    _loadObjs[doId] = obj.get();
   }
 }
 

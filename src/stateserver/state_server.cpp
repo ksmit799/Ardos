@@ -13,7 +13,7 @@
 
 namespace Ardos {
 
-StateServer::StateServer() : ChannelSubscriber() {
+StateServer::StateServer() {
   spdlog::info("Starting State Server component...");
 
   // State Server configuration.
@@ -28,7 +28,7 @@ StateServer::StateServer() : ChannelSubscriber() {
 
   if (!config["channel"]) {
     spdlog::get("ss")->error("Missing or invalid channel!");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
   // Start listening to our channel.
@@ -97,16 +97,20 @@ void StateServer::HandleGenerate(DatagramIterator& dgi, const bool& other) {
     return;
   }
 
-  // Create the distributed object.
-  _distObjs[doId] =
-      new DistributedObject(this, doId, parentId, zoneId, dcClass, dgi, other);
+  // Create the distributed object. Ownership of the shared_ptr lives in
+  // MessageDirector::_subscribers (registered by Init); _distObjs keeps a
+  // non-owning raw pointer for doId lookup.
+  auto distObj = std::make_shared<DistributedObject>(
+      this, doId, parentId, zoneId, dcClass, dgi, other);
+  distObj->Init();
+  _distObjs[doId] = distObj.get();
 
   if (_objectsGauge) {
     _objectsGauge->Increment();
   }
 
   if (_objectsSizeHistogram) {
-    _objectsSizeHistogram->Observe((double)_distObjs[doId]->Size());
+    _objectsSizeHistogram->Observe((double)distObj->Size());
   }
 }
 
@@ -187,7 +191,7 @@ void StateServer::HandleWeb(ws28::Client* client, nlohmann::json& data) {
       return;
     }
 
-    auto distObj = _distObjs[doId];
+    auto* distObj = _distObjs[doId];
 
     // Build an array of explicitly set RAM fields.
     nlohmann::json ramFields = nlohmann::json::array();

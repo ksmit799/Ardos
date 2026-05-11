@@ -30,6 +30,13 @@ ClientParticipant::ClientParticipant(
   auto address = GetRemoteAddress();
   spdlog::get("ca")->debug("Client connected from {}:{}", address.ip,
                            address.port);
+}
+
+void ClientParticipant::Init() {
+  // Register with the MessageDirector first so we have a stable shared_ptr
+  // identity even if channel allocation fails -- the disconnect path's
+  // eventual Shutdown will then clean us up symmetrically.
+  ChannelSubscriber::Init();  // AddSubscriber(shared_from_this())
 
   _channel = _clientAgent->AllocateChannel();
   if (!_channel) {
@@ -43,27 +50,31 @@ ClientParticipant::ClientParticipant(
   SubscribeChannel(_channel);
   SubscribeChannel(BCHAN_CLIENTS);
 
+  // Capture a weak_ptr in every timer callback. uvw close() is async; a
+  // callback queued before close can still fire after the participant has
+  // been destroyed -- weak_ptr::lock() then returns null and the callback
+  // no-ops, sidestepping any use-after-destroy hazard.
+  auto self = std::static_pointer_cast<ClientParticipant>(shared_from_this());
+
   if (_clientAgent->GetHeartbeatInterval()) {
-    // Set up the heartbeat timeout timer.
     _heartbeatTimer = g_loop->resource<uvw::timer_handle>();
     _heartbeatTimer->on<uvw::timer_event>(
-        [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
-          if (!*alive) {
-            return;
+        [weak = std::weak_ptr<ClientParticipant>(self)](const uvw::timer_event&,
+                                                        uvw::timer_handle&) {
+          if (auto p = weak.lock()) {
+            p->HandleHeartbeatTimeout();
           }
-          HandleHeartbeatTimeout();
         });
   }
 
   if (_clientAgent->GetAuthTimeout()) {
-    // Set up the auth timeout timer.
     _authTimer = g_loop->resource<uvw::timer_handle>();
     _authTimer->on<uvw::timer_event>(
-        [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
-          if (!*alive) {
-            return;
+        [weak = std::weak_ptr<ClientParticipant>(self)](const uvw::timer_event&,
+                                                        uvw::timer_handle&) {
+          if (auto p = weak.lock()) {
+            p->HandleAuthTimeout();
           }
-          HandleAuthTimeout();
         });
 
     _authTimer->start(uvw::timer_handle::time{_clientAgent->GetAuthTimeout()},
@@ -71,14 +82,13 @@ ClientParticipant::ClientParticipant(
   }
 
   if (_clientAgent->GetHistoricalTTL()) {
-    // Set up the historical object TTL timer.
     _historicalTimer = g_loop->resource<uvw::timer_handle>();
     _historicalTimer->on<uvw::timer_event>(
-        [this, alive = _alive](const uvw::timer_event&, uvw::timer_handle&) {
-          if (!*alive) {
-            return;
+        [weak = std::weak_ptr<ClientParticipant>(self)](const uvw::timer_event&,
+                                                        uvw::timer_handle&) {
+          if (auto p = weak.lock()) {
+            p->CleanupHistorical();
           }
-          CleanupHistorical();
         });
 
     // Sweep at 2 second intervals.
@@ -104,8 +114,7 @@ void ClientParticipant::Shutdown() {
     return;
   }
 
-  // Mark dead so any late-firing timer/uvw callback short-circuits.
-  *_alive = false;
+  auto self = weak_from_this().lock();
 
   // Kill the network connection.
   NetworkClient::Shutdown();
