@@ -70,4 +70,11 @@ jobs:
           ARDOS_BINARY: ${{ github.workspace }}/cmake-build-release/bin/ardos
         with:
           mode: walltime
-          run: pytest tests/benchmarks/ --codspeed -v --timeout=120
+          # The 10k-population CA benchmarks open ~10k client sockets in the
+          # test process plus ~10k accept sockets in the CA child process, so
+          # the default 1024 fd cap is far too low. Bumping somaxconn keeps
+          # the kernel from dropping incoming connects during the burst.
+          run: |
+            ulimit -n 65535
+            sudo sysctl -w net.core.somaxconn=4096
+            pytest tests/benchmarks/ --codspeed -v --timeout=600
