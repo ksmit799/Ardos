@@ -114,9 +114,7 @@ void ClientParticipant::Shutdown() {
     return;
   }
 
-  // Late-firing timer callbacks capture weak_from_this() and lock()
-  // accordingly -- no separate liveness flag needed now that ownership
-  // is shared_ptr-based.
+  auto self = weak_from_this().lock();
 
   // Kill the network connection.
   NetworkClient::Shutdown();

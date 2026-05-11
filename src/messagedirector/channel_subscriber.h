@@ -11,7 +11,7 @@
 
 namespace Ardos {
 
-typedef std::pair<uint64_t, uint64_t> ChannelRange;
+using ChannelRange = std::pair<uint64_t, uint64_t>;
 
 // Channels are bucketed by their upper bits so that range subscriptions can be
 // expressed as a small number of topic bindings of the form `chan.<bucket>.*`

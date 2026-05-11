@@ -152,13 +152,14 @@ void DatabaseStateServer::HandleActivate(DatagramIterator& dgi,
     if (!_inactiveLoads.contains(doId)) {
       obj = std::make_shared<LoadingObject>(this, doId, parentId, zoneId);
       obj->Init();
+      _loadObjs[doId] = obj.get();
       obj->Start();
     } else {
       obj = std::make_shared<LoadingObject>(this, doId, parentId, zoneId,
                                             _inactiveLoads[doId]);
       obj->Init();
+      _loadObjs[doId] = obj.get();
     }
-    _loadObjs[doId] = obj.get();
     return;
   }
 
@@ -179,13 +180,14 @@ void DatabaseStateServer::HandleActivate(DatagramIterator& dgi,
     obj = std::make_shared<LoadingObject>(this, doId, parentId, zoneId, dcClass,
                                           dgi);
     obj->Init();
+    _loadObjs[doId] = obj.get();
     obj->Start();
   } else {
     obj = std::make_shared<LoadingObject>(this, doId, parentId, zoneId, dcClass,
                                           dgi, _inactiveLoads[doId]);
     obj->Init();
+    _loadObjs[doId] = obj.get();
   }
-  _loadObjs[doId] = obj.get();
 }
 
 void DatabaseStateServer::HandleDeleteDisk(DatagramIterator& dgi,

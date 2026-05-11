@@ -224,7 +224,9 @@ void ChannelSubscriber::UnsubscribeRange(const uint64_t& min,
   // are scanned -- typically a small constant.
   for (uint64_t bucket = minBucket; bucket <= maxBucket; ++bucket) {
     auto idxIt = _bucketIndex.find(bucket);
-    if (idxIt == _bucketIndex.end()) continue;
+    if (idxIt == _bucketIndex.end()) {
+      continue;
+    }
     auto& set = idxIt->second;
     for (auto it = set.begin(); it != set.end(); ++it) {
       if (it->get() == this) {

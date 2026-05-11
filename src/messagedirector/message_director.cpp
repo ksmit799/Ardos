@@ -2,6 +2,8 @@
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <algorithm>
+
 #include "../clientagent/client_agent.h"
 #ifdef ARDOS_WANT_DB_SERVER
 #include "../database/database_server.h"
@@ -311,9 +313,9 @@ void MessageDirector::AddSubscriber(
  * O(N) but only hit on subscriber teardown, not in the dispatch path.
  */
 void MessageDirector::RemoveSubscriber(ChannelSubscriber* subscriber) {
-  auto it = std::find_if(
-      _subscribers.begin(), _subscribers.end(),
-      [subscriber](const auto& p) { return p.get() == subscriber; });
+  auto it = std::ranges::find_if(_subscribers, [subscriber](const auto& p) {
+    return p.get() == subscriber;
+  });
   if (it == _subscribers.end()) {
     return;
   }

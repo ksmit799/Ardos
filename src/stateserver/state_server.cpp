@@ -13,7 +13,7 @@
 
 namespace Ardos {
 
-StateServer::StateServer() : ChannelSubscriber() {
+StateServer::StateServer() {
   spdlog::info("Starting State Server component...");
 
   // State Server configuration.
@@ -28,7 +28,7 @@ StateServer::StateServer() : ChannelSubscriber() {
 
   if (!config["channel"]) {
     spdlog::get("ss")->error("Missing or invalid channel!");
-    exit(1);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
   }
 
   // Start listening to our channel.
@@ -191,7 +191,7 @@ void StateServer::HandleWeb(ws28::Client* client, nlohmann::json& data) {
       return;
     }
 
-    auto distObj = _distObjs[doId];
+    auto* distObj = _distObjs[doId];
 
     // Build an array of explicitly set RAM fields.
     nlohmann::json ramFields = nlohmann::json::array();
