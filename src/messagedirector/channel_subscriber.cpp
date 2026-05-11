@@ -70,10 +70,22 @@ void ChannelSubscriber::Init() {
 }
 
 void ChannelSubscriber::Shutdown() {
-  // Use the raw-pointer overload because Shutdown may be invoked from the
-  // destructor (as a safety net), at which point shared_from_this() is
-  // undefined behaviour. RemoveSubscriber walks the set comparing
-  // shared_ptr::get() so a raw `this` still finds us.
+  // Hold a self-reference for the duration of Shutdown. MessageDirector's
+  // _subscribers and our own _channelIndex/_bucketIndex each store
+  // shared_ptrs to us; the RemoveSubscriber + UnsubscribeChannel/Range
+  // calls below drop each of those refs one at a time, and on the last
+  // drop the destructor would otherwise run synchronously inside the
+  // erase that triggered it -- leaving Shutdown executing on freed
+  // memory. Anchoring a local shared_ptr keeps us alive until the
+  // method returns.
+  //
+  // weak_from_this().lock() returns null only when this Shutdown was
+  // invoked from a destructor that's already running (refcount is
+  // already 0). In that case there's nothing in the indexes to clean
+  // up anyway -- the prior external Shutdown call drained them -- so
+  // the loops below are no-ops and the null self is harmless.
+  auto self = weak_from_this().lock();
+
   MessageDirector::Instance()->RemoveSubscriber(this);
 
   // Cleanup our local channel subscriptions.
