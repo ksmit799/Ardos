@@ -59,8 +59,8 @@ void ClientParticipant::Init() {
   if (_clientAgent->GetHeartbeatInterval()) {
     _heartbeatTimer = g_loop->resource<uvw::timer_handle>();
     _heartbeatTimer->on<uvw::timer_event>(
-        [weak = std::weak_ptr<ClientParticipant>(self)](
-            const uvw::timer_event&, uvw::timer_handle&) {
+        [weak = std::weak_ptr<ClientParticipant>(self)](const uvw::timer_event&,
+                                                        uvw::timer_handle&) {
           if (auto p = weak.lock()) {
             p->HandleHeartbeatTimeout();
           }
@@ -70,8 +70,8 @@ void ClientParticipant::Init() {
   if (_clientAgent->GetAuthTimeout()) {
     _authTimer = g_loop->resource<uvw::timer_handle>();
     _authTimer->on<uvw::timer_event>(
-        [weak = std::weak_ptr<ClientParticipant>(self)](
-            const uvw::timer_event&, uvw::timer_handle&) {
+        [weak = std::weak_ptr<ClientParticipant>(self)](const uvw::timer_event&,
+                                                        uvw::timer_handle&) {
           if (auto p = weak.lock()) {
             p->HandleAuthTimeout();
           }
@@ -84,8 +84,8 @@ void ClientParticipant::Init() {
   if (_clientAgent->GetHistoricalTTL()) {
     _historicalTimer = g_loop->resource<uvw::timer_handle>();
     _historicalTimer->on<uvw::timer_event>(
-        [weak = std::weak_ptr<ClientParticipant>(self)](
-            const uvw::timer_event&, uvw::timer_handle&) {
+        [weak = std::weak_ptr<ClientParticipant>(self)](const uvw::timer_event&,
+                                                        uvw::timer_handle&) {
           if (auto p = weak.lock()) {
             p->CleanupHistorical();
           }

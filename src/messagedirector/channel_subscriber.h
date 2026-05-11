@@ -82,11 +82,11 @@ class ChannelSubscriber
   // keeps the index entries trivially hashable in unordered_set and adds
   // one atomic refcount inc per subscription -- mirrored by the entry
   // _subscribers already holds, so memory cost is negligible.
-  static std::unordered_map<uint64_t,
-                            std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
+  static std::unordered_map<
+      uint64_t, std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
       _channelIndex;
-  static std::unordered_map<uint64_t,
-                            std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
+  static std::unordered_map<
+      uint64_t, std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
       _bucketIndex;
 
   // Channels this ChannelSubscriber is listening to. Hot-path membership

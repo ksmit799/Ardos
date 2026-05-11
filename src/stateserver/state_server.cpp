@@ -100,9 +100,8 @@ void StateServer::HandleGenerate(DatagramIterator& dgi, const bool& other) {
   // Create the distributed object. Ownership of the shared_ptr lives in
   // MessageDirector::_subscribers (registered by Init); _distObjs keeps a
   // non-owning raw pointer for doId lookup.
-  auto distObj = std::make_shared<DistributedObject>(this, doId, parentId,
-                                                     zoneId, dcClass, dgi,
-                                                     other);
+  auto distObj = std::make_shared<DistributedObject>(
+      this, doId, parentId, zoneId, dcClass, dgi, other);
   distObj->Init();
   _distObjs[doId] = distObj.get();
 
