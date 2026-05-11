@@ -19,12 +19,19 @@ typedef std::pair<uint64_t, uint64_t> ChannelRange;
 // 65,536 channels, so a 200M-channel range is ~3,050 bindings.
 constexpr unsigned int kChannelBucketShift = 16;
 
-class ChannelSubscriber {
+class ChannelSubscriber
+    : public std::enable_shared_from_this<ChannelSubscriber> {
  public:
   friend class MessageDirector;
 
   ChannelSubscriber();
   virtual ~ChannelSubscriber() = default;
+
+  // Register this subscriber with the MessageDirector. Must be called once,
+  // after construction, because shared_from_this() is not valid inside the
+  // constructor. Subclasses use a static Create<T>(...) factory that does
+  // make_shared<T>() and then calls Init().
+  virtual void Init();
 
   virtual void Shutdown();
 

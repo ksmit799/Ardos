@@ -374,12 +374,12 @@ void ClientParticipant::RequestParentClass(const uint32_t& parentId) {
   entry.parentId = parentId;
   entry.timeout = g_loop->resource<uvw::timer_handle>();
   entry.timeout->on<uvw::timer_event>(
-      [this, context, alive = _alive](const uvw::timer_event&,
-                                      uvw::timer_handle&) {
-        if (!*alive) {
-          return;
+      [weak = std::weak_ptr<ClientParticipant>(
+           std::static_pointer_cast<ClientParticipant>(shared_from_this())),
+       context](const uvw::timer_event&, uvw::timer_handle&) {
+        if (auto p = weak.lock()) {
+          p->HandleParentClassLookupTimeout(context);
         }
-        HandleParentClassLookupTimeout(context);
       });
   entry.timeout->start(
       uvw::timer_handle::time{_clientAgent->GetInterestTimeout()},

@@ -194,8 +194,13 @@ ClientAgent::ClientAgent() {
             srv.parent().resource<uvw::tcp_handle>();
         srv.accept(*client);
 
-        // Create a new client for this connected participant.
-        _participants.insert(new ClientParticipant(this, client));
+        // Create a new client for this connected participant. The
+        // shared_ptr's ownership lives in MessageDirector::_subscribers
+        // (registered via Init); ClientAgent::_participants keeps a
+        // non-owning raw pointer for fast iteration.
+        auto participant = std::make_shared<ClientParticipant>(this, client);
+        participant->Init();
+        _participants.insert(participant.get());
       });
 
   // Initialize metrics.

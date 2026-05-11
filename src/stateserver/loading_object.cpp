@@ -162,14 +162,17 @@ void LoadingObject::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
           }
         }
 
-        // Create object on state server.
-        auto distObj = new DistributedObject(
+        // Create object on state server. The shared_ptr is owned by
+        // MessageDirector::_subscribers (registered by Init); DBSS keeps a
+        // non-owning raw pointer for doId lookup.
+        auto distObj = std::make_shared<DistributedObject>(
             _stateServer, _stateServer->_dbChannel, _doId, _parentId, _zoneId,
             dcClass, _requiredFields, _ramFields);
+        distObj->Init();
 
         // Tell DBSS about object and handle datagram queue.
-        _stateServer->ReceiveObject(distObj);
-        ReplayDatagrams(distObj);
+        _stateServer->ReceiveObject(distObj.get());
+        ReplayDatagrams(distObj.get());
 
         // Cleanup this loader.
         Finalize();

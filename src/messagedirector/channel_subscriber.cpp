@@ -36,14 +36,22 @@ uint64_t ChannelSubscriber::ChannelFromRoutingKey(
 }
 
 ChannelSubscriber::ChannelSubscriber() {
-  // Fetch the global channel and our local queue.
+  // Fetch the global channel and our local queue. We can't register with the
+  // MessageDirector here because shared_from_this() is not valid yet --
+  // subclass factories call Init() immediately after make_shared returns.
   _globalChannel = MessageDirector::Instance()->GetGlobalChannel();
   _localQueue = MessageDirector::Instance()->GetLocalQueue();
+}
 
-  MessageDirector::Instance()->AddSubscriber(this);
+void ChannelSubscriber::Init() {
+  MessageDirector::Instance()->AddSubscriber(shared_from_this());
 }
 
 void ChannelSubscriber::Shutdown() {
+  // Use the raw-pointer overload because Shutdown may be invoked from the
+  // destructor (as a safety net), at which point shared_from_this() is
+  // undefined behaviour. RemoveSubscriber walks the set comparing
+  // shared_ptr::get() so a raw `this` still finds us.
   MessageDirector::Instance()->RemoveSubscriber(this);
 
   // Cleanup our local channel subscriptions.
