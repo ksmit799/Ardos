@@ -1,5 +1,7 @@
 # Ardos
 
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/ksmit799/Ardos?utm_source=badge)
+
 > A Realtime Distributed Object Server
 
 *Based on [Astron](https://github.com/astron/Astron) (Modified BSD 3-Clause)*

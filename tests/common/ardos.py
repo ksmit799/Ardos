@@ -15,7 +15,6 @@ Wire format reference:
 from __future__ import annotations
 
 import os
-import select
 import signal
 import socket
 import struct
@@ -337,7 +336,14 @@ class MDConnection:
         self.sock.sendall(struct.pack("<H", len(data)) + data)
 
     def _recv_n(self, n: int, timeout: float) -> bytes:
-        """Read exactly n bytes from the socket with a timeout."""
+        """Read exactly n bytes from the socket with a timeout.
+
+        Uses ``socket.settimeout`` rather than ``select.select`` because
+        CPython's ``select.select`` is capped at ``FD_SETSIZE=1024``
+        regardless of the process ulimit — the CA throughput benchmarks
+        open thousands of client sockets and would otherwise crash with
+        ``ValueError: filedescriptor out of range in select()``.
+        """
         deadline = time.monotonic() + timeout
         while len(self._rx) < n:
             remaining = deadline - time.monotonic()
@@ -345,12 +351,13 @@ class MDConnection:
                 raise TimeoutError(
                     f"timed out waiting for {n}B (have {len(self._rx)}B)"
                 )
-            ready, _, _ = select.select([self.sock], [], [], remaining)
-            if not ready:
+            self.sock.settimeout(remaining)
+            try:
+                chunk = self.sock.recv(65536)
+            except socket.timeout:
                 raise TimeoutError(
                     f"timed out waiting for {n}B (have {len(self._rx)}B)"
-                )
-            chunk = self.sock.recv(65536)
+                ) from None
             if not chunk:
                 raise ConnectionError("peer closed connection")
             self._rx.extend(chunk)
