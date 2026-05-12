@@ -216,7 +216,11 @@ ClientAgent::ClientAgent() {
   InitMetrics();
 
   // Start listening!
-  _listener->Listen(_host, _port);
+  if (!_listener->Listen(_host, _port)) {
+    spdlog::get("ca")->error("Failed to bind {} transport on {}:{}", _transport,
+                             _host, _port);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
+  }
 
   spdlog::get("ca")->info("Listening on {}:{} ({})", _host, _port, _transport);
 }

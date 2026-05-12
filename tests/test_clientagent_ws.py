@@ -61,14 +61,14 @@ def test_ws_hello_handshake(ca_ws):
         # Receive the response. websocket-client gives us the complete
         # frame as bytes.
         resp = ws.recv()
-        assert isinstance(resp, (bytes, bytearray)), (
-            f"expected binary frame; got {type(resp).__name__}"
-        )
+        assert isinstance(
+            resp, (bytes, bytearray)
+        ), f"expected binary frame; got {type(resp).__name__}"
 
         it = DatagramIterator(bytes(resp))
         mt = it.read_uint16()
-        assert mt == CLIENT_HELLO_RESP, (
-            f"expected CLIENT_HELLO_RESP ({CLIENT_HELLO_RESP}); got {mt}"
-        )
+        assert (
+            mt == CLIENT_HELLO_RESP
+        ), f"expected CLIENT_HELLO_RESP ({CLIENT_HELLO_RESP}); got {mt}"
     finally:
         ws.close()

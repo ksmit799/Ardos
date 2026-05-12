@@ -25,14 +25,14 @@ struct Uberdog {
   bool anonymous;
 };
 
-enum InterestsPermission {
+enum InterestsPermission : std::uint8_t {
   INTERESTS_ENABLED,
   INTERESTS_VISIBLE,
   INTERESTS_DISABLED,
 };
 
 // Zone filter mode when interest.zones is configured (omitted = no filter).
-enum InterestMode {
+enum InterestMode : std::uint8_t {
   INTEREST_MODE_NONE,
   INTEREST_MODE_WHITELIST,
   INTEREST_MODE_BLACKLIST,

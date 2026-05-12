@@ -26,6 +26,7 @@ class TcpTransportConnection final : public ITransportConnection {
 
  private:
   void HandleClose(int err);
+  // NOLINTNEXTLINE(modernize-avoid-c-arrays): unique_ptr<char[]> from uvw read
   void HandleData(const std::unique_ptr<char[]>& data, size_t size);
   void ProcessBuffer();
   void DeliverMessage(const uint8_t* data, size_t len);
@@ -42,10 +43,9 @@ class TcpTransportConnection final : public ITransportConnection {
   bool _isWriting = false;
   bool _socketClosed = false;
 
-  // Liveness flag captured by every uvw event lambda. uvw close() is
-  // async; a callback queued before close can still fire after this
-  // object has been destroyed. Setting *_alive=false in Close()
-  // short-circuits any such late events.
+  // Captured by every uvw event lambda; flipped false in the destructor
+  // so late-firing callbacks (uvw close() is async) no-op instead of
+  // accessing freed members on `this`.
   std::shared_ptr<bool> _alive = std::make_shared<bool>(true);
 };
 

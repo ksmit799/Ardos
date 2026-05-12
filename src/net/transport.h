@@ -1,6 +1,7 @@
 #ifndef ARDOS_TRANSPORT_H
 #define ARDOS_TRANSPORT_H
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>

@@ -12,7 +12,7 @@ namespace {
 // our static callbacks can find the listener and per-connection objects
 // without globals.
 
-void OnWsClientConnected(ws28::Client* client, ws28::HTTPRequest&) {
+void OnWsClientConnected(ws28::Client* client, ws28::HTTPRequest& /*req*/) {
   auto* server = client->GetServer();
   auto* listener = static_cast<WsTransportListener*>(server->GetUserData());
   if (!listener) {
@@ -58,7 +58,8 @@ void OnWsClientData(ws28::Client* client, char* data, size_t len,
 
 WsTransportConnection::WsTransportConnection(ws28::Client* client)
     : _client(client),
-      _remoteEndpoint{client->GetIP() ? client->GetIP() : "", 0} {}
+      _remoteEndpoint{.ip = client->GetIP() ? client->GetIP() : "", .port = 0} {
+}
 
 WsTransportConnection::~WsTransportConnection() {
   // If we still have a live ws28::Client pointer at destruction time
@@ -137,17 +138,24 @@ void WsTransportListener::SetConnectionFactory(ConnectionFactory factory) {
 }
 
 bool WsTransportListener::Listen(const std::string& host, int port) {
-  // ws28's framed message size cap. Match the same cap the rest of the
-  // protocol assumes (uint16 max for compatibility with TCP framing on
-  // the producer side). +2 leaves room for an optional inline length
-  // prefix if a client chooses to send one.
+  // ws28 binds all interfaces; host is advisory only on this transport.
+  if (!host.empty() && host != "0.0.0.0" && host != "::" &&
+      host != "127.0.0.1") {
+    spdlog::get("ca")->warn(
+        "WebSocket transport ignores host='{}'; ws28 binds all interfaces",
+        host);
+  }
+
+  // Max datagram is uint16 length + uint16-max payload = 0xFFFF + 2.
   _server->SetMaxMessageSize(0xFFFF + 2);
 
   // Disable Origin enforcement -- game clients aren't browsers and
   // don't carry meaningful Origin headers. (TLS isn't terminated here
   // anyway; reverse proxy handles cross-origin policy.)
   _server->SetCheckConnectionCallback(
-      [](ws28::Client*, ws28::HTTPRequest&) { return true; });
+      [](ws28::Client* /*client*/, ws28::HTTPRequest& /*req*/) {
+        return true;
+      });
 
   _server->SetClientConnectedCallback(&OnWsClientConnected);
   _server->SetClientDisconnectedCallback(&OnWsClientDisconnected);
@@ -162,8 +170,6 @@ bool WsTransportListener::Listen(const std::string& host, int port) {
                              port);
     return false;
   }
-
-  spdlog::get("ca")->info("WebSocket transport listening on {}:{}", host, port);
   return true;
 }
 

@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cstring>
+#include <limits>
 
 #include "../util/globals.h"
 
@@ -16,8 +17,9 @@ TcpTransportConnection::TcpTransportConnection(
 
   auto remote = _socket->peer();
   auto local = _socket->sock();
-  _remoteEndpoint = {remote.ip, static_cast<uint16_t>(remote.port)};
-  _localEndpoint = {local.ip, static_cast<uint16_t>(local.port)};
+  _remoteEndpoint = {.ip = remote.ip,
+                     .port = static_cast<uint16_t>(remote.port)};
+  _localEndpoint = {.ip = local.ip, .port = static_cast<uint16_t>(local.port)};
 
   // Wire libuv events. Every lambda captures `_alive` so a late-firing
   // event after this connection has been closed becomes a no-op rather
@@ -69,7 +71,10 @@ TcpTransportConnection::TcpTransportConnection(
   _socket->read();
 }
 
-TcpTransportConnection::~TcpTransportConnection() { Close(); }
+TcpTransportConnection::~TcpTransportConnection() {
+  Close();
+  *_alive = false;
+}
 
 void TcpTransportConnection::SetHandler(std::weak_ptr<ITransportHandler> h) {
   _handler = std::move(h);
@@ -79,6 +84,14 @@ void TcpTransportConnection::Send(const uint8_t* data, size_t len,
                                   Reliability /*r*/) {
   // TCP is always reliable; the hint is ignored.
   if (_closed || _socket == nullptr) {
+    return;
+  }
+
+  // Framing prefix is uint16; larger payloads would wrap and corrupt.
+  if (len > std::numeric_limits<uint16_t>::max()) {
+    spdlog::get("ca")->error(
+        "TCP transport refusing oversized datagram ({}B > {}B max)", len,
+        std::numeric_limits<uint16_t>::max());
     return;
   }
 
@@ -98,9 +111,10 @@ void TcpTransportConnection::Close() {
   if (_closed) {
     return;
   }
-  *_alive = false;
   _closed = true;
 
+  // *_alive flips false only in the destructor; an in-flight write still
+  // needs the write_event lambda to run and close the socket.
   if (!_isWriting && !_socketClosed) {
     _socket->close();
     _socketClosed = true;
@@ -121,13 +135,13 @@ void TcpTransportConnection::HandleClose(int /*err*/) {
   }
   _closed = true;
   _socketClosed = true;
-  *_alive = false;
 
   if (auto handler = _handler.lock()) {
     handler->OnTransportDisconnect();
   }
 }
 
+// NOLINTNEXTLINE(modernize-avoid-c-arrays): unique_ptr<char[]> from uvw read
 void TcpTransportConnection::HandleData(const std::unique_ptr<char[]>& data,
                                         size_t size) {
   // Fast path: a single complete datagram in this chunk and no
