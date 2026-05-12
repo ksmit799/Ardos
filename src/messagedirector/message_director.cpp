@@ -337,15 +337,10 @@ void MessageDirector::DeliverLocally(const std::string& routingKey,
   uint64_t channel = ChannelSubscriber::ChannelFromRoutingKey(routingKey);
   uint64_t bucket = channel >> kChannelBucketShift;
 
-  // Look up the interested subscribers via the routing-key index. Point
-  // subscribers (SubscribeChannel) hit _channelIndex directly; range
-  // subscribers (SubscribeRange) are indexed by bucket but a bucket can
-  // span channels outside the [min, max] they actually want, so we still
-  // call WithinLocalRange on those candidates.
-  //
-  // unordered_set dedupes the rare case where a subscriber has both a
-  // point sub on `channel` AND a range covering it, which previously
-  // resulted in one delivery via HandleUpdate's OR.
+  // Point subs hit _channelIndex directly; range subs are indexed by
+  // bucket and need WithinLocalRange to filter over-delivery at bucket
+  // edges. unordered_set dedupes subscribers carrying both a point sub
+  // and a covering range.
   std::unordered_set<std::shared_ptr<ChannelSubscriber>> interested;
 
   if (auto it = ChannelSubscriber::_channelIndex.find(channel);

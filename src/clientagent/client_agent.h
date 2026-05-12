@@ -15,6 +15,8 @@
 #include <uvw.hpp>
 #include <vector>
 
+#include "../net/transport.h"
+
 namespace Ardos {
 
 struct Uberdog {
@@ -74,10 +76,16 @@ class ClientAgent {
  private:
   void InitMetrics();
 
-  std::shared_ptr<uvw::tcp_handle> _listenHandle;
+  // Owns the listen socket / WS server. Concrete type selected at boot
+  // from the client-agent.transport config option (tcp | ws). All
+  // participants on this CA share one transport; mixed transports per
+  // CA aren't supported by design (run two CAs on different ports if
+  // you need both flavours).
+  std::unique_ptr<ITransportListener> _listener;
 
   std::string _host = "127.0.0.1";
   int _port = 6667;
+  std::string _transport = "tcp";
 
   std::string _version;
   uint32_t _dcHash;

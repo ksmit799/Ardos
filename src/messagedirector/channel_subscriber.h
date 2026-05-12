@@ -55,10 +55,10 @@ class ChannelSubscriber
   virtual void HandleDatagram(const std::shared_ptr<Datagram>& dg) = 0;
 
  private:
-  // Called by MessageDirector's dispatch path (channel/bucket index lookup
-  // hits us). The index already determined "do I care?" so HandleDatagram
-  // is invoked directly; the per-subscriber filter check that used to live
-  // in HandleUpdate has been retired.
+  // True if `channel` falls inside one of our subscribed ranges. The MD's
+  // bucket index narrows dispatch to range subscribers whose bucket
+  // matches; this is the per-subscriber range check that filters out
+  // over-delivery at the bucket edges.
   bool WithinLocalRange(uint64_t channel);
 
   static std::string BuildChannelRoutingKey(uint64_t channel);
@@ -71,17 +71,9 @@ class ChannelSubscriber
   // the same bucket; we only unbind from RabbitMQ when the count hits zero.
   static std::unordered_map<uint64_t, unsigned int> _globalBuckets;
 
-  // Routing-key dispatch index. Maps a channel (or bucket, for range
-  // subscriptions) to the set of subscribers that care about it. Dispatch
-  // looks up the index directly instead of iterating every subscriber and
-  // asking each one -- this turns the in-process delivery loop from O(N)
-  // to O(matching subscribers) per message.
-  //
-  // Populated by SubscribeChannel/SubscribeRange and drained by their
-  // Unsubscribe counterparts. Storing shared_ptr (rather than weak_ptr)
-  // keeps the index entries trivially hashable in unordered_set and adds
-  // one atomic refcount inc per subscription -- mirrored by the entry
-  // _subscribers already holds, so memory cost is negligible.
+  // Routing-key dispatch index: channel/bucket -> subscribers, so
+  // DeliverLocally is O(matching subscribers) instead of O(all
+  // subscribers). Maintained by Subscribe/UnsubscribeChannel/Range.
   static std::unordered_map<
       uint64_t, std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
       _channelIndex;

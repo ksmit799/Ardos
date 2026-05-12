@@ -42,9 +42,7 @@ uint64_t ChannelSubscriber::ChannelFromRoutingKey(
 }
 
 ChannelSubscriber::ChannelSubscriber() {
-  // Fetch the global channel and our local queue. We can't register with the
-  // MessageDirector here because shared_from_this() is not valid yet --
-  // subclass factories call Init() immediately after make_shared returns.
+  // MD registration happens in Init() -- shared_from_this() not valid here.
   _globalChannel = MessageDirector::Instance()->GetGlobalChannel();
   _localQueue = MessageDirector::Instance()->GetLocalQueue();
 }
@@ -70,20 +68,10 @@ void ChannelSubscriber::Init() {
 }
 
 void ChannelSubscriber::Shutdown() {
-  // Hold a self-reference for the duration of Shutdown. MessageDirector's
-  // _subscribers and our own _channelIndex/_bucketIndex each store
-  // shared_ptrs to us; the RemoveSubscriber + UnsubscribeChannel/Range
-  // calls below drop each of those refs one at a time, and on the last
-  // drop the destructor would otherwise run synchronously inside the
-  // erase that triggered it -- leaving Shutdown executing on freed
-  // memory. Anchoring a local shared_ptr keeps us alive until the
-  // method returns.
-  //
-  // weak_from_this().lock() returns null only when this Shutdown was
-  // invoked from a destructor that's already running (refcount is
-  // already 0). In that case there's nothing in the indexes to clean
-  // up anyway -- the prior external Shutdown call drained them -- so
-  // the loops below are no-ops and the null self is harmless.
+  // Anchor self for the duration of the method. RemoveSubscriber and
+  // each UnsubscribeChannel/Range below drops a shared_ptr ref; without
+  // this pin the last drop would destroy `this` inside the erase. Null
+  // when called from a destructor (indexes already drained, loops no-op).
   auto self = weak_from_this().lock();
 
   MessageDirector::Instance()->RemoveSubscriber(this);
