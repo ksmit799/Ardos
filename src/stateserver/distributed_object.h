@@ -22,6 +22,8 @@ class DistributedObject final : public ChannelSubscriber {
                     const uint32_t& parentId, const uint32_t& zoneId,
                     DCClass* dclass, FieldMap& reqFields, FieldMap& ramFields);
 
+  void Init() override;
+
   [[nodiscard]] size_t Size() const;
 
   [[nodiscard]] uint64_t GetAI() const { return _aiChannel; }
@@ -89,6 +91,10 @@ class DistributedObject final : public ChannelSubscriber {
   uint32_t _nextContext = 0;
   bool _aiExplicitlySet = false;
   bool _parentSynchronized = false;
+
+  uint32_t _pendingParent = INVALID_DO_ID;
+  uint32_t _pendingZone = INVALID_DO_ID;
+  uint64_t _pendingSender = INVALID_CHANNEL;
 };
 
 }  // namespace Ardos

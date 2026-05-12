@@ -57,8 +57,9 @@ DistributedObject::DistributedObject(StateServerImplementation* stateServer,
                            _dclass->get_name(), _doId);
 
   dgi.SeekPayload();
-  HandleLocationChange(parentId, zoneId, dgi.GetUint64());
-  WakeChildren();
+  _pendingSender = dgi.GetUint64();
+  _pendingParent = parentId;
+  _pendingZone = zoneId;
 }
 
 DistributedObject::DistributedObject(StateServerImplementation* stateServer,
@@ -79,7 +80,15 @@ DistributedObject::DistributedObject(StateServerImplementation* stateServer,
   spdlog::get("ss")->debug("Distributed Object: '{}' generated with DoId: {}",
                            _dclass->get_name(), _doId);
 
-  HandleLocationChange(parentId, zoneId, sender);
+  _pendingSender = sender;
+  _pendingParent = parentId;
+  _pendingZone = zoneId;
+}
+
+void DistributedObject::Init() {
+  ChannelSubscriber::Init();
+
+  HandleLocationChange(_pendingParent, _pendingZone, _pendingSender);
   WakeChildren();
 }
 
