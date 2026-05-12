@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <string>
 
+#include "../net/tcp_transport.h"
+#include "../net/ws_transport.h"
 #include "../util/config.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
@@ -16,8 +18,6 @@ namespace Ardos {
 
 ClientAgent::ClientAgent() {
   spdlog::info("Starting Client Agent component...");
-
-  _listenHandle = g_loop->resource<uvw::tcp_handle>();
 
   auto config = Config::Instance()->GetNode("client-agent");
 
@@ -34,6 +34,11 @@ ClientAgent::ClientAgent() {
   }
   if (auto portParam = config["port"]) {
     _port = portParam.as<int>();
+  }
+  // Transport selection. Defaults to TCP for backward compatibility;
+  // existing clients are unaffected. WS support is a thin ws28 wrapper.
+  if (auto transportParam = config["transport"]) {
+    _transport = transportParam.as<std::string>();
   }
 
   // Server version configuration.
@@ -188,18 +193,21 @@ ClientAgent::ClientAgent() {
     _udChatShim = chatShimParam.as<uint32_t>();
   }
 
-  // Socket events.
-  _listenHandle->on<uvw::listen_event>(
-      [this](const uvw::listen_event&, uvw::tcp_handle& srv) {
-        std::shared_ptr<uvw::tcp_handle> client =
-            srv.parent().resource<uvw::tcp_handle>();
-        srv.accept(*client);
+  // Build the transport listener based on config.
+  if (_transport == "tcp") {
+    _listener = std::make_unique<TcpTransportListener>();
+  } else if (_transport == "ws") {
+    _listener = std::make_unique<WsTransportListener>();
+  } else {
+    spdlog::get("ca")->error(
+        "Unknown transport '{}'. Supported values: tcp, ws", _transport);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
+  }
 
-        // Create a new client for this connected participant. The
-        // shared_ptr's ownership lives in MessageDirector::_subscribers
-        // (registered via Init); ClientAgent::_participants keeps a
-        // non-owning raw pointer for fast iteration.
-        auto participant = std::make_shared<ClientParticipant>(this, client);
+  _listener->SetConnectionFactory(
+      [this](std::unique_ptr<ITransportConnection> conn) {
+        auto participant =
+            std::make_shared<ClientParticipant>(this, std::move(conn));
         participant->Init();
         _participants.insert(participant.get());
       });
@@ -208,10 +216,13 @@ ClientAgent::ClientAgent() {
   InitMetrics();
 
   // Start listening!
-  _listenHandle->bind(_host, _port);
-  _listenHandle->listen();
+  if (!_listener->Listen(_host, _port)) {
+    spdlog::get("ca")->error("Failed to bind {} transport on {}:{}", _transport,
+                             _host, _port);
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
+  }
 
-  spdlog::get("ca")->info("Listening on {}:{}", _host, _port);
+  spdlog::get("ca")->info("Listening on {}:{} ({})", _host, _port, _transport);
 }
 
 /**

@@ -25,9 +25,9 @@ static bool IsClassOrDerivedFrom(const DCClass* candidate, DCClass* baseClass) {
 }
 
 ClientParticipant::ClientParticipant(
-    ClientAgent* clientAgent, const std::shared_ptr<uvw::tcp_handle>& socket)
-    : NetworkClient(socket), _clientAgent(clientAgent) {
-  auto address = GetRemoteAddress();
+    ClientAgent* clientAgent, std::unique_ptr<ITransportConnection> transport)
+    : _clientAgent(clientAgent), _transport(std::move(transport)) {
+  auto address = _transport->RemoteEndpoint();
   spdlog::get("ca")->debug("Client connected from {}:{}", address.ip,
                            address.port);
 }
@@ -37,6 +37,16 @@ void ClientParticipant::Init() {
   // identity even if channel allocation fails -- the disconnect path's
   // eventual Shutdown will then clean us up symmetrically.
   ChannelSubscriber::Init();  // AddSubscriber(shared_from_this())
+
+  // Bind ourselves as the transport's handler via a weak_ptr. Aliasing
+  // constructor reuses the ChannelSubscriber control block under a
+  // different typed pointer.
+  {
+    auto base = shared_from_this();
+    auto self = std::shared_ptr<ITransportHandler>(
+        base, static_cast<ITransportHandler*>(this));
+    _transport->SetHandler(std::weak_ptr<ITransportHandler>(self));
+  }
 
   _channel = _clientAgent->AllocateChannel();
   if (!_channel) {
@@ -113,11 +123,15 @@ void ClientParticipant::Shutdown() {
   if (_disconnected) {
     return;
   }
+  _disconnected = true;
 
   auto self = weak_from_this().lock();
 
-  // Kill the network connection.
-  NetworkClient::Shutdown();
+  // Close the transport. Idempotent; further OnTransport* callbacks
+  // become no-ops via the connection's internal closed flag.
+  if (_transport) {
+    _transport->Close();
+  }
 
   // Stop the heartbeat timer (if we have one.)
   if (_heartbeatTimer) {
@@ -207,16 +221,26 @@ void ClientParticipant::Shutdown() {
  * Handles socket disconnect events.
  * @param code
  */
-void ClientParticipant::HandleDisconnect(uv_errno_t code) {
+void ClientParticipant::OnTransportMessage(const uint8_t* data, size_t len) {
+  auto dg = std::make_shared<Datagram>(data, len);
+  HandleClientDatagram(dg);
+}
+
+void ClientParticipant::OnTransportDisconnect() {
   if (!_cleanDisconnect) {
     auto address = GetRemoteAddress();
-
-    auto errorEvent = uvw::error_event{(int)code};
-    spdlog::get("ca")->debug("Lost connection from {}:{}: {}", address.ip,
-                             address.port, errorEvent.what());
+    spdlog::get("ca")->debug("Lost connection from {}:{}", address.ip,
+                             address.port);
   }
 
   Shutdown();
+}
+
+void ClientParticipant::SendDatagram(const std::shared_ptr<Datagram>& dg) {
+  if (_disconnected || !_transport) {
+    return;
+  }
+  _transport->Send(dg->GetData(), dg->Size());
 }
 
 /**
@@ -224,7 +248,7 @@ void ClientParticipant::HandleDisconnect(uv_errno_t code) {
  * @param dg
  */
 void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
-  if (Disconnected()) {
+  if (_disconnected) {
     return;
   }
 
@@ -247,7 +271,7 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
     }
     case CLIENTAGENT_DROP: {
       _cleanDisconnect = true;
-      NetworkClient::Shutdown();
+      Shutdown();
       break;
     }
     case CLIENTAGENT_SET_STATE:
@@ -689,7 +713,7 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
 void ClientParticipant::SendDisconnect(const uint16_t& reason,
                                        const std::string& message,
                                        const bool& security) {
-  if (Disconnected()) {
+  if (_disconnected) {
     return;
   }
 

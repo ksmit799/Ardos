@@ -77,23 +77,14 @@ class MessageDirector : public AMQP::ConnectionHandler {
 
   static MessageDirector* _instance;
 
-  // The singletons that inherit from ChannelSubscriber (StateServer,
-  // DatabaseServer, DatabaseStateServer) are held by shared_ptr because
-  // they also live in _subscribers as shared_ptrs. Their lifetime is still
-  // effectively program-bound -- the MessageDirector holds the only owning
-  // ref outside _subscribers, so the second ref never causes confusion.
-  // ClientAgent does not inherit from ChannelSubscriber and stays unique.
+  // Singletons that also inherit ChannelSubscriber are shared_ptr so
+  // they can live in _subscribers; ClientAgent doesn't and stays unique.
   std::shared_ptr<StateServer> _stateServer;
   std::unique_ptr<ClientAgent> _clientAgent;
   std::shared_ptr<DatabaseServer> _db;
   std::shared_ptr<DatabaseStateServer> _dbss;
   std::unique_ptr<WebPanel> _webPanel;
 
-  // Shared ownership: each subscriber subclass is heap-allocated via
-  // make_shared and registered here. Dispatch snapshots this set (cheap
-  // shared_ptr copies), so a handler can safely drop the last "owning"
-  // reference mid-dispatch -- the snapshot keeps the object alive for
-  // the remainder of the loop.
   std::unordered_set<std::shared_ptr<ChannelSubscriber>> _subscribers;
   std::unordered_set<MDParticipant*> _participants;
 

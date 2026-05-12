@@ -12,7 +12,7 @@ namespace Ardos {
  */
 void ClientParticipant::HandleClientDatagram(
     const std::shared_ptr<Datagram>& dg) {
-  if (Disconnected()) {
+  if (_disconnected) {
     return;
   }
 
@@ -189,7 +189,7 @@ void ClientParticipant::HandlePreAuth(DatagramIterator& dgi) {
   switch (msgType) {
     case CLIENT_DISCONNECT: {
       _cleanDisconnect = true;
-      NetworkClient::Shutdown();
+      Shutdown();
       break;
     }
     case CLIENT_OBJECT_SET_FIELD:
@@ -212,7 +212,7 @@ void ClientParticipant::HandleAuthenticated(DatagramIterator& dgi) {
   switch (msgType) {
     case CLIENT_DISCONNECT: {
       _cleanDisconnect = true;
-      NetworkClient::Shutdown();
+      Shutdown();
       break;
     }
     case CLIENT_OBJECT_SET_FIELD:

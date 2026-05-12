@@ -6,7 +6,7 @@
 #include "../messagedirector/channel_subscriber.h"
 #include "../net/datagram_iterator.h"
 #include "../net/message_types.h"
-#include "../net/network_client.h"
+#include "../net/transport.h"
 #include "client_agent.h"
 #include "interest_operation.h"
 #include "parenting_rule.h"
@@ -64,18 +64,24 @@ struct AvatarParentRule {
   uint16_t interestId;
 };
 
-class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
+class ClientParticipant final : public ITransportHandler,
+                                public ChannelSubscriber {
  public:
   ClientParticipant(ClientAgent* clientAgent,
-                    const std::shared_ptr<uvw::tcp_handle>& socket);
+                    std::unique_ptr<ITransportConnection> transport);
   ~ClientParticipant() override;
 
-  // Registers with the MessageDirector and starts auth/heartbeat/historical
-  // timers. Must be called immediately after construction (the factory at
-  // ClientAgent's listen handler does this) -- shared_from_this() is not
-  // valid in the constructor, and the timers want to capture a weak ref
-  // to ourselves so a late callback after destruction is a no-op.
+  // Registers with the MessageDirector, binds the transport handler,
+  // and starts auth/heartbeat/historical timers. Must be called by the
+  // factory immediately after construction so shared_from_this() works.
   void Init() override;
+
+  [[nodiscard]] TransportEndpoint GetRemoteAddress() const {
+    return _transport ? _transport->RemoteEndpoint() : TransportEndpoint{};
+  }
+  [[nodiscard]] TransportEndpoint GetLocalAddress() const {
+    return _transport ? _transport->LocalEndpoint() : TransportEndpoint{};
+  }
 
   friend class InterestOperation;
 
@@ -102,10 +108,19 @@ class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
 
   void Shutdown() override;
 
-  void HandleDisconnect(uv_errno_t code) override;
+  // ITransportHandler overrides. The transport delivers raw protocol
+  // payloads (framing already stripped); we wrap them in a Datagram and
+  // dispatch via HandleClientDatagram for the rest of the class.
+  void OnTransportMessage(const uint8_t* data, size_t len) override;
+  void OnTransportDisconnect() override;
 
-  void HandleClientDatagram(const std::shared_ptr<Datagram>& dg) override;
+  void HandleClientDatagram(const std::shared_ptr<Datagram>& dg);
   void HandleDatagram(const std::shared_ptr<Datagram>& dg) override;
+
+  // Outbound helper -- centralises every CLIENT_* send through the
+  // transport so the existing callers don't need to know whether they're
+  // talking to TCP or WS.
+  void SendDatagram(const std::shared_ptr<Datagram>& dg);
 
   void SendDisconnect(const uint16_t& reason, const std::string& message,
                       const bool& security = false);
@@ -207,6 +222,15 @@ class ClientParticipant final : public NetworkClient, public ChannelSubscriber {
   uint16_t AllocateInternalInterestId();
 
   ClientAgent* _clientAgent;
+
+  // Owning handle on the transport. Destructor closes the underlying
+  // socket / WS client. Cleared on transport disconnect so subsequent
+  // outbound writes become no-ops.
+  std::unique_ptr<ITransportConnection> _transport;
+
+  // Guards re-entrant Shutdown and short-circuits outbound sends on a
+  // closed connection.
+  bool _disconnected = false;
 
   uint64_t _channel;
   uint64_t _allocatedChannel;
