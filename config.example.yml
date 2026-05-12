@@ -87,6 +87,10 @@ client-agent:
   host: 127.0.0.1
   port: 6667
 
+  # Transport protocol clients use to connect.
+  # Options are tcp (default) or ws (WebSocket).
+  transport: tcp
+
   # The logical version of the server.
   # This, along with the computed (or manual) DC hash, is used as a first point of contact to authenticate clients.
   version: dev
