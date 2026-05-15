@@ -104,6 +104,11 @@ client-agent:
   # and/or legacy shim chatting. Otherwise, this can be omitted.
   avatar-class: DistributedPlayer
 
+  # Enable setParentingRules-driven interest behaviour.
+  # Disable if your DC has a user-level `setParentingRules` field that
+  # shouldn't be interpreted as a parenting rule by the CA.
+  parenting-rules: true
+
   # Shim's logins from Disney specific clients to an UberDOG.
   # (DoId matches AuthManager defined above.)
   # NOTE: You must build Ardos with ARDOS_USE_LEGACY_CLIENT to use this option.
