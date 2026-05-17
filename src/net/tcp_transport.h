@@ -1,6 +1,7 @@
 #ifndef ARDOS_TCP_TRANSPORT_H
 #define ARDOS_TCP_TRANSPORT_H
 
+#include <deque>
 #include <memory>
 #include <string>
 #include <uvw.hpp>
@@ -30,6 +31,8 @@ class TcpTransportConnection final : public ITransportConnection {
   void HandleData(const std::unique_ptr<char[]>& data, size_t size);
   void ProcessBuffer();
   void DeliverMessage(const uint8_t* data, size_t len);
+  // Issues the next queued write, if any, when no write is in flight.
+  void PumpWrite();
 
   std::shared_ptr<uvw::tcp_handle> _socket;
   std::weak_ptr<ITransportHandler> _handler;
@@ -38,6 +41,16 @@ class TcpTransportConnection final : public ITransportConnection {
 
   // Accumulator for partial datagrams across uvw data_events.
   std::vector<uint8_t> _readBuffer;
+
+  // Application-level write queue bounded by kHighWaterBytes.
+  struct PendingWrite {
+    // NOLINTNEXTLINE(modernize-avoid-c-arrays): unique_ptr<char[]> for uvw
+    std::unique_ptr<char[]> buf;
+    size_t size;
+  };
+  std::deque<PendingWrite> _writeQueue;
+  size_t _queuedBytes = 0;
+  static constexpr size_t kHighWaterBytes = size_t{4} * 1024 * 1024;  // 4 MiB
 
   bool _closed = false;
   bool _isWriting = false;

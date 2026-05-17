@@ -1,6 +1,9 @@
 #include "network_client.h"
 
+#include <spdlog/spdlog.h>
+
 #include <cstring>
+#include <limits>
 
 namespace Ardos {
 
@@ -42,7 +45,7 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle>& socket)
 
   _socket->on<uvw::data_event>(
       [this, alive = _alive](const uvw::data_event& event, uvw::tcp_handle&) {
-        if (!*alive) {
+        if (!*alive || _disconnected) {
           return;
         }
         HandleData(event.data, event.length);
@@ -53,17 +56,36 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle>& socket)
         if (!*alive) {
           return;
         }
-        if (_disconnected && !_socketClosed) {
-          _socket->close();
-          _socketClosed = true;
-        }
         _isWriting = false;
+        if (_disconnected) {
+          // Drop anything still queued — the peer is going away. Close once
+          // the in-flight uv_write has resolved (this callback).
+          _writeQueue.clear();
+          _queuedBytes = 0;
+          if (!_socketClosed) {
+            _socket->close();
+            _socketClosed = true;
+          }
+          return;
+        }
+        PumpWrite();
       });
 
   _socket->read();
 }
 
-NetworkClient::~NetworkClient() { Shutdown(); }
+NetworkClient::~NetworkClient() {
+  NetworkClient::Shutdown();
+  // Force-close even if a write was in flight; we're being destroyed,
+  // graceful flush is no longer relevant. The pending write callback
+  // will still fire asynchronously but *_alive = false makes it no-op.
+  if (!_socketClosed) {
+    _socket->close();
+    _socketClosed = true;
+  }
+  // Flip alive last so any late-firing uvw event after the dtor no-ops.
+  *_alive = false;
+}
 
 /**
  * Returns whether or not this client is in a disconnected state.
@@ -92,14 +114,17 @@ void NetworkClient::Shutdown() {
     return;
   }
 
-  // Mark dead before the async close so any late-firing uvw event
-  // short-circuits on the captured _alive flag.
-  *_alive = false;
   _disconnected = true;
 
+  // Abandon anything queued; we're not going to flush it.
+  _writeQueue.clear();
+  _queuedBytes = 0;
+
+  // Defer close to the write_event callback if a uv_write is in flight —
+  // *_alive stays true so the callback can still see _disconnected and
+  // run the close path. (The dtor force-closes if we're still pending.)
   if (!_isWriting && !_socketClosed) {
     _socket->close();
-
     _socketClosed = true;
   }
 }
@@ -165,29 +190,56 @@ void NetworkClient::ProcessBuffer() {
 }
 
 /**
- * Sends a datagram to this network client.
- * @param dg
+ * Sends a datagram to this network client. Buffers go onto an application-
+ * level FIFO drained one uv_write at a time; a peer that lets the queue
+ * exceed kHighWaterBytes is force-disconnected.
  */
 void NetworkClient::SendDatagram(const std::shared_ptr<Datagram>& dg) {
-  if (_socket == nullptr) {
+  if (_socket == nullptr || _disconnected) {
+    return;
+  }
+
+  // Framing prefix is uint16; larger payloads would wrap and desync the peer.
+  if (dg->Size() > std::numeric_limits<uint16_t>::max()) {
+    spdlog::get("md")->error(
+        "Network client refusing oversized datagram ({}B > {}B max)",
+        dg->Size(), std::numeric_limits<uint16_t>::max());
     return;
   }
 
   const size_t sendSize = sizeof(uint16_t) + dg->Size();
+
+  if (_queuedBytes + sendSize > kHighWaterBytes) {
+    spdlog::get("md")->warn(
+        "Network client {}:{} exceeded {}B write backlog; disconnecting",
+        _remoteAddress.ip, _remoteAddress.port, kHighWaterBytes);
+    Shutdown();
+    return;
+  }
+
   // runtime-sized buffer for uvw write:
   // NOLINTNEXTLINE(modernize-avoid-c-arrays)
   auto sendBuffer = std::unique_ptr<char[]>(new char[sendSize]);
-
   const uint16_t dgSize = dg->Size();
-
   auto* const sendPtr = &sendBuffer.get()[0];
-  // Datagram size tag.
   memcpy(sendPtr, &dgSize, sizeof(uint16_t));
-  // Datagram data.
   memcpy(sendPtr + sizeof(uint16_t), dg->GetData(), dg->Size());
 
+  _writeQueue.push_back({std::move(sendBuffer), sendSize});
+  _queuedBytes += sendSize;
+
+  PumpWrite();
+}
+
+void NetworkClient::PumpWrite() {
+  if (_isWriting || _writeQueue.empty() || _socketClosed) {
+    return;
+  }
+  auto front = std::move(_writeQueue.front());
+  _writeQueue.pop_front();
+  _queuedBytes -= front.size;
   _isWriting = true;
-  _socket->write(std::move(sendBuffer), sendSize);
+  _socket->write(std::move(front.buf), front.size);
 }
 
 }  // namespace Ardos

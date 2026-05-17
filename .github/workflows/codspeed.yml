@@ -27,6 +27,9 @@ jobs:
         ports:
           - 5672:5672
           - 15672:15672
+        env:
+          # See docker-compose.test.yml for rationale. Keep in sync.
+          RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit credit_flow_default_credit {20000,10000}"
         options: >-
           --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 5s
@@ -51,7 +54,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake tar git zip unzip curl pkg-config
+          sudo apt-get install -y build-essential cmake tar git zip unzip curl pkg-config libc6-dbg
 
       - name: Build Ardos
         run: |
@@ -82,11 +85,16 @@ jobs:
           run: |
             ulimit -n 65535
             sudo sysctl -w net.core.somaxconn=4096
+            # Allow the bench_monitor (a sibling process to the daemon) to
+            # read /proc/PID/task/TID/stack for diagnostic captures. Default
+            # ptrace_scope=1 restricts to parent processes; pytest is parent
+            # of both processes so the monitor can't peek without this.
+            sudo sysctl -w kernel.yama.ptrace_scope=0
             pytest tests/benchmarks/ --codspeed -v --timeout=600
 
-      - name: Upload daemon logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - name: Upload daemon logs
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
           name: daemon-logs
           path: tests/logs/

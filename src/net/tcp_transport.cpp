@@ -50,7 +50,7 @@ TcpTransportConnection::TcpTransportConnection(
 
   _socket->on<uvw::data_event>(
       [this, alive = _alive](const uvw::data_event& event, uvw::tcp_handle&) {
-        if (!*alive) {
+        if (!*alive || _closed) {
           return;
         }
         HandleData(event.data, event.length);
@@ -61,11 +61,18 @@ TcpTransportConnection::TcpTransportConnection(
         if (!*alive) {
           return;
         }
-        if (_closed && !_socketClosed) {
-          _socket->close();
-          _socketClosed = true;
-        }
         _isWriting = false;
+        if (_closed) {
+          // Drop anything still queued — the connection is going away.
+          _writeQueue.clear();
+          _queuedBytes = 0;
+          if (!_socketClosed) {
+            _socket->close();
+            _socketClosed = true;
+          }
+          return;
+        }
+        PumpWrite();
       });
 
   _socket->read();
@@ -73,6 +80,12 @@ TcpTransportConnection::TcpTransportConnection(
 
 TcpTransportConnection::~TcpTransportConnection() {
   Close();
+  // Force-close even if a write was in flight; the pending write callback
+  // will fire async but *_alive = false makes it no-op.
+  if (!_socketClosed) {
+    _socket->close();
+    _socketClosed = true;
+  }
   *_alive = false;
 }
 
@@ -96,15 +109,36 @@ void TcpTransportConnection::Send(const uint8_t* data, size_t len,
   }
 
   const size_t sendSize = sizeof(uint16_t) + len;
+
+  if (_queuedBytes + sendSize > kHighWaterBytes) {
+    spdlog::get("ca")->warn(
+        "TCP transport: client {}:{} exceeded {}B write backlog; disconnecting",
+        _remoteEndpoint.ip, _remoteEndpoint.port, kHighWaterBytes);
+    Close();
+    return;
+  }
+
   // NOLINTNEXTLINE(modernize-avoid-c-arrays): unique_ptr<char[]> for uvw write
   auto sendBuffer = std::unique_ptr<char[]>(new char[sendSize]);
-
   const auto dgSize = static_cast<uint16_t>(len);
   std::memcpy(sendBuffer.get(), &dgSize, sizeof(uint16_t));
   std::memcpy(sendBuffer.get() + sizeof(uint16_t), data, len);
 
+  _writeQueue.push_back({std::move(sendBuffer), sendSize});
+  _queuedBytes += sendSize;
+
+  PumpWrite();
+}
+
+void TcpTransportConnection::PumpWrite() {
+  if (_isWriting || _writeQueue.empty() || _socketClosed) {
+    return;
+  }
+  auto front = std::move(_writeQueue.front());
+  _writeQueue.pop_front();
+  _queuedBytes -= front.size;
   _isWriting = true;
-  _socket->write(std::move(sendBuffer), sendSize);
+  _socket->write(std::move(front.buf), front.size);
 }
 
 void TcpTransportConnection::Close() {
@@ -112,6 +146,10 @@ void TcpTransportConnection::Close() {
     return;
   }
   _closed = true;
+
+  // Abandon anything queued; we're not going to flush it.
+  _writeQueue.clear();
+  _queuedBytes = 0;
 
   // *_alive flips false only in the destructor; an in-flight write still
   // needs the write_event lambda to run and close the socket.

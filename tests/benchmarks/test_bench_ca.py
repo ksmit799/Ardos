@@ -59,17 +59,10 @@ from tests.common.msgtypes import (
 
 pytestmark = pytest.mark.benchmark(group="ca")
 
-POPULATION_SIZES = [256, 1024]
+POPULATION_SIZES = [256, 1024, 4096]
 # Operations per step. Held constant so per-step time scales primarily with
 # population.
 ACTIVE = 4
-# pop=4096 and pop=10000 were attempted but the daemon stalls part-way through
-# the second timed-step iteration: iter-1 broadcasts complete end-to-end, but
-# at some point libuv stops processing AI messages and no further broadcasts
-# go out. The CA throughput indexes are fine -- iter 1 confirms routing
-# delivers to all 4096 subscribers. The hang is somewhere in the
-# uvw/AMQP-CPP/event-loop interaction at high N. Bump this back up once the
-# stall is diagnosed.
 
 CLIENT_CHANNEL_BASE = 1_000_000_000
 
@@ -201,7 +194,7 @@ def _send_set_location(ai: AIConnection, do_id: int, parent: int, zone: int) -> 
 
 
 @pytest.fixture(params=POPULATION_SIZES, ids=lambda n: f"pop={n}")
-def populated_cluster(request, ardos, ai_conn, client_conn):
+def populated_cluster(request, ardos, ai_conn, client_conn, bench_monitor):
     """MD+SS+CA with ``request.param`` connected, authed, interested clients.
 
     Interest covers TEST_ZONE and ALT_ZONE so the location benchmark can
@@ -209,7 +202,7 @@ def populated_cluster(request, ardos, ai_conn, client_conn):
     """
     n_pop = request.param
 
-    ardos(
+    daemon = ardos(
         md=True,
         ss=True,
         ca=True,
@@ -234,7 +227,22 @@ def populated_cluster(request, ardos, ai_conn, client_conn):
         },
     )
 
+    # Start the diagnostic monitor against the daemon. No-op unless
+    # ARDOS_BENCH_MONITOR=1.
+    if daemon.pid is not None:
+        bench_monitor.start(daemon.pid)
+    bench_monitor.mark("setup_start", n_pop=n_pop)
+
     ai = ai_conn()
+
+    # Create the root DistributedDirectory at TEST_PARENT before any
+    # ADD_INTEREST fires.
+    ai.create_object(
+        do_id=TEST_PARENT,
+        parent=0,
+        zone=0,
+        dclass_id=class_id("test.dc", "DistributedDirectory"),
+    )
 
     # Connect + hello every client. Sequential because CA allocates channels
     # in connect order — client[i] gets CLIENT_CHANNEL_BASE + i.
@@ -244,6 +252,7 @@ def populated_cluster(request, ardos, ai_conn, client_conn):
         c.hello(dc_hash("test.dc"), "dev")
         c.expect_hello_resp()
         clients.append(c)
+    bench_monitor.mark("setup_clients_connected", n_pop=n_pop)
 
     # Pipeline SET_STATE + two ADD_INTEREST (TEST_ZONE and ALT_ZONE) for every
     # client. Per-channel FIFO guarantees SET_STATE lands before ADD_INTEREST.
@@ -252,6 +261,7 @@ def populated_cluster(request, ardos, ai_conn, client_conn):
         ai.set_client_state(ch, AUTH_STATE_ESTABLISHED, wait=False)
         ai.add_interest(ch, interest_id=1, parent=TEST_PARENT, zone=TEST_ZONE)
         ai.add_interest(ch, interest_id=2, parent=TEST_PARENT, zone=ALT_ZONE)
+    bench_monitor.mark("setup_interests_sent", n_pop=n_pop)
 
     # Wait until every client has seen two DONE_INTEREST_RESP. That confirms
     # both ADD_INTERESTs (and therefore the prior SET_STATE) have committed.
@@ -261,6 +271,7 @@ def populated_cluster(request, ardos, ai_conn, client_conn):
         accept_msgs={CLIENT_DONE_INTEREST_RESP},
         timeout=max(60.0, n_pop * 0.02),
     )
+    bench_monitor.mark("setup_done", n_pop=n_pop)
 
     return ai, clients
 
@@ -270,7 +281,7 @@ def populated_cluster(request, ardos, ai_conn, client_conn):
 # ---------------------------------------------------------------------------
 
 
-def test_object_churn_throughput(populated_cluster, benchmark):
+def test_object_churn_throughput(populated_cluster, benchmark, bench_monitor):
     """AI creates ACTIVE objects in TEST_ZONE, then deletes them. Each client
     must observe ACTIVE entry messages and ACTIVE leave messages.
     """
@@ -278,8 +289,12 @@ def test_object_churn_throughput(populated_cluster, benchmark):
     dclass = class_id("test.dc", "DistributedTestObject1")
     required = _required_payload()
     counter = [CHURN_DOID_BASE]
+    iter_idx = [0]
 
     def step():
+        i = iter_idx[0]
+        iter_idx[0] += 1
+        bench_monitor.mark("churn_iter_start", iter=i)
         base = counter[0]
         counter[0] += ACTIVE
         for k in range(ACTIVE):
@@ -290,25 +305,29 @@ def test_object_churn_throughput(populated_cluster, benchmark):
                 dclass_id=dclass,
                 required=required,
             )
+        bench_monitor.mark("churn_creates_sent", iter=i)
         _await_counts(
             clients,
             per_client=ACTIVE,
             accept_msgs=ENTRY_MSGS,
             timeout=60.0,
         )
+        bench_monitor.mark("churn_creates_drained", iter=i)
         for k in range(ACTIVE):
             ai.delete_object(base + k)
+        bench_monitor.mark("churn_deletes_sent", iter=i)
         _await_counts(
             clients,
             per_client=ACTIVE,
             accept_msgs={CLIENT_OBJECT_LEAVING},
             timeout=60.0,
         )
+        bench_monitor.mark("churn_iter_done", iter=i)
 
     benchmark(step)
 
 
-def test_field_update_throughput(populated_cluster, benchmark):
+def test_field_update_throughput(populated_cluster, benchmark, bench_monitor):
     """AI fires ACTIVE field updates on pre-existing objects in TEST_ZONE.
     Every client (interest in TEST_ZONE) must see ACTIVE CLIENT_OBJECT_SET_FIELD.
 
@@ -335,23 +354,30 @@ def test_field_update_throughput(populated_cluster, benchmark):
         accept_msgs=ENTRY_MSGS,
         timeout=60.0,
     )
+    bench_monitor.mark("field_precreate_done")
 
     payload = Datagram().add_string("u").bytes()
+    iter_idx = [0]
 
     def step():
+        i = iter_idx[0]
+        iter_idx[0] += 1
+        bench_monitor.mark("field_iter_start", iter=i)
         for k in range(ACTIVE):
             ai.set_field(FIELD_DOID_BASE + k, fid, payload)
+        bench_monitor.mark("field_updates_sent", iter=i)
         _await_counts(
             clients,
             per_client=ACTIVE,
             accept_msgs={CLIENT_OBJECT_SET_FIELD},
             timeout=60.0,
         )
+        bench_monitor.mark("field_iter_done", iter=i)
 
     benchmark(step)
 
 
-def test_location_switch_throughput(populated_cluster, benchmark):
+def test_location_switch_throughput(populated_cluster, benchmark, bench_monitor):
     """AI relocates ACTIVE pre-existing objects between TEST_ZONE and
     ALT_ZONE. Each client (interested in both zones) sees ACTIVE
     CLIENT_OBJECT_LOCATION updates per step.
@@ -374,19 +400,26 @@ def test_location_switch_throughput(populated_cluster, benchmark):
         accept_msgs=ENTRY_MSGS,
         timeout=60.0,
     )
+    bench_monitor.mark("location_precreate_done")
 
     state = {"zone": TEST_ZONE}
+    iter_idx = [0]
 
     def step():
+        i = iter_idx[0]
+        iter_idx[0] += 1
+        bench_monitor.mark("location_iter_start", iter=i, from_zone=state["zone"])
         target = ALT_ZONE if state["zone"] == TEST_ZONE else TEST_ZONE
         for k in range(ACTIVE):
             _send_set_location(ai, LOC_DOID_BASE + k, TEST_PARENT, target)
         state["zone"] = target
+        bench_monitor.mark("location_sends_done", iter=i, to_zone=target)
         _await_counts(
             clients,
             per_client=ACTIVE,
             accept_msgs={CLIENT_OBJECT_LOCATION},
             timeout=60.0,
         )
+        bench_monitor.mark("location_iter_done", iter=i)
 
     benchmark(step)

@@ -1128,6 +1128,10 @@ class Daemon:
         except OSError:
             pass
 
+    @property
+    def pid(self) -> Optional[int]:
+        return self._proc.pid if self._proc else None
+
     def stop(self) -> None:
         if not self._proc:
             return
