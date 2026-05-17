@@ -27,6 +27,9 @@ jobs:
         ports:
           - 5672:5672
           - 15672:15672
+        env:
+          # See docker-compose.test.yml for rationale. Keep in sync.
+          RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit credit_flow_default_credit {20000,10000}"
         options: >-
           --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 5s
@@ -86,7 +89,7 @@ jobs:
 
       - name: Upload daemon logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: daemon-logs
           path: tests/logs/

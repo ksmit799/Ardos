@@ -5,6 +5,14 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    environment:
+      # Raise per-channel credit-flow window from the default {400, 200}.
+      # Ardos publishes in bursts (zone broadcasts, cluster restart storms)
+      # that easily exceed 400 frames in a single tick; the default window
+      # throttles the publisher mid-burst, which under high subscriber
+      # counts can wedge the libuv loop. {20000, 10000} comfortably absorbs
+      # a 10k-client broadcast iteration without engaging flow control.
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit credit_flow_default_credit {20000,10000}"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 5s

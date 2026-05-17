@@ -59,6 +59,9 @@ jobs:
         ports:
           - 5672:5672
           - 15672:15672
+        env:
+          # See docker-compose.test.yml for rationale. Keep in sync.
+          RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit credit_flow_default_credit {20000,10000}"
         options: >-
           --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 5s
