@@ -54,7 +54,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake tar git zip unzip curl pkg-config
+          sudo apt-get install -y build-essential cmake tar git zip unzip curl pkg-config libc6-dbg
 
       - name: Build Ardos
         run: |

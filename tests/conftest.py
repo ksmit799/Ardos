@@ -185,16 +185,8 @@ def ardos(tmp_path: Path, request) -> Iterator[Callable[..., Daemon]]:
 
     yield _factory
 
-    failed = hasattr(request.node, "rep_call") and request.node.rep_call.failed
     for d in started:
         d.stop()
-    # On failure, keep the logs; on success, drop them to avoid clutter.
-    if not failed:
-        for d in started:
-            try:
-                d.log_path.unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 # ---------------------------------------------------------------------------
