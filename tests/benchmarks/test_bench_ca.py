@@ -240,6 +240,15 @@ def populated_cluster(request, ardos, ai_conn, client_conn, bench_monitor):
 
     ai = ai_conn()
 
+    # Create the root DistributedDirectory at TEST_PARENT before any
+    # ADD_INTEREST fires.
+    ai.create_object(
+        do_id=TEST_PARENT,
+        parent=0,
+        zone=0,
+        dclass_id=class_id("test.dc", "DistributedDirectory"),
+    )
+
     # Connect + hello every client. Sequential because CA allocates channels
     # in connect order — client[i] gets CLIENT_CHANNEL_BASE + i.
     clients: List[ClientConnection] = []
