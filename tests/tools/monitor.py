@@ -30,6 +30,10 @@ Sources:
   - "rmq_overview": cluster-wide message rates + memory + alarms
   - "amqp_sock" : ss output for the daemon's connection to the broker
   - "sys"       : /proc/loadavg, /proc/meminfo MemAvailable, steal %
+  - "thread"    : per-thread wchan + kernel stack (where the daemon is parked)
+  - "daemon_sock": per-port aggregate Send-Q/Recv-Q across all daemon-owned
+                    TCP sockets, bucketed by daemon-side port (6667 CA accepts,
+                    7100 MD accepts, 5672 outbound to broker, "other")
   - "error"     : sampler-side errors (so a missing tool doesn't kill the run)
 """
 
@@ -215,6 +219,132 @@ def _sample_amqp_socket(out, amqp_port: int) -> None:
         _emit(out, "error", source="amqp_sock", err=str(e))
 
 
+def _sample_thread_stacks(out, pid: int) -> None:
+    """Per-thread kernel stack + wchan. Tells us conclusively whether the
+    libuv loop is parked in epoll_wait (idle), futex_wait (lock contention),
+    tcp_sendmsg (write backpressure), or something else.
+
+    /proc/PID/task/TID/stack requires CAP_SYS_PTRACE or
+    kernel.yama.ptrace_scope=0 on Ubuntu. wchan is unrestricted and always
+    available — fall back to that when stack is denied.
+    """
+    try:
+        tids = os.listdir(f"/proc/{pid}/task")
+    except FileNotFoundError:
+        global _running
+        _running = False
+        return
+    except OSError as e:
+        _emit(out, "error", source="thread", err=str(e))
+        return
+
+    for tid in tids:
+        base = f"/proc/{pid}/task/{tid}"
+        try:
+            with open(f"{base}/comm") as f:
+                comm = f.read().strip()
+            with open(f"{base}/wchan") as f:
+                wchan = f.read().strip()
+        except (FileNotFoundError, OSError):
+            continue  # thread exited mid-sample, skip
+        stack: Optional[str] = None
+        try:
+            with open(f"{base}/stack") as f:
+                stack = f.read().strip()
+        except (FileNotFoundError, PermissionError, OSError):
+            pass  # ptrace_scope restriction — wchan still useful
+        fields: Dict[str, Any] = {"tid": int(tid), "comm": comm, "wchan": wchan}
+        if stack:
+            # Cap stack size: typical kernel stacks are <2KB but pathological
+            # cases can blow up the log. Truncate to first 32 frames.
+            lines = stack.splitlines()[:32]
+            fields["stack"] = "\n".join(lines)
+        _emit(out, "thread", **fields)
+
+
+def _sample_daemon_sockets(out, pid: int) -> None:
+    """All TCP sockets owned by the daemon, bucketed per daemon-side port.
+    Captures Send-Q/Recv-Q distribution so we can see:
+      - Are client TCP writes backed up (Send-Q on 6667 sockets)?
+      - Is the AI socket unread (Recv-Q on 7100 sockets)?
+      - Is the broker connection clear (5672 outbound)?
+    """
+    try:
+        r = subprocess.run(
+            ["ss", "-tnp"],
+            capture_output=True,
+            text=True,
+            timeout=3.0,
+        )
+        if r.returncode != 0:
+            _emit(out, "error", source="daemon_sock", err=r.stderr.strip()[:200])
+            return
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        _emit(out, "error", source="daemon_sock", err=str(e))
+        return
+
+    pid_marker = f"pid={pid},"
+    # bucket -> list of (recv_q, send_q)
+    buckets: Dict[str, List[tuple]] = {}
+    for line in r.stdout.splitlines()[1:]:
+        if pid_marker not in line:
+            continue
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        try:
+            rq, sq = int(parts[1]), int(parts[2])
+        except ValueError:
+            continue
+        local, peer = parts[3], parts[4]
+
+        def _port(ep: str) -> str:
+            return ep.rsplit(":", 1)[-1] if ":" in ep else ""
+
+        lport, pport = _port(local), _port(peer)
+        # Categorise by daemon-side role. Accepted listeners: local port is
+        # the daemon's listen port. Outbound: peer port is the broker.
+        if lport == "6667":
+            bucket = "ca_accept"  # daemon writing OBJECT_LEAVING etc. to client
+        elif lport == "7100":
+            bucket = "md_accept"  # AI socket lives here
+        elif pport == "5672":
+            bucket = "amqp_out"
+        elif lport == "5672":
+            bucket = "amqp_in"  # shouldn't happen but be defensive
+        else:
+            bucket = "other"
+        buckets.setdefault(bucket, []).append((rq, sq))
+
+    def _pct(arr: List[int], p: int) -> int:
+        if not arr:
+            return 0
+        s = sorted(arr)
+        i = min(len(s) - 1, (p * len(s)) // 100)
+        return s[i]
+
+    for bucket, samples in buckets.items():
+        recvs = [s[0] for s in samples]
+        sends = [s[1] for s in samples]
+        _emit(
+            out,
+            "daemon_sock",
+            bucket=bucket,
+            count=len(samples),
+            recv_total=sum(recvs),
+            recv_max=max(recvs) if recvs else 0,
+            recv_p50=_pct(recvs, 50),
+            recv_p99=_pct(recvs, 99),
+            send_total=sum(sends),
+            send_max=max(sends) if sends else 0,
+            send_p50=_pct(sends, 50),
+            send_p99=_pct(sends, 99),
+            # Count how many sockets have nonzero queues
+            recv_nonzero=sum(1 for v in recvs if v > 0),
+            send_nonzero=sum(1 for v in sends if v > 0),
+        )
+
+
 _LAST_CPU: Optional[List[int]] = None
 
 
@@ -293,12 +423,20 @@ def main(argv: Optional[List[str]] = None) -> int:
             rabbit_host=args.rabbit_host,
             amqp_port=args.amqp_port,
         )
+        # Heavier samplers (thread stacks, full ss) tick on every Nth interval
+        # to keep monitor overhead under ~1% CPU.
+        heavy_every = max(1, int(round(1.0 / args.interval)))  # ~1s cadence
+        tick = 0
         while _running:
             t0 = time.monotonic()
             _sample_proc(out, args.pid)
             _sample_rmq(out, args.rabbit_host, args.rabbit_user, args.rabbit_pass)
             _sample_amqp_socket(out, args.amqp_port)
             _sample_sys(out)
+            if tick % heavy_every == 0:
+                _sample_thread_stacks(out, args.pid)
+                _sample_daemon_sockets(out, args.pid)
+            tick += 1
             # Sleep the remainder of the interval. Pin to wall-clock cadence
             # rather than fixed sleep so a slow sample doesn't bias the
             # series.
