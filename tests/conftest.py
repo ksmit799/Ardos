@@ -207,7 +207,7 @@ def bench_monitor(request) -> Iterator[BenchMonitor]:
     the monitor is off.
     """
     enabled = os.environ.get("ARDOS_BENCH_MONITOR", "1") == "1"
-    # nodeid embeds parametrisation (pop=4096, etc); sanitise for filesystem
+    # nodeid embeds parametrisation; sanitise for filesystem
     safe_id = (
         request.node.nodeid.replace("/", "_").replace("::", "__").replace(" ", "_")
     )

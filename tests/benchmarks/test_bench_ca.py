@@ -63,11 +63,6 @@ POPULATION_SIZES = [256, 1024, 4096]
 # Operations per step. Held constant so per-step time scales primarily with
 # population.
 ACTIVE = 4
-# pop=4096 currently stalls part-way through the second timed-step iteration:
-# iter-1 broadcasts complete end-to-end, but at some point libuv stops
-# processing AI messages and no further broadcasts go out. Diagnosis runs
-# under the bench_monitor fixture (ARDOS_BENCH_MONITOR=1) which samples
-# broker/proc/socket state on a fixed interval.
 
 CLIENT_CHANNEL_BASE = 1_000_000_000
 
