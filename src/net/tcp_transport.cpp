@@ -50,7 +50,7 @@ TcpTransportConnection::TcpTransportConnection(
 
   _socket->on<uvw::data_event>(
       [this, alive = _alive](const uvw::data_event& event, uvw::tcp_handle&) {
-        if (!*alive) {
+        if (!*alive || _closed) {
           return;
         }
         HandleData(event.data, event.length);
@@ -80,6 +80,12 @@ TcpTransportConnection::TcpTransportConnection(
 
 TcpTransportConnection::~TcpTransportConnection() {
   Close();
+  // Force-close even if a write was in flight; the pending write callback
+  // will fire async but *_alive = false makes it no-op.
+  if (!_socketClosed) {
+    _socket->close();
+    _socketClosed = true;
+  }
   *_alive = false;
 }
 

@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cstring>
+#include <limits>
 
 namespace Ardos {
 
@@ -44,7 +45,7 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle>& socket)
 
   _socket->on<uvw::data_event>(
       [this, alive = _alive](const uvw::data_event& event, uvw::tcp_handle&) {
-        if (!*alive) {
+        if (!*alive || _disconnected) {
           return;
         }
         HandleData(event.data, event.length);
@@ -73,7 +74,18 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle>& socket)
   _socket->read();
 }
 
-NetworkClient::~NetworkClient() { Shutdown(); }
+NetworkClient::~NetworkClient() {
+  NetworkClient::Shutdown();
+  // Force-close even if a write was in flight; we're being destroyed,
+  // graceful flush is no longer relevant. The pending write callback
+  // will still fire asynchronously but *_alive = false makes it no-op.
+  if (!_socketClosed) {
+    _socket->close();
+    _socketClosed = true;
+  }
+  // Flip alive last so any late-firing uvw event after the dtor no-ops.
+  *_alive = false;
+}
 
 /**
  * Returns whether or not this client is in a disconnected state.
@@ -102,18 +114,17 @@ void NetworkClient::Shutdown() {
     return;
   }
 
-  // Mark dead before the async close so any late-firing uvw event
-  // short-circuits on the captured _alive flag.
-  *_alive = false;
   _disconnected = true;
 
   // Abandon anything queued; we're not going to flush it.
   _writeQueue.clear();
   _queuedBytes = 0;
 
+  // Defer close to the write_event callback if a uv_write is in flight —
+  // *_alive stays true so the callback can still see _disconnected and
+  // run the close path. (The dtor force-closes if we're still pending.)
   if (!_isWriting && !_socketClosed) {
     _socket->close();
-
     _socketClosed = true;
   }
 }
@@ -185,6 +196,14 @@ void NetworkClient::ProcessBuffer() {
  */
 void NetworkClient::SendDatagram(const std::shared_ptr<Datagram>& dg) {
   if (_socket == nullptr || _disconnected) {
+    return;
+  }
+
+  // Framing prefix is uint16; larger payloads would wrap and desync the peer.
+  if (dg->Size() > std::numeric_limits<uint16_t>::max()) {
+    spdlog::get("md")->error(
+        "Network client refusing oversized datagram ({}B > {}B max)",
+        dg->Size(), std::numeric_limits<uint16_t>::max());
     return;
   }
 

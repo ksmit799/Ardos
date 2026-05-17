@@ -52,7 +52,7 @@ class NetworkClient {
   };
   std::deque<PendingWrite> _writeQueue;
   size_t _queuedBytes = 0;
-  static constexpr size_t kHighWaterBytes = 4 * 1024 * 1024;  // 4 MiB
+  static constexpr size_t kHighWaterBytes = size_t{4} * 1024 * 1024;  // 4 MiB
 
   bool _isWriting = false;
   bool _socketClosed = false;
