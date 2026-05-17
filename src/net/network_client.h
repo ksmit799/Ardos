@@ -21,9 +21,8 @@ class NetworkClient {
 
   [[nodiscard]] bool Disconnected() const;
 
-  // Virtual so subclasses (e.g. MDParticipant) get their full teardown
-  // path even when Shutdown is reached from inside NetworkClient itself
-  // — most notably the high-water-mark drop in SendDatagram below.
+  // Virtual so the high-water drop in SendDatagram dispatches to subclass
+  // teardown (channel unsubscribes, post-removes, etc).
   virtual void Shutdown();
 
   virtual void HandleDisconnect(uv_errno_t code) = 0;
@@ -37,8 +36,7 @@ class NetworkClient {
   // NOLINTNEXTLINE(modernize-avoid-c-arrays): unique_ptr<char[]> from uvw read
   void HandleData(const std::unique_ptr<char[]>& data, size_t size);
   void ProcessBuffer();
-  // Drains one pending buffer onto the wire if no write is in flight. Called
-  // from SendDatagram and from the write_event callback.
+  // Issues the next queued write, if any, when no write is in flight.
   void PumpWrite();
 
   std::shared_ptr<uvw::tcp_handle> _socket;
@@ -46,9 +44,7 @@ class NetworkClient {
   uvw::socket_address _localAddress;
   std::vector<uint8_t> _data_buf;
 
-  // Application-level write queue. Bounded by kHighWaterBytes — a slow
-  // peer that lets bytes accumulate past the threshold gets disconnected
-  // rather than wedging the loop with an unbounded uv_write_t backlog.
+  // Application-level write queue bounded by kHighWaterBytes.
   struct PendingWrite {
     // NOLINTNEXTLINE(modernize-avoid-c-arrays): unique_ptr<char[]> for uvw
     std::unique_ptr<char[]> buf;

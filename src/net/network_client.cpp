@@ -1,5 +1,7 @@
 #include "network_client.h"
 
+#include <spdlog/spdlog.h>
+
 #include <cstring>
 
 namespace Ardos {
@@ -177,18 +179,9 @@ void NetworkClient::ProcessBuffer() {
 }
 
 /**
- * Sends a datagram to this network client.
- *
- * Buffers go onto an application-level FIFO and are issued one in-flight
- * uv_write at a time. This is the libuv-recommended backpressure pattern:
- * a slow peer that lets bytes accumulate in our queue past kHighWaterBytes
- * gets force-disconnected rather than allowing libuv's internal uv_write_t
- * queue to grow without bound and starve the loop's read side. The latter
- * is what wedged the whole daemon at pop=4096 — an MD participant whose
- * recv buffer was full made every Send pile uv_write requests until libuv
- * stopped servicing reads on the same fd.
- *
- * @param dg
+ * Sends a datagram to this network client. Buffers go onto an application-
+ * level FIFO drained one uv_write at a time; a peer that lets the queue
+ * exceed kHighWaterBytes is force-disconnected.
  */
 void NetworkClient::SendDatagram(const std::shared_ptr<Datagram>& dg) {
   if (_socket == nullptr || _disconnected) {
@@ -198,8 +191,9 @@ void NetworkClient::SendDatagram(const std::shared_ptr<Datagram>& dg) {
   const size_t sendSize = sizeof(uint16_t) + dg->Size();
 
   if (_queuedBytes + sendSize > kHighWaterBytes) {
-    // Bytes can't drain to this peer faster than they're produced. Cut
-    // them loose to protect the rest of the cluster from the slow reader.
+    spdlog::get("md")->warn(
+        "Network client {}:{} exceeded {}B write backlog; disconnecting",
+        _remoteAddress.ip, _remoteAddress.port, kHighWaterBytes);
     Shutdown();
     return;
   }

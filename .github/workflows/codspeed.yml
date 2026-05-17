@@ -92,8 +92,8 @@ jobs:
             sudo sysctl -w kernel.yama.ptrace_scope=0
             pytest tests/benchmarks/ --codspeed -v --timeout=600
 
-      - name: Upload daemon logs on failure
-        if: failure()
+      - name: Upload daemon logs
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: daemon-logs
