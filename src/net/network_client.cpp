@@ -53,11 +53,19 @@ NetworkClient::NetworkClient(const std::shared_ptr<uvw::tcp_handle>& socket)
         if (!*alive) {
           return;
         }
-        if (_disconnected && !_socketClosed) {
-          _socket->close();
-          _socketClosed = true;
-        }
         _isWriting = false;
+        if (_disconnected) {
+          // Drop anything still queued — the peer is going away. Close once
+          // the in-flight uv_write has resolved (this callback).
+          _writeQueue.clear();
+          _queuedBytes = 0;
+          if (!_socketClosed) {
+            _socket->close();
+            _socketClosed = true;
+          }
+          return;
+        }
+        PumpWrite();
       });
 
   _socket->read();
@@ -96,6 +104,10 @@ void NetworkClient::Shutdown() {
   // short-circuits on the captured _alive flag.
   *_alive = false;
   _disconnected = true;
+
+  // Abandon anything queued; we're not going to flush it.
+  _writeQueue.clear();
+  _queuedBytes = 0;
 
   if (!_isWriting && !_socketClosed) {
     _socket->close();
@@ -166,28 +178,55 @@ void NetworkClient::ProcessBuffer() {
 
 /**
  * Sends a datagram to this network client.
+ *
+ * Buffers go onto an application-level FIFO and are issued one in-flight
+ * uv_write at a time. This is the libuv-recommended backpressure pattern:
+ * a slow peer that lets bytes accumulate in our queue past kHighWaterBytes
+ * gets force-disconnected rather than allowing libuv's internal uv_write_t
+ * queue to grow without bound and starve the loop's read side. The latter
+ * is what wedged the whole daemon at pop=4096 — an MD participant whose
+ * recv buffer was full made every Send pile uv_write requests until libuv
+ * stopped servicing reads on the same fd.
+ *
  * @param dg
  */
 void NetworkClient::SendDatagram(const std::shared_ptr<Datagram>& dg) {
-  if (_socket == nullptr) {
+  if (_socket == nullptr || _disconnected) {
     return;
   }
 
   const size_t sendSize = sizeof(uint16_t) + dg->Size();
+
+  if (_queuedBytes + sendSize > kHighWaterBytes) {
+    // Bytes can't drain to this peer faster than they're produced. Cut
+    // them loose to protect the rest of the cluster from the slow reader.
+    Shutdown();
+    return;
+  }
+
   // runtime-sized buffer for uvw write:
   // NOLINTNEXTLINE(modernize-avoid-c-arrays)
   auto sendBuffer = std::unique_ptr<char[]>(new char[sendSize]);
-
   const uint16_t dgSize = dg->Size();
-
   auto* const sendPtr = &sendBuffer.get()[0];
-  // Datagram size tag.
   memcpy(sendPtr, &dgSize, sizeof(uint16_t));
-  // Datagram data.
   memcpy(sendPtr + sizeof(uint16_t), dg->GetData(), dg->Size());
 
+  _writeQueue.push_back({std::move(sendBuffer), sendSize});
+  _queuedBytes += sendSize;
+
+  PumpWrite();
+}
+
+void NetworkClient::PumpWrite() {
+  if (_isWriting || _writeQueue.empty() || _socketClosed) {
+    return;
+  }
+  auto front = std::move(_writeQueue.front());
+  _writeQueue.pop_front();
+  _queuedBytes -= front.size;
   _isWriting = true;
-  _socket->write(std::move(sendBuffer), sendSize);
+  _socket->write(std::move(front.buf), front.size);
 }
 
 }  // namespace Ardos
