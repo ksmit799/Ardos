@@ -22,6 +22,7 @@ from tests.common.ardos import (
     Daemon,
     MDConnection,
 )
+from tests.common.monitor import BenchMonitor
 from tests.common.msg_coverage import tracker
 
 LOG_DIR = Path(__file__).resolve().parent / "logs"
@@ -194,6 +195,42 @@ def ardos(tmp_path: Path, request) -> Iterator[Callable[..., Daemon]]:
                 d.log_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# Bench monitor — opt-in via ARDOS_BENCH_MONITOR=1
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def bench_monitor(request) -> Iterator[BenchMonitor]:
+    """Background sampler for benchmark runs. On by default; set
+    ``ARDOS_BENCH_MONITOR=0`` to disable (e.g. when the ~1% CPU overhead
+    of the sampler would skew a sensitive measurement). Output lives at
+    ``tests/logs/monitor/<test-id>/`` and ships with the daemon-logs
+    artifact.
+
+    The fixture is always provided (even when disabled) so callers can
+    unconditionally invoke ``.mark()`` and ``.start()``; both no-op when
+    the monitor is off.
+    """
+    enabled = os.environ.get("ARDOS_BENCH_MONITOR", "1") == "1"
+    # nodeid embeds parametrisation (pop=4096, etc); sanitise for filesystem
+    safe_id = (
+        request.node.nodeid.replace("/", "_").replace("::", "__").replace(" ", "_")
+    )
+    out_dir = LOG_DIR / "monitor" / safe_id
+    mon = BenchMonitor(
+        out_dir,
+        enabled=enabled,
+        rabbit_host=cfg.RABBITMQ_HOST,
+        rabbit_user=cfg.RABBITMQ_USER,
+        rabbit_pass=cfg.RABBITMQ_PASS,
+        amqp_port=cfg.RABBITMQ_PORT,
+        interval=float(os.environ.get("ARDOS_BENCH_MONITOR_INTERVAL", "0.5")),
+    )
+    yield mon
+    mon.stop()
 
 
 # ---------------------------------------------------------------------------
