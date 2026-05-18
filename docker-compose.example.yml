@@ -1,0 +1,66 @@
+# This is an example docker compose file.
+# It documents how you might setup Ardos yourself,
+# and which services might be required.
+# This assumes you have a config setup like below:
+# - config/ardos.config.yml (Your Ardos config, see config.example.yml)
+# - config/dclass/ (Your .dc files should live in this folder)
+# - config/prometheus.yml (Your prometheus configuration)
+
+services:
+  # Only required if you're using the database feature of Ardos.
+  # E.g. ARDOS_WANT_DB_SERVER
+  ardos-db:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - ardos-db-data:/data/db
+
+  ardos-md:
+    image: rabbitmq:3-management
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit credit_flow_default_credit {20000,10000}"
+
+  ardos:
+    image: ghcr.io/ksmit799/ardos:latest
+    depends_on:
+      - ardos-md
+    ports:
+      - "9985:9985"
+      - "7199:7199"
+      - "7781:7781"
+      - "25565:25565"
+    volumes:
+      - ./config/ardos.config.yml:/config.yml
+      - ./config/dclass:/app/dclass
+    deploy:
+      restart_policy:
+        condition: on-failure # It might take a second for the MD to boot up.
+
+  ardos-prometheus:
+    image: prom/prometheus:latest
+    depends_on:
+      - ardos
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+
+  ardos-grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - ardos-prometheus
+    ports:
+      - "3003:3000"
+    volumes:
+      - ardos-grafana-data:/var/lib/grafana
+
+volumes:
+  ardos-db-data: {}
+  ardos-clickhouse-data: {}
+  ardos-grafana-data: {}
