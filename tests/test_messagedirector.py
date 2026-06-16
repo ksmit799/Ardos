@@ -70,6 +70,31 @@ class TestRouting:
         sub.expect_none(timeout=0.5)
 
 
+class TestMalformedDatagram:
+    """Regression: a malformed datagram that shuts a participant down used to
+    free it synchronously inside the buffered read loop, then keep iterating
+    the freed buffer -> heap corruption. The MD must drop the offender and
+    keep routing."""
+
+    def test_pipelined_malformed_datagrams_keep_md_alive(
+        self, md, md_conn, channel_conn
+    ):
+        bad = md_conn()
+        # Claims one routing channel but supplies no channel bytes -> truncated
+        # shutdown. Two pipelined into one write force the buffered read path.
+        malformed = bad.frame(Datagram().add_uint8(1))
+        bad.raw_send(malformed * 2)
+
+        # MD must still route: a fresh subscriber round-trips a message.
+        sub = channel_conn(CH_A)
+        sub.flush()
+        sender = channel_conn()
+        sender.send(Datagram.create([CH_A], sender=0, msgtype=1234))
+        got = sub.recv(timeout=2.0)
+        _, _, mt = DatagramIterator(got).read_header()
+        assert mt == 1234
+
+
 class TestRanges:
     def test_range_subscription(self, md, channel_conn):
         sub = channel_conn()

@@ -93,6 +93,34 @@ class TestHandshake:
         c.expect_eject(reason=CLIENT_DISCONNECT_NO_HELLO)
 
 
+class TestMalformedFirstPacket:
+    """Regression: a non-HELLO first packet on the transport's buffered read
+    path used to eject-and-destroy the participant synchronously, then write
+    to its freed read buffer -> heap corruption. The single-datagram case
+    above takes the fast path and was always safe; these force the buffered
+    path. Assertion is daemon survival — a fresh client must still handshake.
+    """
+
+    def test_pipelined_non_hello_packets_keep_daemon_alive(self, ca, client_conn):
+        bad = client_conn()
+        # Several framed datagrams in one write: the eject fires on #1, the
+        # rest route delivery through the buffered path.
+        bad.raw_send(bad.frame(Datagram.create_client(CLIENT_HEARTBEAT)) * 4)
+
+        good = client_conn()
+        good.hello(dc_hash("test.dc"), "dev")
+        good.expect_hello_resp()
+
+    def test_valid_frame_with_trailing_junk_keeps_daemon_alive(self, ca, client_conn):
+        bad = client_conn()
+        # Trailing byte defeats the single-datagram fast path.
+        bad.raw_send(bad.frame(Datagram.create_client(CLIENT_HEARTBEAT)) + b"\x00")
+
+        good = client_conn()
+        good.hello(dc_hash("test.dc"), "dev")
+        good.expect_hello_resp()
+
+
 class TestHeartbeat:
     def test_heartbeat_after_hello_ok(self, ca, client_conn):
         c = client_conn()
