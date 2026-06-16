@@ -168,6 +168,10 @@ void NetworkClient::HandleData(const std::unique_ptr<char[]>& data,
 }
 
 void NetworkClient::ProcessBuffer() {
+  // HandleClientDatagram may shut this client down (e.g. a truncated
+  // datagram), destroying `this`. The alive-flag copy outlives it, so we
+  // can stop iterating freed buffer state.
+  auto alive = _alive;
   while (_data_buf.size() > sizeof(uint16_t)) {
     // We have enough data to know the expected length of the datagram.
     uint16_t dataSize;
@@ -183,6 +187,9 @@ void NetworkClient::ProcessBuffer() {
                       _data_buf.begin() + sizeof(uint16_t) + dataSize);
 
       HandleClientDatagram(dg);
+      if (!*alive) {
+        return;  // shut down mid-handle; `this` is gone
+      }
     } else {
       return;
     }

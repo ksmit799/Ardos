@@ -200,6 +200,10 @@ void TcpTransportConnection::HandleData(const std::unique_ptr<char[]>& data,
 }
 
 void TcpTransportConnection::ProcessBuffer() {
+  // DeliverMessage may eject the client, destroying the owning participant
+  // and this connection with it. The alive-flag copy outlives `this`, so we
+  // can detect that and stop touching freed members.
+  auto alive = _alive;
   while (_readBuffer.size() > sizeof(uint16_t)) {
     uint16_t dgSize;
     std::memcpy(&dgSize, _readBuffer.data(), sizeof(dgSize));
@@ -208,6 +212,9 @@ void TcpTransportConnection::ProcessBuffer() {
     }
 
     DeliverMessage(_readBuffer.data() + sizeof(uint16_t), dgSize);
+    if (!*alive) {
+      return;  // ejected mid-handle; `this` is gone
+    }
     _readBuffer.erase(_readBuffer.begin(),
                       _readBuffer.begin() + sizeof(uint16_t) + dgSize);
   }

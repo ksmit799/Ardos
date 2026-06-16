@@ -335,6 +335,18 @@ class MDConnection:
             raise ValueError(f"datagram too large: {len(data)}B")
         self.sock.sendall(struct.pack("<H", len(data)) + data)
 
+    def frame(self, dg: Datagram) -> bytes:
+        """Return the on-wire framing for ``dg`` ([uint16 LE len][payload])
+        without sending it, for composing multiple datagrams into one write."""
+        data = dg.bytes()
+        if len(data) > 0xFFFF:
+            raise ValueError(f"datagram too large: {len(data)}B")
+        return struct.pack("<H", len(data)) + data
+
+    def raw_send(self, data: bytes) -> None:
+        """Write raw bytes to the socket, bypassing per-datagram framing."""
+        self.sock.sendall(data)
+
     def _recv_n(self, n: int, timeout: float) -> bytes:
         """Read exactly n bytes from the socket with a timeout.
 
