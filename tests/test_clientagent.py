@@ -111,9 +111,7 @@ class TestMalformedFirstPacket:
         good.hello(dc_hash("test.dc"), "dev")
         good.expect_hello_resp()
 
-    def test_valid_frame_with_trailing_junk_keeps_daemon_alive(
-        self, ca, client_conn
-    ):
+    def test_valid_frame_with_trailing_junk_keeps_daemon_alive(self, ca, client_conn):
         bad = client_conn()
         # Trailing byte defeats the single-datagram fast path.
         bad.raw_send(bad.frame(Datagram.create_client(CLIENT_HEARTBEAT)) + b"\x00")
