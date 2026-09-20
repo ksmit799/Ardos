@@ -423,7 +423,7 @@ class MDConnection:
             if predicate(dg):
                 return dg
 
-    # --- assertion helpers (Astron-style) ---
+    # --- assertion helpers ---
     def expect(self, expected: Datagram, timeout: float = 2.0) -> Datagram:
         got = self.recv(timeout=timeout)
         if got != expected:
@@ -501,12 +501,12 @@ class ChannelConnection(MDConnection):
         probe_interval: float = 0.1,
     ) -> None:
         """Round-trip GET_LOCATION through ``do_id`` to confirm the DO has
-        finished spawning and bound its DoId queue on RabbitMQ. Use this
+        finished spawning and subscribed its DoId channel. Use this
         after a create_object instead of a blind sleep before sending
         anything to that DoId.
 
         Re-sends every ``probe_interval`` seconds because the first probe
-        may itself race the bind and be dropped — once the bind lands, a
+        may itself race the subscription and be dropped — once it lands, a
         probe will reach the DO and we'll observe the response.
 
         ``sender`` is the channel the GET_LOCATION_RESP comes back on; it
@@ -568,7 +568,7 @@ class ChannelConnection(MDConnection):
         Sends a sentinel-msgtype datagram to a channel inside [lo, hi] and
         waits for it to come back through the bus. Replaces a blind sleep
         after ``add_range`` with a wait on an actual signal that the
-        bucket-based RabbitMQ binding is in place.
+        range subscription is in place.
 
         Picks ``lo`` as the probe channel. ``sender`` defaults to 0 since
         this connection's subscription is via range only (no explicit
@@ -1087,10 +1087,8 @@ class Daemon:
             if pending:
                 time.sleep(0.1)
 
-        # Listen sockets are open, but the MD's RabbitMQ subscriber set may
-        # still be coming online — accept-then-immediately-publish would
-        # race the consumer. Round-trip a control-message probe through the
-        # bus to confirm the MD is fully wired.
+        # Listen sockets are open. Round-trip a probe through the MD to
+        # confirm routing is fully wired before the test starts publishing.
         if self.md_port is not None:
             self._md_round_trip(timeout=max(2.0, deadline - time.monotonic()))
 
@@ -1154,6 +1152,15 @@ class Daemon:
             except subprocess.TimeoutExpired:
                 self._proc.kill()
                 self._proc.wait(timeout=2.0)
+        self._proc = None
+
+    def kill(self) -> None:
+        """Hard kill, no graceful shutdown, simulates a crashed instance."""
+        if not self._proc:
+            return
+        if self._proc.poll() is None:
+            self._proc.kill()
+            self._proc.wait(timeout=5.0)
         self._proc = None
 
     def __enter__(self) -> "Daemon":

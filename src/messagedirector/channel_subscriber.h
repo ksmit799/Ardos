@@ -1,23 +1,18 @@
 #ifndef ARDOS_CHANNEL_SUBSCRIBER_H
 #define ARDOS_CHANNEL_SUBSCRIBER_H
 
-#include <amqpcpp.h>
-
+#include <map>
 #include <memory>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "../net/datagram.h"
 
 namespace Ardos {
 
 using ChannelRange = std::pair<uint64_t, uint64_t>;
-
-// Channels are bucketed by their upper bits so that range subscriptions can be
-// expressed as a small number of topic bindings of the form `chan.<bucket>.*`
-// rather than one binding per channel. With a 16-bit shift, each bucket covers
-// 65,536 channels, so a 200M-channel range is ~3,050 bindings.
-constexpr unsigned int kChannelBucketShift = 16;
 
 class ChannelSubscriber
     : public std::enable_shared_from_this<ChannelSubscriber> {
@@ -51,43 +46,41 @@ class ChannelSubscriber
     return _localChannels;
   }
 
+  // What this whole instance subscribes to, the mesh advertises these
+  // and replays them as the join snapshot.
+  static const std::unordered_map<uint64_t, unsigned int>&
+  GetAdvertisedChannels() {
+    return _globalChannels;
+  }
+  static const std::map<ChannelRange, unsigned int>& GetAdvertisedRanges() {
+    return _globalRanges;
+  }
+
  protected:
   virtual void HandleDatagram(const std::shared_ptr<Datagram>& dg) = 0;
 
  private:
-  // True if `channel` falls inside one of our subscribed ranges. The MD's
-  // bucket index narrows dispatch to range subscribers whose bucket
-  // matches; this is the per-subscriber range check that filters out
-  // over-delivery at the bucket edges.
-  bool WithinLocalRange(uint64_t channel);
-
-  static std::string BuildChannelRoutingKey(uint64_t channel);
-  static std::string BuildBucketRoutingPattern(uint64_t bucket);
-  static uint64_t ChannelFromRoutingKey(const std::string& routingKey);
-
-  // A static map of globally registered channels (refcount).
+  // Instance wide refcounts, a channel or range is advertised to the mesh
+  // when it gains its first local subscriber and withdrawn on its last.
   static std::unordered_map<uint64_t, unsigned int> _globalChannels;
-  // Ref-counted bucket bindings. Multiple range subscriptions may overlap on
-  // the same bucket; we only unbind from RabbitMQ when the count hits zero.
-  static std::unordered_map<uint64_t, unsigned int> _globalBuckets;
+  static std::map<ChannelRange, unsigned int> _globalRanges;
 
-  // Routing-key dispatch index: channel/bucket -> subscribers, so
-  // DeliverLocally is O(matching subscribers) instead of O(all
-  // subscribers). Maintained by Subscribe/UnsubscribeChannel/Range.
+  // Dispatch indexes, points in a hash map, ranges in a flat vector,
+  // matching is exact.
   static std::unordered_map<
       uint64_t, std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
       _channelIndex;
-  static std::unordered_map<
-      uint64_t, std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
-      _bucketIndex;
+  struct LocalRange {
+    uint64_t lo;
+    uint64_t hi;
+    std::shared_ptr<ChannelSubscriber> sub;
+  };
+  static std::vector<LocalRange> _rangeIndex;
 
   // Channels this ChannelSubscriber is listening to. Hot-path membership
   // check for every delivered message, hence unordered_set.
   std::unordered_set<uint64_t> _localChannels;
   std::vector<ChannelRange> _localRanges;
-
-  AMQP::Channel* _globalChannel;
-  std::string _localQueue;
 };
 
 }  // namespace Ardos

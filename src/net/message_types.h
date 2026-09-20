@@ -7,6 +7,11 @@
 constexpr uint64_t INVALID_CHANNEL = 0;
 constexpr uint32_t INVALID_DO_ID = 0;
 constexpr uint64_t CONTROL_MESSAGE = 1;
+
+// Mesh frames start with a zero byte, routed datagrams always start with a
+// non zero channel count, so one peek tells the two apart.
+constexpr uint8_t MESH_CONTROL_HEADER = 0;
+constexpr uint16_t MESH_PROTO_VERSION = 1;
 constexpr uint64_t BCHAN_CLIENTS = 10;
 constexpr uint64_t BCHAN_STATESERVERS = 12;
 constexpr uint64_t BCHAN_DBSERVERS = 13;
@@ -14,23 +19,24 @@ constexpr uint64_t BCHAN_DBSERVERS = 13;
 constexpr uint32_t STATESERVER_CONTEXT_WAKE_CHILDREN = 1001;
 
 constexpr size_t ZONE_BITS = sizeof(uint32_t) * 8;
-constexpr uint64_t PARENT_PREFIX = (uint64_t(1) << ZONE_BITS);
-constexpr uint64_t DATABASE_PREFIX = (uint64_t(2) << ZONE_BITS);
+constexpr uint64_t PARENT_PREFIX = (static_cast<uint64_t>(1) << ZONE_BITS);
+constexpr uint64_t DATABASE_PREFIX = (static_cast<uint64_t>(2) << ZONE_BITS);
 
 inline uint64_t LocationAsChannel(const uint32_t& parent,
                                   const uint32_t& zone) {
-  return (uint64_t(parent) << ZONE_BITS) | uint64_t(zone);
+  return (static_cast<uint64_t>(parent) << ZONE_BITS) |
+         static_cast<uint64_t>(zone);
 }
 
 inline uint64_t ParentToChildren(const uint32_t& parent) {
-  return PARENT_PREFIX | uint64_t(parent);
+  return PARENT_PREFIX | static_cast<uint64_t>(parent);
 }
 
 inline uint64_t DatabaseToObject(const uint32_t& object) {
-  return DATABASE_PREFIX | uint64_t(object);
+  return DATABASE_PREFIX | static_cast<uint64_t>(object);
 }
 
-enum MessageTypes {
+enum MessageTypes : uint16_t {
   // Reserved
   RESERVED_MSG_TYPE = 0,
 
@@ -44,6 +50,19 @@ enum MessageTypes {
   CONTROL_SET_CON_NAME = 9012,
   CONTROL_SET_CON_URL = 9013,
   CONTROL_LOG_MESSAGE = 9014,
+
+  // Mesh messages, exchanged between Ardos instances
+  MESH_HELLO = 9100,
+  MESH_PEERS = 9101,
+  MESH_SNAPSHOT = 9102,
+  MESH_ADD_CHANNEL = 9103,
+  MESH_REMOVE_CHANNEL = 9104,
+  MESH_ADD_RANGE = 9105,
+  MESH_REMOVE_RANGE = 9106,
+  MESH_ADD_POST_REMOVE = 9107,
+  MESH_CLEAR_POST_REMOVES = 9108,
+  MESH_POST_REMOVES_FIRED = 9109,
+  MESH_HEARTBEAT = 9110,
 
   // ClientAgent messages
   CLIENTAGENT_SET_STATE = 1000,
@@ -154,7 +173,7 @@ enum MessageTypes {
 };
 
 #ifdef ARDOS_USE_LEGACY_CLIENT
-enum ClientMessages {
+enum ClientMessages : uint8_t {
   CLIENT_LOGIN = 1,
   CLIENT_LOGIN_RESP = 2,
   CLIENT_GET_AVATARS = 3,
@@ -195,7 +214,7 @@ enum ClientMessages {
   CLIENT_OBJECT_LOCATION = 102,
 };
 #else
-enum ClientMessages {
+enum ClientMessages : uint8_t {
   CLIENT_HELLO = 1,
   CLIENT_HELLO_RESP = 2,
   CLIENT_DISCONNECT = 3,
@@ -222,7 +241,7 @@ enum ClientMessages {
 };
 #endif  // ARDOS_USE_LEGACY_CLIENT
 
-enum ClientDisconnects {
+enum ClientDisconnects : uint16_t {
   CLIENT_DISCONNECT_GENERIC = 1,
   CLIENT_DISCONNECT_OVERSIZED_DATAGRAM = 106,
   CLIENT_DISCONNECT_NO_HELLO = 107,

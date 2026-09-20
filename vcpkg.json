@@ -10,7 +10,6 @@
     "uvw",
     "nlohmann-json",
     "yaml-cpp",
-    "amqpcpp",
     "spdlog",
     "prometheus-cpp",
     "mongo-cxx-driver"

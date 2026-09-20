@@ -15,10 +15,6 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-RABBITMQ_HOST = os.environ.get("ARDOS_TEST_RABBITMQ_HOST", "127.0.0.1")
-RABBITMQ_PORT = int(os.environ.get("ARDOS_TEST_RABBITMQ_PORT", "5672"))
-RABBITMQ_USER = os.environ.get("ARDOS_TEST_RABBITMQ_USER", "guest")
-RABBITMQ_PASS = os.environ.get("ARDOS_TEST_RABBITMQ_PASS", "guest")
 MONGODB_URI = os.environ.get(
     "ARDOS_TEST_MONGODB_URI", "mongodb://127.0.0.1:27017/ardos_test"
 )
@@ -48,6 +44,9 @@ def generate_config(
     ca_port: int = 6667,
     ss_channel: int = 1000,
     db_channel: int = 4003,
+    mesh_node_id: Optional[int] = None,
+    mesh_port: int = 7300,
+    mesh_seeds: Optional[List[str]] = None,
     uberdogs: Optional[List[Dict[str, Any]]] = None,
     overrides: Optional[Dict[str, Any]] = None,
 ) -> Path:
@@ -82,12 +81,22 @@ def generate_config(
         "message-director": {
             "host": "127.0.0.1",
             "port": md_port,
-            "rabbitmq-host": RABBITMQ_HOST,
-            "rabbitmq-port": RABBITMQ_PORT,
-            "rabbitmq-user": RABBITMQ_USER,
-            "rabbitmq-password": RABBITMQ_PASS,
         },
     }
+
+    # A mesh section joins this daemon to other test daemons. Without one
+    # the daemon is a standalone cluster of one, which most tests use.
+    if mesh_node_id is not None:
+        mesh: Dict[str, Any] = {
+            "node-id": mesh_node_id,
+            "host": "127.0.0.1",
+            "port": mesh_port,
+            "heartbeat-interval": 250,  # fast detection keeps tests short
+            "missed-heartbeats": 3,
+        }
+        if mesh_seeds:
+            mesh["seeds"] = mesh_seeds
+        cfg["message-director"]["mesh"] = mesh
 
     if ss:
         cfg["state-server"] = {"channel": ss_channel}

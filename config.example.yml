@@ -71,11 +71,31 @@ message-director:
   host: 127.0.0.1
   port: 7100
 
-  # RabbitMQ configuration.
-  rabbitmq-host: 127.0.0.1
-  rabbitmq-port: 5672
-  rabbitmq-user: guest
-  rabbitmq-password: guest
+  # Mesh configuration.
+  # Every Ardos instance connects directly to every other, omit this whole
+  # section to run a standalone cluster of one (typical for development.)
+  mesh:
+    # A unique id for this instance, required.
+    # The lowest live id handles cleanup for dead peers.
+    node-id: 1
+
+    # Listen configuration for peer connections.
+    host: 0.0.0.0
+    port: 7200
+
+    # Addresses of other instances to dial at startup.
+    # One reachable seed is enough to discover the whole cluster,
+    # every instance can share the same list, dialing yourself is fine.
+    seeds:
+      - 10.0.0.2:7200
+
+    # Interval in MS between heartbeats to each peer.
+    # Raise this for peers across high latency (WAN) links.
+    heartbeat-interval: 1000
+
+    # Heartbeats missed before a peer is declared dead.
+    # A dead peer is never resumed, reconnecting is a fresh join.
+    missed-heartbeats: 3
 
 # State Server configuration.
 state-server:

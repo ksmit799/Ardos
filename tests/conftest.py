@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import base64
-import json
 import os
 import socket
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Callable, Iterator, List, Optional
 
@@ -29,7 +25,7 @@ LOG_DIR = Path(__file__).resolve().parent / "logs"
 
 
 # ---------------------------------------------------------------------------
-# External services (rabbitmq + mongo)
+# External services (mongo)
 # ---------------------------------------------------------------------------
 
 
@@ -52,8 +48,7 @@ def _wait_tcp(host: str, port: int, timeout: float, name: str) -> None:
 
 @pytest.fixture(scope="session")
 def external_services() -> None:
-    """Verify RabbitMQ and MongoDB are reachable. Purge between sessions."""
-    _wait_tcp(cfg.RABBITMQ_HOST, cfg.RABBITMQ_PORT, 30, "RabbitMQ")
+    """Verify MongoDB is reachable. Purge between sessions."""
     _wait_tcp("127.0.0.1", 27017, 30, "MongoDB")
     # Drop the test database once per session so a stale mongo doesn't
     # contaminate freshly-built tests.
@@ -66,59 +61,11 @@ def external_services() -> None:
         pytest.exit(f"failed to reach MongoDB: {e}", 1)
 
 
-def _rabbit_mgmt_request(path: str, timeout: float = 1.0) -> Optional[object]:
-    """GET against RabbitMQ's management HTTP API. Returns parsed JSON, or
-    None if the API isn't available (no management plugin, wrong creds,
-    etc) — callers fall back to a short sleep.
-    """
-    auth = base64.b64encode(
-        f"{cfg.RABBITMQ_USER}:{cfg.RABBITMQ_PASS}".encode()
-    ).decode()
-    req = urllib.request.Request(
-        f"http://{cfg.RABBITMQ_HOST}:15672/api/{path}",
-        headers={"Authorization": f"Basic {auth}"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read())
-    except (urllib.error.URLError, OSError, ValueError):
-        return None
-
-
-def _wait_rabbit_drained(timeout: float = 2.0) -> None:
-    """Wait until the previous daemon's auto-generated exclusive queues are
-    reaped by RabbitMQ. Replaces a blind sleep with a real signal — the
-    queues vanish from the management view shortly after the daemon's
-    AMQP connection drops on SIGTERM.
-
-    Falls back to a short sleep if the management API isn't reachable
-    (e.g. running against a vanilla rabbitmq:3 image).
-    """
-    deadline = time.monotonic() + timeout
-    first = True
-    while time.monotonic() < deadline:
-        queues = _rabbit_mgmt_request("queues")
-        if queues is None:
-            if first:
-                # Management plugin not available — one short sleep is the
-                # best we can do without it.
-                time.sleep(0.2)
-            return
-        first = False
-        # Ardos's per-process queue is declared with no name (server-
-        # generated, prefix `amq.gen-`). Wait until none of those linger.
-        stragglers = [q for q in queues if q.get("name", "").startswith("amq.gen-")]
-        if not stragglers:
-            return
-        time.sleep(0.05)
-
-
 @pytest.fixture(autouse=True)
 def _purge_between_tests(external_services) -> Iterator[None]:
-    """Between each test: drop the mongo db + wait for RabbitMQ to reap any
-    exclusive queues the just-stopped daemon left behind. Ardos uses
-    per-node exclusive queues, so once those are gone the next daemon
-    boots into a known-clean state."""
+    """Between each test: drop the mongo db so the next daemon boots into
+    a known-clean state. The message director needs no purging, its
+    state dies with the daemon."""
     yield
     try:
         from pymongo import MongoClient
@@ -126,7 +73,6 @@ def _purge_between_tests(external_services) -> Iterator[None]:
         MongoClient(cfg.MONGODB_URI).drop_database("ardos_test")
     except Exception:
         pass
-    _wait_rabbit_drained()
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +102,9 @@ def ardos(tmp_path: Path, request) -> Iterator[Callable[..., Daemon]]:
         dc_files = kwargs.pop("dc_files", None)
         md_port = kwargs.pop("md_port", 7100)
         ca_port = kwargs.pop("ca_port", 6667)
+        mesh_node_id = kwargs.pop("mesh_node_id", None)
+        mesh_port = kwargs.pop("mesh_port", 7300)
+        mesh_seeds = kwargs.pop("mesh_seeds", None)
 
         out_dir = tmp_path / f"ardos-{len(started)}"
         config_path = cfg.generate_config(
@@ -167,6 +116,9 @@ def ardos(tmp_path: Path, request) -> Iterator[Callable[..., Daemon]]:
             dbss=dbss,
             md_port=md_port,
             ca_port=ca_port,
+            mesh_node_id=mesh_node_id,
+            mesh_port=mesh_port,
+            mesh_seeds=mesh_seeds,
             dc_files=dc_files,
             uberdogs=uberdogs,
             overrides=overrides,
@@ -215,10 +167,6 @@ def bench_monitor(request) -> Iterator[BenchMonitor]:
     mon = BenchMonitor(
         out_dir,
         enabled=enabled,
-        rabbit_host=cfg.RABBITMQ_HOST,
-        rabbit_user=cfg.RABBITMQ_USER,
-        rabbit_pass=cfg.RABBITMQ_PASS,
-        amqp_port=cfg.RABBITMQ_PORT,
         interval=float(os.environ.get("ARDOS_BENCH_MONITOR_INTERVAL", "0.5")),
     )
     yield mon

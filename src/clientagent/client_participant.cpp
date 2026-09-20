@@ -1,5 +1,6 @@
 #include "client_participant.h"
 
+#include "../messagedirector/message_director.h"
 #include "../net/message_types.h"
 #include "../util/globals.h"
 #include "../util/logger.h"
@@ -30,6 +31,8 @@ ClientParticipant::ClientParticipant(
   auto address = _transport->RemoteEndpoint();
   spdlog::get("ca")->debug("Client connected from {}:{}", address.ip,
                            address.port);
+
+  _prOwner = MessageDirector::Instance()->AllocPostRemoveOwner();
 }
 
 void ClientParticipant::Init() {
@@ -137,21 +140,21 @@ void ClientParticipant::Shutdown() {
   if (_heartbeatTimer) {
     _heartbeatTimer->stop();
     _heartbeatTimer->close();
-    _heartbeatTimer.reset();
+    _heartbeatTimer = nullptr;
   }
 
   // Stop the auth timer (if we have one.)
   if (_authTimer) {
     _authTimer->stop();
     _authTimer->close();
-    _authTimer.reset();
+    _authTimer = nullptr;
   }
 
   // Stop the historical timer (if we have one.)
   if (_historicalTimer) {
     _historicalTimer->stop();
     _historicalTimer->close();
-    _historicalTimer.reset();
+    _historicalTimer = nullptr;
   }
 
   // Cancel any in-flight parent-class lookups so their timers don't fire
@@ -162,7 +165,7 @@ void ClientParticipant::Shutdown() {
     if (entry.timeout) {
       entry.timeout->stop();
       entry.timeout->close();
-      entry.timeout.reset();
+      entry.timeout = nullptr;
     }
   }
   _pendingParentClassLookups.clear();
@@ -197,7 +200,8 @@ void ClientParticipant::Shutdown() {
   spdlog::get("ca")->debug("Routing {} post-remove(s) for '{}'",
                            _postRemoves.size(), _channel);
 
-  // Route any post remove datagrams we might have stored.
+  // Route any post remove datagrams we might have stored. We fired them
+  // ourselves, so the copies peers hold get cleared.
   for (const auto& dg : _postRemoves) {
     try {
       PublishDatagram(dg);
@@ -211,6 +215,7 @@ void ClientParticipant::Shutdown() {
           e.what());
     }
   }
+  MessageDirector::Instance()->ClearPostRemoves(_prOwner, _allocatedChannel);
 
   // Unsubscribe from all channels so DELETE messages aren't sent back to us.
   ChannelSubscriber::Shutdown();
@@ -275,7 +280,7 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
       break;
     }
     case CLIENTAGENT_SET_STATE:
-      _authState = (AuthState)dgi.GetUint16();
+      _authState = static_cast<AuthState>(dgi.GetUint16());
       break;
     case CLIENTAGENT_ADD_INTEREST: {
       uint32_t context = _nextContext++;
@@ -333,11 +338,18 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
     case CLIENTAGENT_CLOSE_CHANNEL:
       UnsubscribeChannel(dgi.GetUint64());
       break;
-    case CLIENTAGENT_ADD_POST_REMOVE:
-      _postRemoves.emplace_back(dgi.GetDatagram());
+    case CLIENTAGENT_ADD_POST_REMOVE: {
+      auto postRemove = dgi.GetDatagram();
+      _postRemoves.emplace_back(postRemove);
+      // Replicate to peers so a survivor can fire this if we crash.
+      MessageDirector::Instance()->AddPostRemove(_prOwner, _allocatedChannel,
+                                                 postRemove);
       break;
+    }
     case CLIENTAGENT_CLEAR_POST_REMOVES:
       _postRemoves.clear();
+      MessageDirector::Instance()->ClearPostRemoves(_prOwner,
+                                                    _allocatedChannel);
       break;
     case CLIENTAGENT_DECLARE_OBJECT: {
       uint32_t doId = dgi.GetUint32();
@@ -753,7 +765,7 @@ void ClientParticipant::HandleHeartbeatTimeout() {
   // Stop the heartbeat timer.
   _heartbeatTimer->stop();
   _heartbeatTimer->close();
-  _heartbeatTimer.reset();
+  _heartbeatTimer = nullptr;
 
   SendDisconnect(CLIENT_DISCONNECT_NO_HEARTBEAT,
                  "Client did not send heartbeat in required interval");
