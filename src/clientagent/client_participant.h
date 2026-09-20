@@ -290,6 +290,9 @@ class ClientParticipant final : public ITransportHandler,
   uint16_t _nextInternalInterestId = 0xF000;
 
   // A list of datagrams to be routed when this client disconnects.
+  // The owner token scopes our replicated copies on mesh peers to this
+  // connection.
+  uint32_t _prOwner = 0;
   std::vector<std::shared_ptr<Datagram>> _postRemoves;
 };
 

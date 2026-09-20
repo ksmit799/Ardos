@@ -54,9 +54,12 @@ class MeshNode {
   void BroadcastRemoveRange(uint64_t lo, uint64_t hi);
 
   // This instances cleanup bundle, replicated to every peer so a survivor
-  // can fire it if we die uncleanly.
-  void AddLocalPostRemove(uint64_t sender, const std::shared_ptr<Datagram>& dg);
-  void ClearLocalPostRemoves(uint64_t sender);
+  // can fire it if we die uncleanly. Keyed by (owner, sender), the owner
+  // token scopes entries to one participant connection.
+  using BundleKey = std::pair<uint32_t, uint64_t>;
+  void AddLocalPostRemove(uint32_t owner, uint64_t sender,
+                          const std::shared_ptr<Datagram>& dg);
+  void ClearLocalPostRemoves(uint32_t owner, uint64_t sender);
 
   // Collects every peer link subscribed to any of the given channels.
   void CollectLinks(const std::vector<uint64_t>& channels,
@@ -72,9 +75,9 @@ class MeshNode {
   void PeerSnapshot(MeshLink* link, bool reset,
                     const std::unordered_set<uint64_t>& channels,
                     const std::vector<ChannelRange>& ranges);
-  void PeerAddPostRemove(uint32_t nodeId, uint64_t sender,
+  void PeerAddPostRemove(uint32_t nodeId, uint32_t owner, uint64_t sender,
                          const std::shared_ptr<Datagram>& dg);
-  void PeerClearPostRemoves(uint32_t nodeId, uint64_t sender);
+  void PeerClearPostRemoves(uint32_t nodeId, uint32_t owner, uint64_t sender);
   void PeerFired(uint32_t firedBy, uint32_t nodeId);
   void PeerVisibility(uint32_t nodeId, std::unordered_set<uint32_t> visible);
   void LearnPeer(uint32_t nodeId, const std::string& addr);
@@ -136,9 +139,9 @@ class MeshNode {
 
   // Post remove bundles, ours to replicate out, theirs held in case we
   // have to fire them.
-  std::map<uint64_t, std::vector<std::shared_ptr<Datagram>>> _localBundle;
-  std::unordered_map<uint32_t,
-                     std::map<uint64_t, std::vector<std::shared_ptr<Datagram>>>>
+  std::map<BundleKey, std::vector<std::shared_ptr<Datagram>>> _localBundle;
+  std::unordered_map<
+      uint32_t, std::map<BundleKey, std::vector<std::shared_ptr<Datagram>>>>
       _bundles;
   // Nodes whose bundle has been fired, cleared when they rejoin.
   std::unordered_set<uint32_t> _fired;

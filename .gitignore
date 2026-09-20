@@ -33,3 +33,6 @@ cmake-build-*/
 *.exe
 *.out
 *.app
+
+# Test harness output.
+tests/logs/

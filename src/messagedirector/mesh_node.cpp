@@ -372,10 +372,11 @@ void MeshNode::SendPeerState(MeshLink* link) {
   } while (it != channels.end());
 
   // Our cleanup bundle, they hold a copy in case we die uncleanly.
-  for (const auto& [sender, dgs] : _localBundle) {
+  for (const auto& [key, dgs] : _localBundle) {
     for (const auto& postRemove : dgs) {
       auto dg = MakeControl(MESH_ADD_POST_REMOVE);
-      dg->AddUint64(sender);
+      dg->AddUint32(key.first);
+      dg->AddUint64(key.second);
       dg->AddBlob(postRemove->GetData(), postRemove->Size());
       link->Send(dg);
     }
@@ -538,17 +539,19 @@ void MeshNode::PeerSnapshot(MeshLink* link, bool reset,
   }
 }
 
-void MeshNode::PeerAddPostRemove(uint32_t nodeId, uint64_t sender,
+void MeshNode::PeerAddPostRemove(uint32_t nodeId, uint32_t owner,
+                                 uint64_t sender,
                                  const std::shared_ptr<Datagram>& dg) {
-  _bundles[nodeId][sender].push_back(dg);
+  _bundles[nodeId][{owner, sender}].push_back(dg);
 }
 
-void MeshNode::PeerClearPostRemoves(uint32_t nodeId, uint64_t sender) {
+void MeshNode::PeerClearPostRemoves(uint32_t nodeId, uint32_t owner,
+                                    uint64_t sender) {
   auto it = _bundles.find(nodeId);
   if (it == _bundles.end()) {
     return;
   }
-  it->second.erase(sender);
+  it->second.erase({owner, sender});
   if (it->second.empty()) {
     _bundles.erase(it);
   }
@@ -625,11 +628,12 @@ void MeshNode::BroadcastRemoveRange(uint64_t lo, uint64_t hi) {
   }
 }
 
-void MeshNode::AddLocalPostRemove(uint64_t sender,
+void MeshNode::AddLocalPostRemove(uint32_t owner, uint64_t sender,
                                   const std::shared_ptr<Datagram>& dg) {
-  _localBundle[sender].push_back(dg);
+  _localBundle[{owner, sender}].push_back(dg);
 
   auto frame = MakeControl(MESH_ADD_POST_REMOVE);
+  frame->AddUint32(owner);
   frame->AddUint64(sender);
   frame->AddBlob(dg->GetData(), dg->Size());
   for (const auto& [nodeId, link] : _peers) {
@@ -637,12 +641,13 @@ void MeshNode::AddLocalPostRemove(uint64_t sender,
   }
 }
 
-void MeshNode::ClearLocalPostRemoves(uint64_t sender) {
-  if (!_localBundle.erase(sender)) {
+void MeshNode::ClearLocalPostRemoves(uint32_t owner, uint64_t sender) {
+  if (!_localBundle.erase({owner, sender})) {
     return;
   }
 
   auto frame = MakeControl(MESH_CLEAR_POST_REMOVES);
+  frame->AddUint32(owner);
   frame->AddUint64(sender);
   for (const auto& [nodeId, link] : _peers) {
     link->Send(frame);
@@ -701,7 +706,7 @@ void MeshNode::FireBundle(uint32_t nodeId, const std::string& reason) {
   size_t count = 0;
 
   if (it != _bundles.end()) {
-    for (const auto& [sender, dgs] : it->second) {
+    for (const auto& [key, dgs] : it->second) {
       for (const auto& dg : dgs) {
         try {
           MessageDirector::Instance()->RouteDatagram(dg);

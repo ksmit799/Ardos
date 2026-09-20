@@ -14,6 +14,7 @@ MDParticipant::MDParticipant(const std::shared_ptr<uvw::tcp_handle>& socket)
   spdlog::get("md")->info("Participant connected from {}:{}", address.ip,
                           address.port);
 
+  _prOwner = MessageDirector::Instance()->AllocPostRemoveOwner();
   MessageDirector::Instance()->ParticipantJoined();
 }
 
@@ -54,7 +55,7 @@ void MDParticipant::Shutdown() {
             _connName, e.what());
       }
     }
-    MessageDirector::Instance()->ClearPostRemoves(sender);
+    MessageDirector::Instance()->ClearPostRemoves(_prOwner, sender);
   }
   _postRemoves.clear();
 
@@ -107,13 +108,14 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram>& dg) {
           auto postRemove = dgi.GetDatagram();
           _postRemoves[sender].push_back(postRemove);
           // Replicate to peers so a survivor can fire this if we crash.
-          MessageDirector::Instance()->AddPostRemove(sender, postRemove);
+          MessageDirector::Instance()->AddPostRemove(_prOwner, sender,
+                                                     postRemove);
           break;
         }
         case CONTROL_CLEAR_POST_REMOVES: {
           uint64_t sender = dgi.GetUint64();
           _postRemoves.erase(sender);
-          MessageDirector::Instance()->ClearPostRemoves(sender);
+          MessageDirector::Instance()->ClearPostRemoves(_prOwner, sender);
           break;
         }
         case CONTROL_SET_CON_NAME:

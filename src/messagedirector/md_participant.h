@@ -33,8 +33,10 @@ class MDParticipant final : public NetworkClient, public ChannelSubscriber {
   void HandleDatagram(const std::shared_ptr<Datagram>& dg) override;
 
   std::string _connName = "Unnamed Participant";
-  // Keyed by sender channel, the same key the mesh replicates under, so
-  // peers can drop exactly what we fire or clear here.
+  // Keyed by sender channel. The mesh replicates under (owner, sender),
+  // the owner token keeps our entries apart from any other connection
+  // using the same sender channel.
+  uint32_t _prOwner = 0;
   std::map<uint64_t, std::vector<std::shared_ptr<Datagram>>> _postRemoves;
 };
 

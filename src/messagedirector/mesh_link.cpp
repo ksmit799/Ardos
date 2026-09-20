@@ -146,13 +146,17 @@ void MeshLink::HandleControl(const std::shared_ptr<Datagram>& dg) {
       break;
     }
     case MESH_ADD_POST_REMOVE: {
+      uint32_t owner = dgi.GetUint32();
       uint64_t sender = dgi.GetUint64();
-      _mesh->PeerAddPostRemove(_nodeId, sender, dgi.GetDatagram());
+      _mesh->PeerAddPostRemove(_nodeId, owner, sender, dgi.GetDatagram());
       break;
     }
-    case MESH_CLEAR_POST_REMOVES:
-      _mesh->PeerClearPostRemoves(_nodeId, dgi.GetUint64());
+    case MESH_CLEAR_POST_REMOVES: {
+      uint32_t owner = dgi.GetUint32();
+      uint64_t sender = dgi.GetUint64();
+      _mesh->PeerClearPostRemoves(_nodeId, owner, sender);
       break;
+    }
     case MESH_POST_REMOVES_FIRED:
       _mesh->PeerFired(_nodeId, dgi.GetUint32());
       break;

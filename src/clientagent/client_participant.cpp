@@ -31,6 +31,8 @@ ClientParticipant::ClientParticipant(
   auto address = _transport->RemoteEndpoint();
   spdlog::get("ca")->debug("Client connected from {}:{}", address.ip,
                            address.port);
+
+  _prOwner = MessageDirector::Instance()->AllocPostRemoveOwner();
 }
 
 void ClientParticipant::Init() {
@@ -213,7 +215,7 @@ void ClientParticipant::Shutdown() {
           e.what());
     }
   }
-  MessageDirector::Instance()->ClearPostRemoves(_allocatedChannel);
+  MessageDirector::Instance()->ClearPostRemoves(_prOwner, _allocatedChannel);
 
   // Unsubscribe from all channels so DELETE messages aren't sent back to us.
   ChannelSubscriber::Shutdown();
@@ -340,12 +342,14 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
       auto postRemove = dgi.GetDatagram();
       _postRemoves.emplace_back(postRemove);
       // Replicate to peers so a survivor can fire this if we crash.
-      MessageDirector::Instance()->AddPostRemove(_allocatedChannel, postRemove);
+      MessageDirector::Instance()->AddPostRemove(_prOwner, _allocatedChannel,
+                                                 postRemove);
       break;
     }
     case CLIENTAGENT_CLEAR_POST_REMOVES:
       _postRemoves.clear();
-      MessageDirector::Instance()->ClearPostRemoves(_allocatedChannel);
+      MessageDirector::Instance()->ClearPostRemoves(_prOwner,
+                                                    _allocatedChannel);
       break;
     case CLIENTAGENT_DECLARE_OBJECT: {
       uint32_t doId = dgi.GetUint32();

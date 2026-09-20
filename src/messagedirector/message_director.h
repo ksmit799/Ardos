@@ -53,8 +53,13 @@ class MessageDirector {
   void BroadcastRemoveRange(uint64_t lo, uint64_t hi);
 
   // This instances post remove bundle, replicated to peers via the mesh.
-  void AddPostRemove(uint64_t sender, const std::shared_ptr<Datagram>& dg);
-  void ClearPostRemoves(uint64_t sender);
+  // Entries are keyed by (owner, sender), the owner token scopes them to
+  // one participant connection, so a stale connections clear can't wipe
+  // a newer connections entries under the same sender channel.
+  [[nodiscard]] uint32_t AllocPostRemoveOwner() { return ++_postRemoveOwner; }
+  void AddPostRemove(uint32_t owner, uint64_t sender,
+                     const std::shared_ptr<Datagram>& dg);
+  void ClearPostRemoves(uint32_t owner, uint64_t sender);
 
   [[nodiscard]] MeshNode* GetMesh() const { return _mesh; }
 
@@ -100,6 +105,8 @@ class MessageDirector {
 
   std::unordered_set<std::shared_ptr<ChannelSubscriber>> _subscribers;
   std::unordered_set<MDParticipant*> _participants;
+
+  uint32_t _postRemoveOwner = 0;
 
   std::shared_ptr<uvw::tcp_handle> _listenHandle;
 

@@ -264,16 +264,16 @@ void MessageDirector::BroadcastRemoveRange(uint64_t lo, uint64_t hi) {
   }
 }
 
-void MessageDirector::AddPostRemove(uint64_t sender,
+void MessageDirector::AddPostRemove(uint32_t owner, uint64_t sender,
                                     const std::shared_ptr<Datagram>& dg) {
   if (_mesh) {
-    _mesh->AddLocalPostRemove(sender, dg);
+    _mesh->AddLocalPostRemove(owner, sender, dg);
   }
 }
 
-void MessageDirector::ClearPostRemoves(uint64_t sender) {
+void MessageDirector::ClearPostRemoves(uint32_t owner, uint64_t sender) {
   if (_mesh) {
-    _mesh->ClearLocalPostRemoves(sender);
+    _mesh->ClearLocalPostRemoves(owner, sender);
   }
 }
 
