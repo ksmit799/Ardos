@@ -16,21 +16,12 @@ services:
     volumes:
       - ardos-db-data:/data/db
 
-  ardos-md:
-    image: rabbitmq:3-management
-    ports:
-      - "15672:15672"
-      - "5672:5672"
-    environment:
-      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit credit_flow_default_credit {20000,10000}"
-
   ardos:
     image: ghcr.io/ksmit799/ardos:latest
-    depends_on:
-      - ardos-md
     ports:
       - "9985:9985"
       - "7199:7199"
+      - "7200:7200" # Mesh port, only needed with a multi instance cluster.
       - "7781:7781"
       - "25565:25565"
     volumes:
@@ -38,7 +29,10 @@ services:
       - ./config/dclass:/app/dclass
     deploy:
       restart_policy:
-        condition: on-failure # It might take a second for the MD to boot up.
+        # An isolated instance exits on purpose and relies on its
+        # supervisor to bring it back, this policy is what rejoins it
+        # to the cluster.
+        condition: on-failure
 
   ardos-prometheus:
     image: prom/prometheus:latest

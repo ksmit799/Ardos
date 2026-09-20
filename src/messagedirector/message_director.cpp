@@ -8,13 +8,16 @@
 #ifdef ARDOS_WANT_DB_SERVER
 #include "../database/database_server.h"
 #endif
-#include "../net/address_utils.h"
+#include "../net/datagram_iterator.h"
 #include "../stateserver/database_state_server.h"
 #include "../util/config.h"
+#include "../util/globals.h"
 #include "../util/logger.h"
 #include "../util/metrics.h"
 #include "../web/web_panel.h"
+#include "channel_subscriber.h"
 #include "md_participant.h"
+#include "mesh_node.h"
 
 namespace Ardos {
 
@@ -30,9 +33,6 @@ MessageDirector* MessageDirector::Instance() {
 
 MessageDirector::MessageDirector() {
   spdlog::info("Starting Message Director component...");
-
-  _connectHandle = g_loop->resource<uvw::tcp_handle>();
-  _listenHandle = g_loop->resource<uvw::tcp_handle>();
 
   auto config = Config::Instance()->GetNode("message-director");
 
@@ -51,23 +51,7 @@ MessageDirector::MessageDirector() {
     _port = portParam.as<int>();
   }
 
-  // RabbitMQ configuration.
-  if (auto hostParam = config["rabbitmq-host"]) {
-    _rHost = hostParam.as<std::string>();
-  }
-  if (auto portParam = config["rabbitmq-port"]) {
-    _rPort = portParam.as<int>();
-  }
-  std::string user = "guest";
-  if (auto userParam = config["rabbitmq-user"]) {
-    user = userParam.as<std::string>();
-  }
-  std::string password = "guest";
-  if (auto passParam = config["rabbitmq-password"]) {
-    password = passParam.as<std::string>();
-  }
-
-  // Socket events.
+  _listenHandle = g_loop->resource<uvw::tcp_handle>();
   _listenHandle->on<uvw::listen_event>(
       [this](const uvw::listen_event&, uvw::tcp_handle& srv) {
         std::shared_ptr<uvw::tcp_handle> client =
@@ -80,219 +64,59 @@ MessageDirector::MessageDirector() {
         _participants.insert(participant.get());
       });
 
-  _connectHandle->on<uvw::error_event>(
-      [](const uvw::error_event& event, uvw::tcp_handle&) {
-        // Just die on error, the message director always needs a connection to
-        // RabbitMQ.
-        spdlog::get("md")->error("Socket error: {}", event.what());
-        exit(1);  // NOLINT(concurrency-mt-unsafe)
-      });
-
-  _connectHandle->on<uvw::connect_event>(
-      [this, user, password](const uvw::connect_event&, uvw::tcp_handle& tcp) {
-        // Authenticate with the RabbitMQ cluster.
-        _connection =
-            new AMQP::Connection(this, AMQP::Login(user, password), "/");
-        // Start reading from the socket.
-        _connectHandle->read();
-      });
-
-  _connectHandle->on<uvw::data_event>(
-      [this](const uvw::data_event& event, uvw::tcp_handle&) {
-        // We've received bytes from RabbitMQ. The buffer may contain zero
-        // or more complete frames followed by a partial frame. AMQP-CPP
-        // does no buffering of its own:
-        //
-        //   * parse() returns the number of bytes consumed (i.e. the
-        //     prefix length of complete frames it was able to decode).
-        //   * Whatever it didn't consume is the start of the next frame
-        //     and must be re-presented unchanged on the next call,
-        //     prepended to any newly-arrived bytes.
-        //
-        // See:
-        // https://github.com/CopernicaMarketingSoftware/AMQP-CPP#parsing-incoming-data
-        _frameBuffer.insert(_frameBuffer.end(), event.data.get(),
-                            event.data.get() + event.length);
-
-        while (!_frameBuffer.empty()) {
-          const size_t processed =
-              _connection->parse(_frameBuffer.data(), _frameBuffer.size());
-          if (processed == 0) {
-            // Partial frame; wait for more bytes before retrying.
-            break;
-          }
-          _frameBuffer.erase(_frameBuffer.begin(),
-                             // parse() can't return more than size:
-                             // NOLINTNEXTLINE(bugprone-narrowing-conversions)
-                             _frameBuffer.begin() + processed);
-        }
-      });
-
   // Initialize metrics.
   InitMetrics();
 
-  // Start connecting/listening!
   _listenHandle->bind(_host, _port);
-  _connectHandle->connect(AddressUtils::resolve_host(g_loop, _rHost, _rPort),
-                          _rPort);
 }
 
-/**
- * Returns the "global" channel used for routing messages.
- * @return
- */
-AMQP::Channel* MessageDirector::GetGlobalChannel() const {
-  return _globalChannel;
-}
+void MessageDirector::StartRoles() {
+  auto config = Config::Instance()->GetNode("message-director");
 
-/**
- * Returns the local messaging queue for this message director.
- * @return
- */
-std::string MessageDirector::GetLocalQueue() const { return _localQueue; }
-
-/**
- *  Method that is called by AMQP-CPP when data has to be sent over the
- *  network. You must implement this method and send the data over a
- *  socket that is connected with RabbitMQ.
- *
- *  Note that the AMQP library does no buffering by itself. This means
- *  that this method should always send out all data or do the buffering
- *  itself.
- *
- *  @param  connection      The connection that created this output
- *  @param  buffer          Data to send
- *  @param  size            Size of the buffer
- */
-void MessageDirector::onData(AMQP::Connection* connection, const char* buffer,
-                             const size_t size) {
-  // runtime-sized buffer for uvw write:
-  // NOLINTNEXTLINE(modernize-avoid-c-arrays)
-  auto sendBuffer = std::unique_ptr<char[]>(new char[size]);
-  if (size != 0) {
-    std::memcpy(sendBuffer.get(), buffer, size);
+  // The mesh joins us to the rest of the cluster. No mesh section means
+  // a cluster of one, everything routes in process.
+  if (config["mesh"]) {
+    _mesh = new MeshNode();
   }
-  _connectHandle->write(std::move(sendBuffer), size);
-}
 
-/**
- *  Method that is called when the login attempt succeeded. After this method
- *  is called, the connection is ready to use, and the RabbitMQ server is
- *  ready to receive instructions.
- *
- *  @param  connection      The connection that can now be used
- */
-void MessageDirector::onReady(AMQP::Connection* connection) {
-  // Resize our frame buffer to the max frame length.
-  // This prevents buffer re-sizing at runtime.
-  _frameBuffer.reserve(connection->maxFrame());
+  if (Config::Instance()->GetBool("want-state-server")) {
+    _stateServer = std::make_shared<StateServer>();
+    _stateServer->Init();
+  }
 
-  // Create our "global" exchange.
-  _globalChannel = new AMQP::Channel(_connection);
-  _globalChannel->declareExchange(kGlobalExchange, AMQP::topic)
-      .onSuccess([this]() {
-        // Create our local queue.
-        // This queue is specific to this process, and will be automatically
-        // deleted once it goes offline.
-        _globalChannel->declareQueue(AMQP::exclusive)
-            .onSuccess([this](const std::string& name, int msgCount,
-                              int consumerCount) {
-              _localQueue = name;
+  if (Config::Instance()->GetBool("want-client-agent")) {
+    _clientAgent = std::make_unique<ClientAgent>();
+  }
 
-              StartConsuming();
-
-              // TODO: We should probably have a callback for role startup to
-              // happen in main.
-
-              // Startup configured roles. ChannelSubscriber subclasses get
-              // the make_shared + Init() factory dance; ClientAgent is the
-              // only role that isn't a ChannelSubscriber.
-              if (Config::Instance()->GetBool("want-state-server")) {
-                _stateServer = std::make_shared<StateServer>();
-                _stateServer->Init();
-              }
-
-              if (Config::Instance()->GetBool("want-client-agent")) {
-                _clientAgent = std::make_unique<ClientAgent>();
-              }
-
-              if (Config::Instance()->GetBool("want-database")) {
+  if (Config::Instance()->GetBool("want-database")) {
 #ifdef ARDOS_WANT_DB_SERVER
-                _db = std::make_shared<DatabaseServer>();
-                _db->Init();
+    _db = std::make_shared<DatabaseServer>();
+    _db->Init();
 #else
-                spdlog::get("md")->error(
-                    "want-database was set to true but Ardos was "
-                    "built without ARDOS_WANT_DB_SERVER");
-                exit(1);  // NOLINT(concurrency-mt-unsafe)
+    spdlog::get("md")->error(
+        "want-database was set to true but Ardos was "
+        "built without ARDOS_WANT_DB_SERVER");
+    exit(1);  // NOLINT(concurrency-mt-unsafe)
 #endif
-              }
+  }
 
-              if (Config::Instance()->GetBool("want-db-state-server")) {
-                _dbss = std::make_shared<DatabaseStateServer>();
-                _dbss->Init();
-              }
+  if (Config::Instance()->GetBool("want-db-state-server")) {
+    _dbss = std::make_shared<DatabaseStateServer>();
+    _dbss->Init();
+  }
 
-              if (Config::Instance()->GetBool("want-web-panel")) {
-                _webPanel = std::make_unique<WebPanel>();
-              }
+  if (Config::Instance()->GetBool("want-web-panel")) {
+    _webPanel = std::make_unique<WebPanel>();
+  }
 
-              // Start listening for incoming connections.
-              _listenHandle->listen();
+  // Start listening for incoming participant connections.
+  _listenHandle->listen();
 
-              spdlog::get("md")->debug("Local Queue: {}", _localQueue);
-              spdlog::get("md")->info("Listening on {}:{}", _host, _port);
-            })
-            .onError([](const char* message) {
-              spdlog::get("md")->error("Failed to declare local queue: {}",
-                                       message);
-              exit(1);  // NOLINT(concurrency-mt-unsafe)
-            });
-      })
-      .onError([](const char* message) {
-        spdlog::get("md")->error("Failed to declare global exchange: {}",
-                                 message);
-        exit(1);  // NOLINT(concurrency-mt-unsafe)
-      });
+  spdlog::get("md")->info("Listening on {}:{}", _host, _port);
 }
 
 /**
- *  When the connection ends up in an error state this method is called.
- *  This happens when data comes in that does not match the AMQP protocol,
- *  or when an error message was sent by the server to the client.
- *
- *  After this method is called, the connection no longer is in a valid
- *  state and can no longer be used.
- *
- *  @param  connection      The connection that entered the error state
- *  @param  message         Error message
- */
-void MessageDirector::onError(AMQP::Connection* connection,
-                              const char* message) {
-  // The connection is dead at this point.
-  // Log out an exception and shut everything down.
-  spdlog::get("md")->error("RabbitMQ error: {}", message);
-  exit(1);  // NOLINT(concurrency-mt-unsafe)
-}
-
-/**
- *  Method that is called when the AMQP connection was closed.
- *
- *  This is the counter part of a call to Connection::close() and it confirms
- *  that the connection was _correctly_ closed. Note that this only applies
- *  to the AMQP connection, the underlying TCP connection is not managed by
- *  AMQP-CPP and is still active.
- *
- *  @param  connection      The connection that was closed and that is now
- * unusable
- */
-void MessageDirector::onClosed(AMQP::Connection* connection) {
-  _connectHandle->close();
-  _listenHandle->close();
-}
-
-/**
- * Adds a channel subscriber to start receiving consume messages.
+ * Adds a channel subscriber to start receiving routed messages.
  */
 void MessageDirector::AddSubscriber(
     std::shared_ptr<ChannelSubscriber> subscriber) {
@@ -326,33 +150,69 @@ void MessageDirector::RemoveSubscriber(ChannelSubscriber* subscriber) {
   }
 }
 
+void MessageDirector::RouteDatagram(const std::shared_ptr<Datagram>& dg) {
+  Route(dg, true);
+}
+
+void MessageDirector::RouteLocally(const std::shared_ptr<Datagram>& dg) {
+  Route(dg, false);
+}
+
 /**
- * Synchronously dispatches a datagram to in-process subscribers, bypassing
- * RabbitMQ. Used by ChannelSubscriber::PublishDatagram so a subscribe-then-
- * publish on the same channel doesn't race the async bindQueue, and so
- * same-process traffic skips the broker round-trip entirely.
+ * The router. One pass unions every interested party across all of the
+ * datagram's channels, then each local subscriber gets exactly one
+ * HandleDatagram and each interested peer exactly one frame. That union
+ * is the at-most-once invariant.
  */
-void MessageDirector::DeliverLocally(const std::string& routingKey,
-                                     const std::shared_ptr<Datagram>& dg) {
-  uint64_t channel = ChannelSubscriber::ChannelFromRoutingKey(routingKey);
-  uint64_t bucket = channel >> kChannelBucketShift;
+void MessageDirector::Route(const std::shared_ptr<Datagram>& dg, bool toPeers) {
+  DatagramIterator dgi(dg);
 
-  // Point subs hit _channelIndex directly; range subs are indexed by
-  // bucket and need WithinLocalRange to filter over-delivery at bucket
-  // edges. unordered_set dedupes subscribers carrying both a point sub
-  // and a covering range.
-  std::unordered_set<std::shared_ptr<ChannelSubscriber>> interested;
-
-  if (auto it = ChannelSubscriber::_channelIndex.find(channel);
-      it != ChannelSubscriber::_channelIndex.end()) {
-    interested.insert(it->second.begin(), it->second.end());
+  uint8_t channelCount = dgi.GetUint8();
+  std::vector<uint64_t> channels;
+  channels.reserve(channelCount);
+  for (uint8_t i = 0; i < channelCount; ++i) {
+    channels.push_back(dgi.GetUint64());
   }
-  if (auto it = ChannelSubscriber::_bucketIndex.find(bucket);
-      it != ChannelSubscriber::_bucketIndex.end()) {
-    for (const auto& sub : it->second) {
-      if (sub->WithinLocalRange(channel)) {
-        interested.insert(sub);
+
+  if (_datagramsObservedCounter) {
+    _datagramsObservedCounter->Increment();
+  }
+  if (_datagramsSizeHistogram) {
+    _datagramsSizeHistogram->Observe(static_cast<double>(dg->Size()));
+  }
+
+  // Local subscribers, points then ranges, the set dedupes a subscriber
+  // matching through several channels.
+  std::unordered_set<std::shared_ptr<ChannelSubscriber>> interested;
+  for (uint64_t channel : channels) {
+    if (auto it = ChannelSubscriber::_channelIndex.find(channel);
+        it != ChannelSubscriber::_channelIndex.end()) {
+      interested.insert(it->second.begin(), it->second.end());
+    }
+    for (const auto& entry : ChannelSubscriber::_rangeIndex) {
+      if (channel >= entry.lo && channel <= entry.hi && entry.sub) {
+        interested.insert(entry.sub);
       }
+    }
+  }
+
+  // Interested peers, one frame per link no matter how many channels
+  // matched, and never onward from a routed datagram, the mesh has no
+  // relay.
+  std::unordered_set<MeshLink*> links;
+  if (toPeers && _mesh) {
+    _mesh->CollectLinks(channels, links);
+    // Send order across links carries no meaning, per link FIFO is the
+    // only ordering the protocol promises.
+    // NOLINTNEXTLINE(bugprone-nondeterministic-pointer-iteration-order)
+    for (MeshLink* link : links) {
+      link->Send(dg);
+    }
+    if (_remoteSendsCounter) {
+      _remoteSendsCounter->Increment(static_cast<double>(links.size()));
+    }
+    if (_fanoutLinksHistogram) {
+      _fanoutLinksHistogram->Observe(static_cast<double>(links.size()));
     }
   }
 
@@ -360,9 +220,15 @@ void MessageDirector::DeliverLocally(const std::string& routingKey,
     return;
   }
 
-  spdlog::get("md")->trace(
-      "DeliverLocally chan={} bucket={} matched={} subs={}", channel, bucket,
-      interested.size(), _subscribers.size());
+  if (_datagramsProcessedCounter) {
+    _datagramsProcessedCounter->Increment();
+  }
+  if (_localDeliveriesCounter) {
+    _localDeliveriesCounter->Increment(static_cast<double>(interested.size()));
+  }
+
+  spdlog::get("md")->trace("Route matched={} links={} size={}B",
+                           interested.size(), links.size(), dg->Size());
 
   // Snapshot into a vector. Shared_ptr copies keep every iterated
   // subscriber alive across the loop even if a handler triggers
@@ -371,6 +237,43 @@ void MessageDirector::DeliverLocally(const std::string& routingKey,
                                                            interested.end());
   for (const auto& subscriber : snapshot) {
     subscriber->HandleDatagram(dg);
+  }
+}
+
+void MessageDirector::BroadcastAddChannel(uint64_t channel) {
+  if (_mesh) {
+    _mesh->BroadcastAddChannel(channel);
+  }
+}
+
+void MessageDirector::BroadcastRemoveChannel(uint64_t channel) {
+  if (_mesh) {
+    _mesh->BroadcastRemoveChannel(channel);
+  }
+}
+
+void MessageDirector::BroadcastAddRange(uint64_t lo, uint64_t hi) {
+  if (_mesh) {
+    _mesh->BroadcastAddRange(lo, hi);
+  }
+}
+
+void MessageDirector::BroadcastRemoveRange(uint64_t lo, uint64_t hi) {
+  if (_mesh) {
+    _mesh->BroadcastRemoveRange(lo, hi);
+  }
+}
+
+void MessageDirector::AddPostRemove(uint64_t sender,
+                                    const std::shared_ptr<Datagram>& dg) {
+  if (_mesh) {
+    _mesh->AddLocalPostRemove(sender, dg);
+  }
+}
+
+void MessageDirector::ClearPostRemoves(uint64_t sender) {
+  if (_mesh) {
+    _mesh->ClearLocalPostRemoves(sender);
   }
 }
 
@@ -420,6 +323,21 @@ void MessageDirector::InitMetrics() {
                                    .Help("Bytes size of handled datagrams")
                                    .Register(*registry);
 
+  auto& fanoutBuilder = prometheus::BuildHistogram()
+                            .Name("md_route_fanout_links")
+                            .Help("Peer links matched per routed datagram")
+                            .Register(*registry);
+
+  auto& localBuilder = prometheus::BuildCounter()
+                           .Name("md_route_local_deliveries_total")
+                           .Help("Datagram deliveries to local subscribers")
+                           .Register(*registry);
+
+  auto& remoteBuilder = prometheus::BuildCounter()
+                            .Name("md_route_remote_sends_total")
+                            .Help("Datagram sends to mesh peers")
+                            .Register(*registry);
+
   auto& subscribersBuilder = prometheus::BuildGauge()
                                  .Name("md_subscribers_size")
                                  .Help("Number of registered subscribers")
@@ -435,102 +353,12 @@ void MessageDirector::InitMetrics() {
   _datagramsSizeHistogram = &datagramsSizeBuilder.Add(
       {}, prometheus::Histogram::BucketBoundaries{1, 4, 16, 64, 256, 1024, 4096,
                                                   16384, 65536});
+  _fanoutLinksHistogram = &fanoutBuilder.Add(
+      {}, prometheus::Histogram::BucketBoundaries{0, 1, 2, 4, 8, 16, 32});
+  _localDeliveriesCounter = &localBuilder.Add({});
+  _remoteSendsCounter = &remoteBuilder.Add({});
   _subscribersGauge = &subscribersBuilder.Add({});
   _participantsGauge = &participantsBuilder.Add({});
-}
-
-/**
- * Start consuming messages from RabbitMQ.
- * Messages are handled by each Channel Subscriber.
- */
-void MessageDirector::StartConsuming() {
-  // Consume in no-ack mode: the broker treats messages as acknowledged the
-  // moment they're delivered, which removes a round-trip per message and
-  // noticeably improves throughput. Trade-off: if this process dies mid-handle
-  // the in-flight message is lost, but the MD holds no durable state worth
-  // recovering -- the whole cluster re-converges on restart.
-  _globalChannel->consume(_localQueue, AMQP::noack)
-      .onSuccess([this](const std::string& tag) { _consumeTag = tag; })
-      .onReceived([this](const AMQP::Message& message, uint64_t deliveryTag,
-                         bool redelivered) {
-        // Drop loopback copies. PublishDatagram tags every outgoing message
-        // with our local queue name and delivers synchronously in-process;
-        // the broker still fans the message out to us, so ignore that copy.
-        if (message.hasAppID() && message.appID() == _localQueue) {
-          return;
-        }
-
-        // Increment observed datagrams metric.
-        if (_datagramsObservedCounter) {
-          _datagramsObservedCounter->Increment();
-        }
-
-        // First, check if we have at least one channel subscriber listening to
-        // the channel in this cluster. The topic exchange should only deliver
-        // messages matching one of our bindings, but keep the check as a
-        // safety net against spurious deliveries.
-        uint64_t channel =
-            ChannelSubscriber::ChannelFromRoutingKey(message.routingkey());
-        uint64_t bucket = channel >> kChannelBucketShift;
-        if (!ChannelSubscriber::_globalChannels.contains(channel) &&
-            !ChannelSubscriber::_globalBuckets.contains(bucket)) {
-          return;
-        }
-
-        // Increment processed datagrams metric.
-        if (_datagramsProcessedCounter) {
-          _datagramsProcessedCounter->Increment();
-        }
-
-        // Datagram size metrics.
-        if (_datagramsSizeHistogram) {
-          _datagramsSizeHistogram->Observe((double)message.bodySize());
-        }
-
-        // We should only need to create one shared datagram for all
-        // subscribers.
-        auto dg = std::make_shared<Datagram>(
-            reinterpret_cast<const uint8_t*>(message.body()),
-            message.bodySize());
-
-        // Look up interested subscribers via the routing-key index. Same
-        // shape as DeliverLocally: point subs by channel, range subs by
-        // bucket (filtered by WithinLocalRange because a bucket spans
-        // channels outside any given [min, max]). unordered_set dedupes
-        // the rare case where a subscriber has both flavors covering
-        // this channel.
-        std::unordered_set<std::shared_ptr<ChannelSubscriber>> interested;
-        if (auto it = ChannelSubscriber::_channelIndex.find(channel);
-            it != ChannelSubscriber::_channelIndex.end()) {
-          interested.insert(it->second.begin(), it->second.end());
-        }
-        if (auto it = ChannelSubscriber::_bucketIndex.find(bucket);
-            it != ChannelSubscriber::_bucketIndex.end()) {
-          for (const auto& sub : it->second) {
-            if (sub->WithinLocalRange(channel)) {
-              interested.insert(sub);
-            }
-          }
-        }
-        if (interested.empty()) {
-          return;
-        }
-
-        // Snapshot into a vector. Shared_ptr copies keep every iterated
-        // subscriber alive across the loop even if a handler triggers
-        // RemoveSubscriber or UnsubscribeChannel.
-        std::vector<std::shared_ptr<ChannelSubscriber>> snapshot(
-            interested.begin(), interested.end());
-        for (const auto& subscriber : snapshot) {
-          subscriber->HandleDatagram(dg);
-        }
-      })
-      .onCancelled([](const std::string& consumerTag) {
-        spdlog::get("md")->error("Channel consuming cancelled unexpectedly.");
-      })
-      .onError([](const char* message) {
-        spdlog::get("md")->error("Received error: {}", message);
-      });
 }
 
 void MessageDirector::HandleWeb(ws28::Client* client, nlohmann::json& data) {
@@ -542,8 +370,20 @@ void MessageDirector::HandleWeb(ws28::Client* client, nlohmann::json& data) {
         {"ip", participant->GetRemoteAddress().ip},
         {"port", participant->GetRemoteAddress().port},
         {"channels", participant->GetLocalChannels().size()},
-        {"postRemoves", participant->GetPostRemoves().size()},
+        {"postRemoves", participant->GetPostRemovesCount()},
     });
+  }
+
+  // Mesh peers, empty for a cluster of one.
+  nlohmann::json peerInfo = nlohmann::json::array();
+  if (_mesh) {
+    for (const auto& peer : _mesh->GetPeerInfo()) {
+      peerInfo.push_back({
+          {"nodeId", peer.nodeId},
+          {"addr", peer.addr},
+          {"rttMs", peer.rttMs},
+      });
+    }
   }
 
   WebPanel::Send(client, {
@@ -551,8 +391,8 @@ void MessageDirector::HandleWeb(ws28::Client* client, nlohmann::json& data) {
                              {"success", true},
                              {"listenIp", _host},
                              {"listenPort", _port},
-                             {"connectIp", _rHost},
-                             {"connectPort", _rPort},
+                             {"meshNodeId", _mesh ? _mesh->GetNodeId() : 0},
+                             {"meshPeers", peerInfo},
                              {"participants", participantInfo},
                          });
 }

@@ -1,12 +1,11 @@
 """Background system sampler for diagnostic benchmark runs.
 
-Spawned as a subprocess by the bench harness; samples broker, daemon
-process, and socket state on a fixed interval and writes one JSONL
-event per sample. Stops cleanly on SIGTERM.
+Spawned as a subprocess by the bench harness; samples daemon process and
+socket state on a fixed interval and writes one JSONL event per sample.
+Stops cleanly on SIGTERM.
 
-Output is consumed post-hoc to correlate broker flow-state / queue depth
-/ daemon RSS / AMQP socket Send-Q against phase markers emitted by the
-test harness into a sibling file.
+Output is consumed post-hoc to correlate daemon RSS / socket Send-Q
+against phase markers emitted by the test harness into a sibling file.
 
 CLI:
 
@@ -14,10 +13,7 @@ CLI:
         --pid <daemon-pid> \
         --out  <path/to/monitor-data.jsonl> \
         --interval 0.5 \
-        --rabbit-host 127.0.0.1 \
-        --rabbit-user guest \
-        --rabbit-pass guest \
-        --amqp-port 5672
+        --mesh-port 7300
 
 Each output line is a JSON object:
 
@@ -25,30 +21,23 @@ Each output line is a JSON object:
 
 Sources:
   - "proc"      : daemon RSS, threads, ctx switches, utime/stime
-  - "rmq_conn"  : per-connection state (look for state=="flow")
-  - "rmq_queue" : per-queue messages/unacked/memory
-  - "rmq_overview": cluster-wide message rates + memory + alarms
-  - "amqp_sock" : ss output for the daemon's connection to the broker
   - "sys"       : /proc/loadavg, /proc/meminfo MemAvailable, steal %
   - "thread"    : per-thread wchan + kernel stack (where the daemon is parked)
   - "daemon_sock": per-port aggregate Send-Q/Recv-Q across all daemon-owned
                     TCP sockets, bucketed by daemon-side port (6667 CA accepts,
-                    7100 MD accepts, 5672 outbound to broker, "other")
+                    7100 MD accepts, mesh port for peer links, "other")
   - "error"     : sampler-side errors (so a missing tool doesn't kill the run)
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
 import signal
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -127,98 +116,6 @@ def _sample_proc(out, pid: int) -> None:
         _emit(out, "error", source="proc", err=str(e))
 
 
-def _rmq_get(
-    host: str, user: str, password: str, path: str, timeout: float = 0.8
-) -> Optional[object]:
-    auth = base64.b64encode(f"{user}:{password}".encode()).decode()
-    req = urllib.request.Request(
-        f"http://{host}:15672/api/{path}",
-        headers={"Authorization": f"Basic {auth}"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read())
-    except (urllib.error.URLError, OSError, ValueError):
-        return None
-
-
-def _sample_rmq(out, host: str, user: str, password: str) -> None:
-    """Broker connections, queues, overview."""
-    overview = _rmq_get(host, user, password, "overview")
-    if overview is not None and isinstance(overview, dict):
-        _emit(
-            out,
-            "rmq_overview",
-            object_totals=overview.get("object_totals"),
-            queue_totals=overview.get("queue_totals"),
-            message_stats=overview.get("message_stats"),
-            cluster_name=overview.get("cluster_name"),
-        )
-
-    conns = _rmq_get(host, user, password, "connections")
-    if isinstance(conns, list):
-        for c in conns:
-            _emit(
-                out,
-                "rmq_conn",
-                name=c.get("name"),
-                state=c.get("state"),
-                channels=c.get("channels"),
-                send_oct=c.get("send_oct"),
-                recv_oct=c.get("recv_oct"),
-                send_pend=c.get("send_pend"),
-                send_cnt=c.get("send_cnt"),
-                recv_cnt=c.get("recv_cnt"),
-                # send_oct_details.rate is the publish byte rate
-                send_oct_rate=(c.get("send_oct_details") or {}).get("rate"),
-                recv_oct_rate=(c.get("recv_oct_details") or {}).get("rate"),
-            )
-
-    queues = _rmq_get(host, user, password, "queues")
-    if isinstance(queues, list):
-        for q in queues:
-            _emit(
-                out,
-                "rmq_queue",
-                name=q.get("name"),
-                state=q.get("state"),
-                messages=q.get("messages"),
-                messages_ready=q.get("messages_ready"),
-                messages_unack=q.get("messages_unacknowledged"),
-                memory=q.get("memory"),
-                consumers=q.get("consumers"),
-            )
-
-
-def _sample_amqp_socket(out, amqp_port: int) -> None:
-    """ss snapshot of all TCP sockets to/from the broker port."""
-    try:
-        # -t TCP, -n numeric, -i info, -p process. Filter via state filter.
-        r = subprocess.run(
-            [
-                "ss",
-                "-tnpi",
-                f"( sport = :{amqp_port} or dport = :{amqp_port} )",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=2.0,
-        )
-        if r.returncode != 0:
-            _emit(out, "error", source="amqp_sock", err=r.stderr.strip())
-            return
-        lines = r.stdout.strip().splitlines()
-        if len(lines) <= 1:
-            return
-        # Header is line 0; data is line 1+ (and ss prints continuation lines
-        # for the info section). Don't try to parse the info section here —
-        # just stash the raw block per AMQP-direction socket.
-        body = "\n".join(lines[1:])
-        _emit(out, "amqp_sock", raw=body)
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
-        _emit(out, "error", source="amqp_sock", err=str(e))
-
-
 def _sample_thread_stacks(out, pid: int) -> None:
     """Per-thread kernel stack + wchan. Tells us conclusively whether the
     libuv loop is parked in epoll_wait (idle), futex_wait (lock contention),
@@ -262,12 +159,12 @@ def _sample_thread_stacks(out, pid: int) -> None:
         _emit(out, "thread", **fields)
 
 
-def _sample_daemon_sockets(out, pid: int) -> None:
+def _sample_daemon_sockets(out, pid: int, mesh_port: int) -> None:
     """All TCP sockets owned by the daemon, bucketed per daemon-side port.
     Captures Send-Q/Recv-Q distribution so we can see:
       - Are client TCP writes backed up (Send-Q on 6667 sockets)?
       - Is the AI socket unread (Recv-Q on 7100 sockets)?
-      - Is the broker connection clear (5672 outbound)?
+      - Are peer links backed up (Send-Q on mesh port sockets)?
     """
     try:
         r = subprocess.run(
@@ -303,15 +200,15 @@ def _sample_daemon_sockets(out, pid: int) -> None:
 
         lport, pport = _port(local), _port(peer)
         # Categorise by daemon-side role. Accepted listeners: local port is
-        # the daemon's listen port. Outbound: peer port is the broker.
+        # the daemon's listen port. Mesh links can be either direction.
         if lport == "6667":
             bucket = "ca_accept"  # daemon writing OBJECT_LEAVING etc. to client
         elif lport == "7100":
             bucket = "md_accept"  # AI socket lives here
-        elif pport == "5672":
-            bucket = "amqp_out"
-        elif lport == "5672":
-            bucket = "amqp_in"  # shouldn't happen but be defensive
+        elif lport == str(mesh_port):
+            bucket = "mesh_accept"
+        elif pport == str(mesh_port):
+            bucket = "mesh_out"
         else:
             bucket = "other"
         buckets.setdefault(bucket, []).append((rq, sq))
@@ -402,10 +299,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--pid", type=int, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--interval", type=float, default=0.5)
-    ap.add_argument("--rabbit-host", default="127.0.0.1")
-    ap.add_argument("--rabbit-user", default="guest")
-    ap.add_argument("--rabbit-pass", default="guest")
-    ap.add_argument("--amqp-port", type=int, default=5672)
+    ap.add_argument("--mesh-port", type=int, default=7300)
     args = ap.parse_args(argv)
 
     signal.signal(signal.SIGTERM, _stop)
@@ -420,8 +314,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             "start",
             pid=args.pid,
             interval=args.interval,
-            rabbit_host=args.rabbit_host,
-            amqp_port=args.amqp_port,
         )
         # Heavier samplers (thread stacks, full ss) tick on every Nth interval
         # to keep monitor overhead under ~1% CPU.
@@ -430,12 +322,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         while _running:
             t0 = time.monotonic()
             _sample_proc(out, args.pid)
-            _sample_rmq(out, args.rabbit_host, args.rabbit_user, args.rabbit_pass)
-            _sample_amqp_socket(out, args.amqp_port)
             _sample_sys(out)
             if tick % heavy_every == 0:
                 _sample_thread_stacks(out, args.pid)
-                _sample_daemon_sockets(out, args.pid)
+                _sample_daemon_sockets(out, args.pid, args.mesh_port)
             tick += 1
             # Sleep the remainder of the interval. Pin to wall-clock cadence
             # rather than fixed sleep so a slow sample doesn't bias the

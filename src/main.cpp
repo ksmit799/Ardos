@@ -8,6 +8,7 @@
 
 using namespace Ardos;
 
+// NOLINTNEXTLINE(bugprone-exception-escape): a startup throw ends the process
 int main(int argc, char* argv[]) {
   // Parse CLI args.
   // We only have one for now, which is our config file name.
@@ -55,10 +56,9 @@ int main(int argc, char* argv[]) {
   // Metrics can be configured via the config file.
   Metrics::Instance();
 
-  // Initialize the Message Director.
-  // This will automatically start up configured roles once a connection to
-  // RabbitMQ is made.
-  MessageDirector::Instance();
+  // Initialize the Message Director, then start configured roles.
+  // Roles reach back into the MD singleton, so they start after it exists.
+  MessageDirector::Instance()->StartRoles();
 
   g_loop->run();
 

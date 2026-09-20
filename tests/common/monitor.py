@@ -31,18 +31,10 @@ class BenchMonitor:
         out_dir: Path,
         *,
         enabled: bool = True,
-        rabbit_host: str = "127.0.0.1",
-        rabbit_user: str = "guest",
-        rabbit_pass: str = "guest",
-        amqp_port: int = 5672,
         interval: float = 0.5,
     ) -> None:
         self.out_dir = Path(out_dir)
         self.enabled = enabled
-        self.rabbit_host = rabbit_host
-        self.rabbit_user = rabbit_user
-        self.rabbit_pass = rabbit_pass
-        self.amqp_port = amqp_port
         self.interval = interval
         self._proc: Optional[subprocess.Popen] = None
         self._marks: Optional[Any] = None
@@ -72,14 +64,6 @@ class BenchMonitor:
                 str(self.data_path),
                 "--interval",
                 str(self.interval),
-                "--rabbit-host",
-                self.rabbit_host,
-                "--rabbit-user",
-                self.rabbit_user,
-                "--rabbit-pass",
-                self.rabbit_pass,
-                "--amqp-port",
-                str(self.amqp_port),
             ],
             env=env,
             # Inherit stderr so any sampler crash is visible in CI logs.

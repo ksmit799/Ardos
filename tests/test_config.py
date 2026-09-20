@@ -39,10 +39,6 @@ def test_rejects_missing_dc_files(tmp_path: Path, external_services):
         "message-director:\n"
         "  host: 127.0.0.1\n"
         "  port: 7199\n"
-        f"  rabbitmq-host: {cfg.RABBITMQ_HOST}\n"
-        f"  rabbitmq-port: {cfg.RABBITMQ_PORT}\n"
-        f"  rabbitmq-user: {cfg.RABBITMQ_USER}\n"
-        f"  rabbitmq-password: {cfg.RABBITMQ_PASS}\n"
     )
     rc = subprocess.run(
         [str(locate_binary()), "--config", str(bad_cfg)],

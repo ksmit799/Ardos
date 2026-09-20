@@ -17,7 +17,6 @@ find_package(libuv CONFIG REQUIRED)
 find_package(uvw CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
-find_package(amqpcpp CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(prometheus-cpp CONFIG REQUIRED)
 
@@ -72,7 +71,6 @@ target_link_libraries(ardos PRIVATE
     uvw::uvw
     nlohmann_json::nlohmann_json
     yaml-cpp::yaml-cpp
-    amqpcpp
     spdlog::spdlog
     prometheus-cpp::pull
 )

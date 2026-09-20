@@ -35,24 +35,28 @@ void MDParticipant::Shutdown() {
   // Kill the network connection.
   NetworkClient::Shutdown();
 
-  spdlog::get("md")->debug("Routing {} post-remove(s) for '{}'",
-                           _postRemoves.size(), _connName);
+  spdlog::get("md")->debug("Routing post-remove(s) for '{}'", _connName);
 
   // Route any post remove datagrams we might have stored. Publish
-  // before ChannelSubscriber::Shutdown queues us for deletion.
-  for (const auto& dg : _postRemoves) {
-    try {
-      PublishDatagram(dg);
-    } catch (const DatagramIteratorEOF& e) {
-      spdlog::get("md")->warn(
-          "Participant '{}' had a truncated post-remove; dropping: {}",
-          _connName, e.what());
-    } catch (const DatagramOverflow& e) {
-      spdlog::get("md")->warn(
-          "Participant '{}' had an oversized post-remove; dropping: {}",
-          _connName, e.what());
+  // before ChannelSubscriber::Shutdown queues us for deletion. We fired
+  // them ourselves, so the copies peers hold get cleared.
+  for (const auto& [sender, dgs] : _postRemoves) {
+    for (const auto& dg : dgs) {
+      try {
+        PublishDatagram(dg);
+      } catch (const DatagramIteratorEOF& e) {
+        spdlog::get("md")->warn(
+            "Participant '{}' had a truncated post-remove; dropping: {}",
+            _connName, e.what());
+      } catch (const DatagramOverflow& e) {
+        spdlog::get("md")->warn(
+            "Participant '{}' had an oversized post-remove; dropping: {}",
+            _connName, e.what());
+      }
     }
+    MessageDirector::Instance()->ClearPostRemoves(sender);
   }
+  _postRemoves.clear();
 
   // Unsubscribe from all channels and queue ourselves for deletion.
   ChannelSubscriber::Shutdown();
@@ -65,7 +69,7 @@ void MDParticipant::Shutdown() {
 void MDParticipant::HandleDisconnect(uv_errno_t code) {
   auto address = GetRemoteAddress();
 
-  auto errorEvent = uvw::error_event{(int)code};
+  auto errorEvent = uvw::error_event{static_cast<int>(code)};
   spdlog::get("md")->info("Lost connection from '{}' ({}:{}): {}", _connName,
                           address.ip, address.port, errorEvent.what());
 
@@ -98,14 +102,20 @@ void MDParticipant::HandleClientDatagram(const std::shared_ptr<Datagram>& dg) {
           UnsubscribeRange(min, max);
           break;
         }
-        case CONTROL_ADD_POST_REMOVE:
-          dgi.GetUint64();  // Sender channel.
-          _postRemoves.emplace_back(dgi.GetDatagram());
+        case CONTROL_ADD_POST_REMOVE: {
+          uint64_t sender = dgi.GetUint64();
+          auto postRemove = dgi.GetDatagram();
+          _postRemoves[sender].push_back(postRemove);
+          // Replicate to peers so a survivor can fire this if we crash.
+          MessageDirector::Instance()->AddPostRemove(sender, postRemove);
           break;
-        case CONTROL_CLEAR_POST_REMOVES:  // NOLINT(bugprone-branch-clone):
-                                          // Weird clang bug.
-          _postRemoves.clear();
+        }
+        case CONTROL_CLEAR_POST_REMOVES: {
+          uint64_t sender = dgi.GetUint64();
+          _postRemoves.erase(sender);
+          MessageDirector::Instance()->ClearPostRemoves(sender);
           break;
+        }
         case CONTROL_SET_CON_NAME:
           _connName = dgi.GetString();
           break;

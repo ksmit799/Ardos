@@ -4,65 +4,41 @@
 
 #include <algorithm>
 
-#include "../net/datagram_iterator.h"
 #include "message_director.h"
 
 namespace Ardos {
 
-// We use this to keep track of which channels we have opened with RabbitMQ.
-// Once a channel reaches a subscriber count of 0, we let RabbitMQ know that
-// we no longer wish to be routed messages about it.
-std::unordered_map<uint64_t, unsigned int> ChannelSubscriber::_globalChannels =
-    std::unordered_map<uint64_t, unsigned int>();
-std::unordered_map<uint64_t, unsigned int> ChannelSubscriber::_globalBuckets =
-    std::unordered_map<uint64_t, unsigned int>();
+std::unordered_map<uint64_t, unsigned int> ChannelSubscriber::_globalChannels;
+std::map<ChannelRange, unsigned int> ChannelSubscriber::_globalRanges;
 std::unordered_map<uint64_t,
                    std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
     ChannelSubscriber::_channelIndex;
-std::unordered_map<uint64_t,
-                   std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
-    ChannelSubscriber::_bucketIndex;
+std::vector<ChannelSubscriber::LocalRange> ChannelSubscriber::_rangeIndex;
 
-std::string ChannelSubscriber::BuildChannelRoutingKey(uint64_t channel) {
-  return "chan." + std::to_string(channel >> kChannelBucketShift) + "." +
-         std::to_string(channel);
-}
-
-std::string ChannelSubscriber::BuildBucketRoutingPattern(uint64_t bucket) {
-  return "chan." + std::to_string(bucket) + ".*";
-}
-
-uint64_t ChannelSubscriber::ChannelFromRoutingKey(
-    const std::string& routingKey) {
-  auto lastDot = routingKey.rfind('.');
-  if (lastDot == std::string::npos) {
-    return std::stoull(routingKey);
-  }
-  return std::stoull(routingKey.substr(lastDot + 1));
-}
-
-ChannelSubscriber::ChannelSubscriber() {
-  // MD registration happens in Init() -- shared_from_this() not valid here.
-  _globalChannel = MessageDirector::Instance()->GetGlobalChannel();
-  _localQueue = MessageDirector::Instance()->GetLocalQueue();
-}
+ChannelSubscriber::ChannelSubscriber() = default;
 
 void ChannelSubscriber::Init() {
   auto self = shared_from_this();
   MessageDirector::Instance()->AddSubscriber(self);
 
-  // Backfill the routing-key index with any subscriptions that landed
-  // during construction (subclass ctors may call SubscribeChannel/
-  // SubscribeRange before shared_from_this is valid, in which case the
-  // SubscribeChannel call skipped its index update).
+  // Backfill the dispatch indexes with any subscriptions that landed
+  // during construction, subclass ctors may subscribe before
+  // shared_from_this is valid, those calls skipped their index update.
   for (uint64_t channel : _localChannels) {
     _channelIndex[channel].insert(self);
   }
-  for (const auto& [lo, hi] : _localRanges) {
-    uint64_t minBucket = lo >> kChannelBucketShift;
-    uint64_t maxBucket = hi >> kChannelBucketShift;
-    for (uint64_t bucket = minBucket; bucket <= maxBucket; ++bucket) {
-      _bucketIndex[bucket].insert(self);
+  for (const auto& range : _localRanges) {
+    bool indexed = false;
+    for (const auto& entry : _rangeIndex) {
+      if (entry.sub.get() == this && entry.lo == range.first &&
+          entry.hi == range.second) {
+        indexed = true;
+        break;
+      }
+    }
+    if (!indexed) {
+      _rangeIndex.push_back(
+          {.lo = range.first, .hi = range.second, .sub = self});
     }
   }
 }
@@ -95,29 +71,17 @@ void ChannelSubscriber::SubscribeChannel(const uint64_t& channel) {
     return;
   }
 
-  // Update the dispatch index so DeliverLocally / onReceived can find us
-  // by channel without walking _subscribers. weak_from_this().lock()
-  // returns null when called from a ctor (no shared_ptr exists yet);
-  // Init() will backfill in that case.
+  // Update the dispatch index. weak_from_this().lock() returns null when
+  // called from a ctor (no shared_ptr exists yet); Init() will backfill.
   if (auto self = weak_from_this().lock()) {
     _channelIndex[channel].insert(self);
   }
 
-  // If the channel is already bound at the broker (another subscriber in
-  // this process is listening), just bump the refcount.
-  if (_globalChannels.contains(channel)) {
-    _globalChannels[channel]++;
-    return;
+  // First local subscriber on this channel, tell the mesh.
+  if (++_globalChannels[channel] == 1) {
+    MessageDirector::Instance()->BroadcastAddChannel(channel);
+    spdlog::get("md")->trace("Subscribe channel {} (advertising)", channel);
   }
-
-  // Otherwise, open the channel with RabbitMQ.
-  _globalChannel->bindQueue(kGlobalExchange, _localQueue,
-                            BuildChannelRoutingKey(channel));
-
-  // ... and register it as a newly opened global channel.
-  _globalChannels[channel] = 1;
-
-  spdlog::get("md")->trace("Subscribe channel {} (binding new)", channel);
 }
 
 void ChannelSubscriber::UnsubscribeChannel(const uint64_t& channel) {
@@ -143,15 +107,10 @@ void ChannelSubscriber::UnsubscribeChannel(const uint64_t& channel) {
     }
   }
 
-  // We can safely assume the channel exists in a global context.
-  _globalChannels[channel]--;
-
-  // If we have 0 current listeners for this channel, let RabbitMQ know we no
-  // longer care about it.
-  if (!_globalChannels[channel]) {
+  // Last local subscriber gone, withdraw it from the mesh.
+  if (--_globalChannels[channel] == 0) {
     _globalChannels.erase(channel);
-    _globalChannel->unbindQueue(kGlobalExchange, _localQueue,
-                                BuildChannelRoutingKey(channel));
+    MessageDirector::Instance()->BroadcastRemoveChannel(channel);
   }
 }
 
@@ -165,30 +124,19 @@ void ChannelSubscriber::SubscribeRange(const uint64_t& min,
 
   _localRanges.push_back(range);
 
-  uint64_t minBucket = min >> kChannelBucketShift;
-  uint64_t maxBucket = max >> kChannelBucketShift;
-
-  // Index ourselves on every bucket the range overlaps. Same shared_ptr
-  // pattern as SubscribeChannel -- Init() backfills when the call lands
-  // before shared_from_this is valid.
+  // Same shared_ptr pattern as SubscribeChannel, Init() backfills when
+  // the call lands before shared_from_this is valid.
   if (auto self = weak_from_this().lock()) {
-    for (uint64_t bucket = minBucket; bucket <= maxBucket; ++bucket) {
-      _bucketIndex[bucket].insert(self);
-    }
+    _rangeIndex.push_back({.lo = min, .hi = max, .sub = self});
   }
 
-  // Bind every bucket that overlaps this range. Over-delivery at the edges
-  // (channels inside the end buckets but outside [min, max]) is dropped by
-  // the client-side WithinLocalRange filter.
-  for (uint64_t bucket = minBucket; bucket <= maxBucket; ++bucket) {
-    if (_globalBuckets[bucket]++ == 0) {
-      _globalChannel->bindQueue(kGlobalExchange, _localQueue,
-                                BuildBucketRoutingPattern(bucket));
-    }
+  // First local subscriber on this exact range, tell the mesh.
+  // Overlapping ranges advertise separately, peers dedupe on delivery.
+  if (++_globalRanges[range] == 1) {
+    MessageDirector::Instance()->BroadcastAddRange(min, max);
+    spdlog::get("md")->trace("Subscribe range [{}, {}] (advertising)", min,
+                             max);
   }
-
-  spdlog::get("md")->trace("Subscribe range [{}, {}] (buckets {}..{})", min,
-                           max, minBucket, maxBucket);
 }
 
 void ChannelSubscriber::UnsubscribeRange(const uint64_t& min,
@@ -202,76 +150,23 @@ void ChannelSubscriber::UnsubscribeRange(const uint64_t& min,
 
   _localRanges.erase(position);
 
-  uint64_t minBucket = min >> kChannelBucketShift;
-  uint64_t maxBucket = max >> kChannelBucketShift;
-
-  // Drop ourselves from the bucket index for every bucket this range
-  // touched. Scan-by-pointer because Shutdown may run from the destructor
-  // (weak_from_this expired); the entry is keyed by shared_ptr identity
-  // so we have to find ourselves the hard way. Only the matching buckets
-  // are scanned -- typically a small constant.
-  for (uint64_t bucket = minBucket; bucket <= maxBucket; ++bucket) {
-    auto idxIt = _bucketIndex.find(bucket);
-    if (idxIt == _bucketIndex.end()) {
-      continue;
-    }
-    auto& set = idxIt->second;
-    for (auto it = set.begin(); it != set.end(); ++it) {
-      if (it->get() == this) {
-        set.erase(it);
-        break;
-      }
-    }
-    if (set.empty()) {
-      _bucketIndex.erase(idxIt);
-    }
+  // Scan-by-pointer for the same destructor reason as UnsubscribeChannel.
+  auto idxIt = std::ranges::find_if(_rangeIndex, [&](const auto& entry) {
+    return entry.sub.get() == this && entry.lo == min && entry.hi == max;
+  });
+  if (idxIt != _rangeIndex.end()) {
+    _rangeIndex.erase(idxIt);
   }
 
-  // Release each bucket this range was holding. We only unbind from RabbitMQ
-  // once the per-bucket ref count drops to zero, so overlapping ranges from
-  // other subscribers keep their bindings alive.
-  for (uint64_t bucket = minBucket; bucket <= maxBucket; ++bucket) {
-    if (--_globalBuckets[bucket] == 0) {
-      _globalBuckets.erase(bucket);
-      _globalChannel->unbindQueue(kGlobalExchange, _localQueue,
-                                  BuildBucketRoutingPattern(bucket));
-    }
+  // Last local subscriber gone, withdraw it from the mesh.
+  if (--_globalRanges[range] == 0) {
+    _globalRanges.erase(range);
+    MessageDirector::Instance()->BroadcastRemoveRange(min, max);
   }
 }
 
 void ChannelSubscriber::PublishDatagram(const std::shared_ptr<Datagram>& dg) {
-  DatagramIterator dgi(dg);
-
-  // Tag every publish with our local queue name. The broker fans the message
-  // out to every bound queue including our own; the consume callback drops
-  // copies carrying this appID since we already delivered them in-process.
-  std::string localQueue = MessageDirector::Instance()->GetLocalQueue();
-
-  uint8_t channels = dgi.GetUint8();
-  for (uint8_t i = 0; i < channels; ++i) {
-    uint64_t channel = dgi.GetUint64();
-    std::string routingKey = BuildChannelRoutingKey(channel);
-
-    spdlog::get("md")->trace("Publish chan={} bucket={} size={}B", channel,
-                             channel >> kChannelBucketShift, dg->Size());
-
-    // Deliver to in-process subscribers. Avoids the subscribe-then-publish
-    // race (async bindQueue not yet live) and skips the broker round-trip
-    // for traffic that never needed to leave this MD. DeliverLocally no-ops
-    // when nothing in this MD could match.
-    MessageDirector::Instance()->DeliverLocally(routingKey, dg);
-
-    AMQP::Envelope envelope(reinterpret_cast<const char*>(dg->GetData()),
-                            (size_t)dg->Size());
-    envelope.setAppID(localQueue);
-    _globalChannel->publish(kGlobalExchange, routingKey, envelope);
-  }
-}
-
-bool ChannelSubscriber::WithinLocalRange(uint64_t channel) {
-  return std::ranges::any_of(_localRanges, [channel](auto i) {
-    return channel >= i.first && channel <= i.second;
-  });
+  MessageDirector::Instance()->RouteDatagram(dg);
 }
 
 }  // namespace Ardos

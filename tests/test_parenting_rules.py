@@ -143,9 +143,8 @@ def _setup_peer_and_avatar(
         dclass_id=parent_cls,
         required=_required_setname_and_rule("Room", rule_type, rule_str),
     )
-    # The SS binds each DO's DoId queue asynchronously through RabbitMQ;
-    # wait on a real signal (GET_LOCATION_RESP round-trip) before issuing
-    # follow-up messages so they don't race the bind.
+    # Wait on a real signal (GET_LOCATION_RESP round-trip) before issuing
+    # follow-up messages so they don't race the DO spawning.
     ai.wait_object_alive(PARENT_DOID)
 
     # Peer object for the client to discover.

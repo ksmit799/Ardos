@@ -15,6 +15,7 @@ class NetworkClient {
 
   [[nodiscard]] uvw::socket_address GetRemoteAddress() const;
   [[nodiscard]] uvw::socket_address GetLocalAddress() const;
+  [[nodiscard]] size_t GetQueuedBytes() const { return _queuedBytes; }
 
  protected:
   ~NetworkClient();
