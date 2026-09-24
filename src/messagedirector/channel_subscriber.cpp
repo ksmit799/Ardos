@@ -10,12 +10,28 @@ namespace Ardos {
 
 std::unordered_map<uint64_t, unsigned int> ChannelSubscriber::_globalChannels;
 std::map<ChannelRange, unsigned int> ChannelSubscriber::_globalRanges;
+std::unordered_set<uint64_t> ChannelSubscriber::_sharedChannels;
+std::unordered_map<uint64_t, std::vector<std::shared_ptr<ChannelSubscriber>>>
+    ChannelSubscriber::_sharedLocal;
 std::unordered_map<uint64_t,
                    std::unordered_set<std::shared_ptr<ChannelSubscriber>>>
     ChannelSubscriber::_channelIndex;
 std::vector<ChannelSubscriber::LocalRange> ChannelSubscriber::_rangeIndex;
 
 ChannelSubscriber::ChannelSubscriber() = default;
+
+void ChannelSubscriber::SetSharedChannels(
+    std::unordered_set<uint64_t> channels) {
+  _sharedChannels = std::move(channels);
+}
+
+std::map<uint64_t, uint16_t> ChannelSubscriber::GetAdvertisedShared() {
+  std::map<uint64_t, uint16_t> out;
+  for (const auto& [channel, members] : _sharedLocal) {
+    out[channel] = static_cast<uint16_t>(members.size());
+  }
+  return out;
+}
 
 void ChannelSubscriber::Init() {
   auto self = shared_from_this();
@@ -25,6 +41,22 @@ void ChannelSubscriber::Init() {
   // during construction, subclass ctors may subscribe before
   // shared_from_this is valid, those calls skipped their index update.
   for (uint64_t channel : _localChannels) {
+    if (IsSharedChannel(channel)) {
+      auto& members = _sharedLocal[channel];
+      bool present = false;
+      for (const auto& member : members) {
+        if (member.get() == this) {
+          present = true;
+          break;
+        }
+      }
+      if (!present) {
+        members.push_back(self);
+        MessageDirector::Instance()->BroadcastSharedChannel(
+            channel, static_cast<uint16_t>(members.size()));
+      }
+      continue;
+    }
     _channelIndex[channel].insert(self);
   }
   for (const auto& range : _localRanges) {
@@ -71,6 +103,19 @@ void ChannelSubscriber::SubscribeChannel(const uint64_t& channel) {
     return;
   }
 
+  // A load balanced channel joins the shared group instead of the
+  // broadcast set, the router delivers to exactly one member. A null
+  // lock means we're in a ctor, Init() backfills and broadcasts then.
+  if (IsSharedChannel(channel)) {
+    if (auto self = weak_from_this().lock()) {
+      auto& members = _sharedLocal[channel];
+      members.push_back(self);
+      MessageDirector::Instance()->BroadcastSharedChannel(
+          channel, static_cast<uint16_t>(members.size()));
+    }
+    return;
+  }
+
   // Update the dispatch index. weak_from_this().lock() returns null when
   // called from a ctor (no shared_ptr exists yet); Init() will backfill.
   if (auto self = weak_from_this().lock()) {
@@ -87,6 +132,28 @@ void ChannelSubscriber::SubscribeChannel(const uint64_t& channel) {
 void ChannelSubscriber::UnsubscribeChannel(const uint64_t& channel) {
   // Make sure we've subscribed to this channel.
   if (!_localChannels.erase(channel)) {
+    return;
+  }
+
+  // Leave the shared group, peers learn the new member count.
+  if (IsSharedChannel(channel)) {
+    if (auto it = _sharedLocal.find(channel); it != _sharedLocal.end()) {
+      auto& members = it->second;
+      for (auto mi = members.begin(); mi != members.end(); ++mi) {
+        if (mi->get() == this) {
+          members.erase(mi);
+          break;
+        }
+      }
+      if (members.empty()) {
+        _sharedLocal.erase(it);
+      }
+    }
+    auto remaining = _sharedLocal.find(channel);
+    MessageDirector::Instance()->BroadcastSharedChannel(
+        channel, remaining == _sharedLocal.end()
+                     ? 0
+                     : static_cast<uint16_t>(remaining->second.size()));
     return;
   }
 

@@ -358,13 +358,20 @@ void MeshNode::SendPeerState(MeshLink* link) {
       ++it;
     }
 
-    // Ranges are few and ride the first chunk.
+    // Ranges and shared groups are few and ride the first chunk.
     dg->AddUint32(first ? static_cast<uint32_t>(ranges.size()) : 0);
     if (first) {
       for (const auto& [range, count2] : ranges) {
         dg->AddUint64(range.first);
         dg->AddUint64(range.second);
       }
+    }
+    auto shared = first ? ChannelSubscriber::GetAdvertisedShared()
+                        : std::map<uint64_t, uint16_t>{};
+    dg->AddUint32(static_cast<uint32_t>(shared.size()));
+    for (const auto& [channel, members] : shared) {
+      dg->AddUint64(channel);
+      dg->AddUint16(members);
     }
 
     link->Send(dg);
@@ -475,6 +482,18 @@ void MeshNode::RemoveLinkEntries(MeshLink* link) {
   std::erase_if(_peerRanges,
                 [link](const RangeEntry& e) { return e.link == link; });
   link->_ranges.clear();
+
+  for (const auto& [channel, count] : link->_shared) {
+    auto it = _peerShared.find(channel);
+    if (it != _peerShared.end()) {
+      it->second.erase(link);
+      if (it->second.empty()) {
+        _peerShared.erase(it);
+      }
+    }
+    MessageDirector::Instance()->UpdateSharedMembers(channel);
+  }
+  link->_shared.clear();
 }
 
 void MeshNode::CheckIsolation() {
@@ -489,6 +508,16 @@ void MeshNode::CheckIsolation() {
 }
 
 void MeshNode::PeerAddChannel(MeshLink* link, uint64_t channel) {
+  // A normal subscription to a channel we declare load balanced means
+  // the peers uberdogs config is out of sync with ours. Shared wins.
+  if (ChannelSubscriber::IsSharedChannel(channel)) {
+    spdlog::get("md")->error(
+        "Peer {} subscribes load balanced channel {} as normal, check "
+        "that the uberdogs config is in sync, treating it as shared",
+        link->NodeId(), channel);
+    PeerSetSharedChannel(link, channel, 1);
+    return;
+  }
   if (link->_channels.insert(channel).second) {
     _peerChannels[channel].insert(link);
   }
@@ -523,6 +552,58 @@ void MeshNode::PeerRemoveRange(MeshLink* link, uint64_t lo, uint64_t hi) {
   if (it != _peerRanges.end()) {
     _peerRanges.erase(it);
   }
+}
+
+void MeshNode::PeerSetSharedChannel(MeshLink* link, uint64_t channel,
+                                    uint16_t count) {
+  if (!ChannelSubscriber::IsSharedChannel(channel)) {
+    // The peer declares this channel load balanced, we don't. Shared
+    // wins, file it so the router can still reach their members.
+    spdlog::get("md")->error(
+        "Peer {} advertises shared channel {} we don't declare load "
+        "balanced, check that the uberdogs config is in sync",
+        link->NodeId(), channel);
+  }
+
+  if (count == 0) {
+    link->_shared.erase(channel);
+    auto it = _peerShared.find(channel);
+    if (it != _peerShared.end()) {
+      it->second.erase(link);
+      if (it->second.empty()) {
+        _peerShared.erase(it);
+      }
+    }
+  } else {
+    link->_shared[channel] = count;
+    _peerShared[channel][link] = count;
+  }
+
+  MessageDirector::Instance()->UpdateSharedMembers(channel);
+}
+
+void MeshNode::CollectSharedPeers(uint64_t channel,
+                                  std::vector<SharedPeer>& out) {
+  auto it = _peerShared.find(channel);
+  if (it == _peerShared.end()) {
+    return;
+  }
+  out.reserve(it->second.size());
+  for (const auto& [link, count] : it->second) {
+    out.push_back({.nodeId = link->NodeId(), .count = count, .link = link});
+  }
+}
+
+uint32_t MeshNode::SumSharedPeers(uint64_t channel) const {
+  auto it = _peerShared.find(channel);
+  if (it == _peerShared.end()) {
+    return 0;
+  }
+  uint32_t sum = 0;
+  for (const auto& [link, count] : it->second) {
+    sum += count;
+  }
+  return sum;
 }
 
 void MeshNode::PeerSnapshot(MeshLink* link, bool reset,
@@ -623,6 +704,15 @@ void MeshNode::BroadcastRemoveRange(uint64_t lo, uint64_t hi) {
   auto dg = MakeControl(MESH_REMOVE_RANGE);
   dg->AddUint64(lo);
   dg->AddUint64(hi);
+  for (const auto& [nodeId, link] : _peers) {
+    link->Send(dg);
+  }
+}
+
+void MeshNode::BroadcastSharedChannel(uint64_t channel, uint16_t count) {
+  auto dg = MakeControl(MESH_SET_SHARED_CHANNEL);
+  dg->AddUint64(channel);
+  dg->AddUint16(count);
   for (const auto& [nodeId, link] : _peers) {
     link->Send(dg);
   }

@@ -142,7 +142,23 @@ void MeshLink::HandleControl(const std::shared_ptr<Datagram>& dg) {
         uint64_t hi = dgi.GetUint64();
         ranges.emplace_back(lo, hi);
       }
+      std::vector<std::pair<uint64_t, uint16_t>> shared;
+      uint32_t sharedCount = dgi.GetUint32();
+      for (uint32_t i = 0; i < sharedCount; ++i) {
+        uint64_t channel = dgi.GetUint64();
+        uint16_t members = dgi.GetUint16();
+        shared.emplace_back(channel, members);
+      }
       _mesh->PeerSnapshot(this, reset, channels, ranges);
+      for (const auto& [channel, members] : shared) {
+        _mesh->PeerSetSharedChannel(this, channel, members);
+      }
+      break;
+    }
+    case MESH_SET_SHARED_CHANNEL: {
+      uint64_t channel = dgi.GetUint64();
+      uint16_t members = dgi.GetUint16();
+      _mesh->PeerSetSharedChannel(this, channel, members);
       break;
     }
     case MESH_ADD_POST_REMOVE: {

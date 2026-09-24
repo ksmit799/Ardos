@@ -6,9 +6,13 @@
 #include <prometheus/histogram.h>
 #include <ws28/Client.h>
 
+#include <map>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <string>
+#include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <uvw.hpp>
 
 namespace Ardos {
@@ -16,6 +20,7 @@ namespace Ardos {
 class ChannelSubscriber;
 class Datagram;
 class MDParticipant;
+class MeshLink;
 class MeshNode;
 
 class StateServer;
@@ -51,6 +56,10 @@ class MessageDirector {
   void BroadcastRemoveChannel(uint64_t channel);
   void BroadcastAddRange(uint64_t lo, uint64_t hi);
   void BroadcastRemoveRange(uint64_t lo, uint64_t hi);
+  void BroadcastSharedChannel(uint64_t channel, uint16_t count);
+
+  // Refreshes the shared group member count gauge for a channel.
+  void UpdateSharedMembers(uint64_t channel);
 
   // This instances post remove bundle, replicated to peers via the mesh.
   // Entries are keyed by (owner, sender), the owner token scopes them to
@@ -86,6 +95,12 @@ class MessageDirector {
   MessageDirector();
 
   void Route(const std::shared_ptr<Datagram>& dg, bool toPeers);
+  // Rendezvous pick for one shared channel, adds the winning member to
+  // the union sets so it still gets exactly one delivery.
+  void PickSharedMember(
+      uint64_t channel, uint64_t sender, bool toPeers,
+      std::unordered_set<std::shared_ptr<ChannelSubscriber>>& interested,
+      std::unordered_set<MeshLink*>& links);
 
   void InitMetrics();
 
@@ -122,6 +137,15 @@ class MessageDirector {
   prometheus::Counter* _remoteSendsCounter = nullptr;
   prometheus::Gauge* _subscribersGauge = nullptr;
   prometheus::Gauge* _participantsGauge = nullptr;
+
+  // Shared channel metrics, instruments made lazily per label set.
+  prometheus::Family<prometheus::Gauge>* _sharedMembersFamily = nullptr;
+  prometheus::Family<prometheus::Counter>* _sharedPicksFamily = nullptr;
+  prometheus::Family<prometheus::Counter>* _sharedNoMemberFamily = nullptr;
+  std::unordered_map<uint64_t, prometheus::Gauge*> _sharedMembersGauges;
+  std::map<std::pair<uint64_t, std::string>, prometheus::Counter*>
+      _sharedPickCounters;
+  std::unordered_map<uint64_t, prometheus::Counter*> _sharedNoMemberCounters;
 };
 
 }  // namespace Ardos

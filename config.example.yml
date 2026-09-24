@@ -35,6 +35,11 @@ uberdogs:
 
   - id: 4666
     class: ChatManager
+    # Run as many instances of this uberdog as you like, each message is
+    # routed to exactly one, every message from one client lands on the
+    # same instance while the group is stable. Handlers must not keep per
+    # client state in memory.
+    load-balanced: true
 
   - id: 4667
     class: FriendsManager
