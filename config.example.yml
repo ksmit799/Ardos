@@ -147,6 +147,11 @@ client-agent:
   # Time in MS required for clients to authenticate within.
   auth-timeout: 45000 # 45 seconds.
 
+  # Time in MS before a held mutex field lock expires. 0 disables expiry.
+  # Set this below your game clients own retry timeout, a lock orphaned
+  # by a lost call otherwise holds until the client relogs.
+  mutex-timeout: 15000 # 15 seconds.
+
   # Time in MS clients can attempt to send updates to once visible objects
   # without being disconnected for a security violation.
   historical-objects-ttl: 5000 # 5 seconds.

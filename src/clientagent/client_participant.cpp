@@ -1,5 +1,8 @@
 #include "client_participant.h"
 
+#include <chrono>
+#include <format>
+
 #include "../messagedirector/message_director.h"
 #include "../net/message_types.h"
 #include "../util/globals.h"
@@ -217,9 +220,59 @@ void ClientParticipant::Shutdown() {
   }
   MessageDirector::Instance()->ClearPostRemoves(_prOwner, _allocatedChannel);
 
+  // Locks die with the connection.
+  if (!_mutexLocks.empty()) {
+    _clientAgent->AdjustMutexLocks(-static_cast<double>(_mutexLocks.size()));
+    _mutexLocks.clear();
+  }
+
   // Unsubscribe from all channels so DELETE messages aren't sent back to us.
   ChannelSubscriber::Shutdown();
   _clientAgent->FreeChannel(_allocatedChannel);
+}
+
+uint64_t ClientParticipant::SteadyMs() {
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count());
+}
+
+/**
+ * Takes the mutex lock for a field before its call is forwarded. A call
+ * on a held lock ejects the client, expiry is checked first so an honest
+ * retry after a lost call proceeds when a timeout is configured.
+ * @param doId
+ * @param field
+ * @param dcc
+ */
+bool ClientParticipant::TakeMutex(const uint32_t& doId, DCField* field,
+                                  DCClass* dcc) {
+  auto key = std::make_pair(doId, static_cast<uint16_t>(field->get_number()));
+  uint64_t now = SteadyMs();
+
+  auto it = _mutexLocks.find(key);
+  if (it != _mutexLocks.end()) {
+    unsigned long timeout = _clientAgent->GetMutexTimeout();
+    if (timeout && now - it->second >= timeout) {
+      // The holder never released, likely a lost call, expire and relock.
+      _clientAgent->RecordMutexExpiry();
+      it->second = now;
+      return true;
+    }
+
+    _clientAgent->RecordMutexEject();
+    SendDisconnect(CLIENT_DISCONNECT_MUTEX_VIOLATION,
+                   std::format("Client called mutex field: {} of class: {} "
+                               "(DoId: {}) while locked",
+                               field->get_name(), dcc->get_name(), doId),
+                   true);
+    return false;
+  }
+
+  _mutexLocks[key] = now;
+  _clientAgent->AdjustMutexLocks(1);
+  return true;
 }
 
 /**
@@ -351,6 +404,37 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
       MessageDirector::Instance()->ClearPostRemoves(_prOwner,
                                                     _allocatedChannel);
       break;
+    case CLIENTAGENT_MUTEX_ACQUIRE: {
+      uint32_t doId = dgi.GetUint32();
+      uint16_t fieldId = dgi.GetUint16();
+      DCField* field = g_dc_file->get_field_by_index(fieldId);
+      if (!field || !field->has_keyword("mutex")) {
+        // Locks are only ever consulted for mutex fields, acquiring
+        // anything else is a mistake worth hearing about.
+        spdlog::get("ca")->warn(
+            "Client: {} received mutex acquire for non-mutex field: {}",
+            _channel, fieldId);
+        break;
+      }
+      if (_mutexLocks.emplace(std::make_pair(doId, fieldId), SteadyMs())
+              .second) {
+        _clientAgent->AdjustMutexLocks(1);
+      }
+      break;
+    }
+    case CLIENTAGENT_MUTEX_RELEASE: {
+      uint32_t doId = dgi.GetUint32();
+      uint16_t fieldId = dgi.GetUint16();
+      auto it = _mutexLocks.find({doId, fieldId});
+      if (it == _mutexLocks.end()) {
+        break;
+      }
+      _clientAgent->RecordMutexHoldTime(
+          doId, static_cast<double>(SteadyMs() - it->second));
+      _mutexLocks.erase(it);
+      _clientAgent->AdjustMutexLocks(-1);
+      break;
+    }
     case CLIENTAGENT_DECLARE_OBJECT: {
       uint32_t doId = dgi.GetUint32();
       uint16_t dcId = dgi.GetUint16();

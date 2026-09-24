@@ -140,6 +140,11 @@ class ClientParticipant final : public ITransportHandler,
 
   DCClass* LookupObject(const uint32_t& doId);
 
+  // Takes the mutex lock for a field, ejecting on a double call. Returns
+  // false when the call must not be forwarded.
+  bool TakeMutex(const uint32_t& doId, DCField* field, DCClass* dcc);
+  static uint64_t SteadyMs();
+
   void HandleClientObjectUpdateField(DatagramIterator& dgi);
   void HandleClientObjectLocation(DatagramIterator& dgi);
   void HandleClientAddInterest(DatagramIterator& dgi, const bool& multiple);
@@ -294,6 +299,11 @@ class ClientParticipant final : public ITransportHandler,
   // connection.
   uint32_t _prOwner = 0;
   std::vector<std::shared_ptr<Datagram>> _postRemoves;
+
+  // Held mutex locks keyed (doId, fieldId), the value is the lock time.
+  // Expiry is checked lazily on the next call, locks die with the
+  // connection.
+  std::map<std::pair<uint32_t, uint16_t>, uint64_t> _mutexLocks;
 };
 
 }  // namespace Ardos
