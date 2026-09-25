@@ -11,7 +11,6 @@ constexpr uint64_t CONTROL_MESSAGE = 1;
 // Mesh frames start with a zero byte, routed datagrams always start with a
 // non zero channel count, so one peek tells the two apart.
 constexpr uint8_t MESH_CONTROL_HEADER = 0;
-constexpr uint16_t MESH_PROTO_VERSION = 1;
 constexpr uint64_t BCHAN_CLIENTS = 10;
 constexpr uint64_t BCHAN_STATESERVERS = 12;
 constexpr uint64_t BCHAN_DBSERVERS = 13;
