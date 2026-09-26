@@ -54,6 +54,7 @@ class ClientAgent {
   [[nodiscard]] unsigned long GetHeartbeatInterval() const;
   [[nodiscard]] unsigned long GetAuthTimeout() const;
   [[nodiscard]] unsigned long GetHistoricalTTL() const;
+  [[nodiscard]] unsigned long GetMutexTimeout() const;
   [[nodiscard]] std::unordered_map<uint32_t, Uberdog> Uberdogs() const;
   [[nodiscard]] bool GetRelocateAllowed() const;
   [[nodiscard]] InterestsPermission GetInterestsPermission() const;
@@ -70,6 +71,10 @@ class ClientAgent {
   void RecordDatagram(const uint16_t& size);
   void RecordInterestTimeout();
   void RecordInterestTime(const double& seconds);
+  void RecordMutexEject();
+  void RecordMutexExpiry();
+  void RecordMutexHoldTime(const std::string& className, const double& ms);
+  void AdjustMutexLocks(const double& delta);
 
   void HandleWeb(ws28::Client* client, nlohmann::json& data);
 
@@ -92,6 +97,7 @@ class ClientAgent {
   unsigned long _heartbeatInterval;
   unsigned long _authTimeout;
   unsigned long _historicalTTL;
+  unsigned long _mutexTimeout;
   bool _relocateAllowed;
   InterestsPermission _interestsPermission;
   InterestMode _interestMode;
@@ -118,6 +124,14 @@ class ClientAgent {
   prometheus::Gauge* _freeChannelsGauge = nullptr;
   prometheus::Counter* _interestsTimeoutCounter = nullptr;
   prometheus::Histogram* _interestsTimeHistogram = nullptr;
+  prometheus::Counter* _mutexEjectsCounter = nullptr;
+  prometheus::Counter* _mutexExpiriesCounter = nullptr;
+  prometheus::Gauge* _mutexLocksGauge = nullptr;
+  // Lock to release time per class, this is end to end service latency
+  // observed at the CA. Labeled by class name, bounded by the DC file.
+  prometheus::Family<prometheus::Histogram>* _mutexHoldTimeFamily = nullptr;
+  std::unordered_map<std::string, prometheus::Histogram*>
+      _mutexHoldTimeHistograms;
 };
 
 }  // namespace Ardos

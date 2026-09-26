@@ -33,7 +33,6 @@ void MeshLink::SendHello() {
   auto dg = MeshNode::MakeControl(MESH_HELLO);
   dg->AddUint32(_mesh->GetNodeId());
   dg->AddUint64(_mesh->GetEpoch());
-  dg->AddUint16(MESH_PROTO_VERSION);
   dg->AddUint32(_mesh->GetHeartbeatMs());
   dg->AddUint16(static_cast<uint16_t>(_mesh->GetListenPort()));
   SendDatagram(dg);
@@ -142,7 +141,23 @@ void MeshLink::HandleControl(const std::shared_ptr<Datagram>& dg) {
         uint64_t hi = dgi.GetUint64();
         ranges.emplace_back(lo, hi);
       }
+      std::vector<std::pair<uint64_t, uint16_t>> shared;
+      uint32_t sharedCount = dgi.GetUint32();
+      for (uint32_t i = 0; i < sharedCount; ++i) {
+        uint64_t channel = dgi.GetUint64();
+        uint16_t members = dgi.GetUint16();
+        shared.emplace_back(channel, members);
+      }
       _mesh->PeerSnapshot(this, reset, channels, ranges);
+      for (const auto& [channel, members] : shared) {
+        _mesh->PeerSetSharedChannel(this, channel, members);
+      }
+      break;
+    }
+    case MESH_SET_SHARED_CHANNEL: {
+      uint64_t channel = dgi.GetUint64();
+      uint16_t members = dgi.GetUint16();
+      _mesh->PeerSetSharedChannel(this, channel, members);
       break;
     }
     case MESH_ADD_POST_REMOVE: {
@@ -184,18 +199,8 @@ void MeshLink::HandleHello(DatagramIterator& dgi) {
 
   uint32_t nodeId = dgi.GetUint32();
   uint64_t epoch = dgi.GetUint64();
-  uint16_t protoVer = dgi.GetUint16();
   uint32_t heartbeatMs = dgi.GetUint32();
   uint16_t listenPort = dgi.GetUint16();
-
-  if (protoVer != MESH_PROTO_VERSION) {
-    auto address = GetRemoteAddress();
-    spdlog::get("md")->error(
-        "Mesh link {}:{} speaks protocol version {}, we speak {}", address.ip,
-        address.port, protoVer, MESH_PROTO_VERSION);
-    _mesh->OnLinkDown(this);
-    return;
-  }
 
   _nodeId = nodeId;
   _epoch = epoch;
