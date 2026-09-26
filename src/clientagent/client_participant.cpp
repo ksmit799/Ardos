@@ -429,8 +429,12 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
       if (it == _mutexLocks.end()) {
         break;
       }
+      // The object can have left view since the acquire, those observe
+      // under one shared label.
+      DCClass* dcc = LookupObject(doId);
       _clientAgent->RecordMutexHoldTime(
-          doId, static_cast<double>(SteadyMs() - it->second));
+          dcc ? dcc->get_name() : "other",
+          static_cast<double>(SteadyMs() - it->second));
       _mutexLocks.erase(it);
       _clientAgent->AdjustMutexLocks(-1);
       break;

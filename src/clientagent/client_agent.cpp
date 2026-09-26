@@ -458,20 +458,21 @@ void ClientAgent::RecordMutexExpiry() {
 
 /**
  * Records the lock to release time for a mutexed call.
- * @param doId
+ * @param className
  * @param ms
  */
-void ClientAgent::RecordMutexHoldTime(const uint32_t& doId, const double& ms) {
+void ClientAgent::RecordMutexHoldTime(const std::string& className,
+                                      const double& ms) {
   if (!_mutexHoldTimeFamily) {
     return;
   }
-  auto it = _mutexHoldTimeHistograms.find(doId);
+  auto it = _mutexHoldTimeHistograms.find(className);
   if (it == _mutexHoldTimeHistograms.end()) {
     it = _mutexHoldTimeHistograms
-             .emplace(doId, &_mutexHoldTimeFamily->Add(
-                                {{"uberdog", std::to_string(doId)}},
-                                prometheus::Histogram::BucketBoundaries{
-                                    1, 4, 16, 64, 256, 1024, 4096, 16384}))
+             .emplace(className, &_mutexHoldTimeFamily->Add(
+                                     {{"class", className}},
+                                     prometheus::Histogram::BucketBoundaries{
+                                         1, 4, 16, 64, 256, 1024, 4096, 16384}))
              .first;
   }
   it->second->Observe(ms);
@@ -563,7 +564,7 @@ void ClientAgent::InitMetrics() {
   _mutexHoldTimeFamily =
       &prometheus::BuildHistogram()
            .Name("ca_mutex_hold_time_ms")
-           .Help("Lock to release time for mutexed calls per uberdog")
+           .Help("Lock to release time for mutexed calls per class")
            .Register(*registry);
 
   _datagramsProcessedCounter = &datagramsBuilder.Add({});

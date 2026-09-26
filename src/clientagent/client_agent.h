@@ -73,7 +73,7 @@ class ClientAgent {
   void RecordInterestTime(const double& seconds);
   void RecordMutexEject();
   void RecordMutexExpiry();
-  void RecordMutexHoldTime(const uint32_t& doId, const double& ms);
+  void RecordMutexHoldTime(const std::string& className, const double& ms);
   void AdjustMutexLocks(const double& delta);
 
   void HandleWeb(ws28::Client* client, nlohmann::json& data);
@@ -127,10 +127,11 @@ class ClientAgent {
   prometheus::Counter* _mutexEjectsCounter = nullptr;
   prometheus::Counter* _mutexExpiriesCounter = nullptr;
   prometheus::Gauge* _mutexLocksGauge = nullptr;
-  // Lock to release time per uberdog, this is end to end service latency
-  // observed at the CA. Labeled by DoId, a small static set.
+  // Lock to release time per class, this is end to end service latency
+  // observed at the CA. Labeled by class name, bounded by the DC file.
   prometheus::Family<prometheus::Histogram>* _mutexHoldTimeFamily = nullptr;
-  std::unordered_map<uint32_t, prometheus::Histogram*> _mutexHoldTimeHistograms;
+  std::unordered_map<std::string, prometheus::Histogram*>
+      _mutexHoldTimeHistograms;
 };
 
 }  // namespace Ardos

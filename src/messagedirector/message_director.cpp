@@ -296,9 +296,11 @@ static uint64_t RendezvousWeight(uint64_t sender, uint64_t channel,
 
 /**
  * Picks the one shared group member a datagram goes to. Every candidate
- * member, local and remote, hashes (sender, channel, member) and the
- * highest weight wins, so all instances agree on the winner and a member
- * change only remaps the senders that hashed onto it.
+ * member, local and remote, hashes (sender, channel, slot) and the
+ * highest weight wins, so all instances agree on the winner. Slots are
+ * positional, a departure shifts later members down and remaps a share
+ * of senders with it. Stickiness is best effort, not a contract,
+ * handlers must not keep per client state in memory anyway.
  */
 void MessageDirector::PickSharedMember(
     uint64_t channel, uint64_t sender, bool toPeers,

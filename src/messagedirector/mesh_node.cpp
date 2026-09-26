@@ -524,6 +524,12 @@ void MeshNode::PeerAddChannel(MeshLink* link, uint64_t channel) {
 }
 
 void MeshNode::PeerRemoveChannel(MeshLink* link, uint64_t channel) {
+  // The matching add on a locally load balanced channel was converted
+  // to a shared entry, withdraw that instead.
+  if (ChannelSubscriber::IsSharedChannel(channel)) {
+    PeerSetSharedChannel(link, channel, 0);
+    return;
+  }
   if (link->_channels.erase(channel)) {
     auto it = _peerChannels.find(channel);
     if (it != _peerChannels.end()) {

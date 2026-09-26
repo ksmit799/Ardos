@@ -235,3 +235,17 @@ def test_shared_config_mismatch_logs_and_still_routes(ardos, channel_conn, md_co
     _wait_route(publisher, member_b, SHARED, MT_PROBE)
 
     _wait_log(a, f"subscribes load balanced channel {SHARED}")
+
+    # The peers normal unsubscribe withdraws the converted entry too, A
+    # sees an empty group rather than picking a phantom member forever.
+    # The warning only fires on a routed datagram, so keep publishing.
+    member_b.close()
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        publisher.send(Datagram.create([SHARED], sender=0, msgtype=MT_PROBE))
+        if f"Shared channel {SHARED} has no members" in a.log_path.read_text(
+            errors="replace"
+        ):
+            return
+        time.sleep(0.25)
+    raise TimeoutError("converted shared entry was never withdrawn")
