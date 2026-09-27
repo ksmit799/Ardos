@@ -73,6 +73,18 @@ MessageDirector::MessageDirector() {
 void MessageDirector::StartRoles() {
   auto config = Config::Instance()->GetNode("message-director");
 
+  // Load balanced uberdog channels become shared groups, the router
+  // delivers to exactly one member. Filed before the mesh starts so the
+  // join snapshot advertises them correctly.
+  std::unordered_set<uint64_t> shared;
+  for (auto uberdog : Config::Instance()->GetNode("uberdogs")) {
+    if (auto lbParam = uberdog["load-balanced"];
+        lbParam && lbParam.as<bool>()) {
+      shared.insert(uberdog["id"].as<uint64_t>());
+    }
+  }
+  ChannelSubscriber::SetSharedChannels(std::move(shared));
+
   // The mesh joins us to the rest of the cluster. No mesh section means
   // a cluster of one, everything routes in process.
   if (config["mesh"]) {
@@ -170,8 +182,27 @@ void MessageDirector::Route(const std::shared_ptr<Datagram>& dg, bool toPeers) {
   uint8_t channelCount = dgi.GetUint8();
   std::vector<uint64_t> channels;
   channels.reserve(channelCount);
+  // Shared channels route to exactly one group member via the rendezvous
+  // pick, never the broadcast union. The peer table counts too, a peer
+  // declaring a channel shared wins over a mismatched local config.
+  std::vector<uint64_t> shared;
   for (uint8_t i = 0; i < channelCount; ++i) {
-    channels.push_back(dgi.GetUint64());
+    uint64_t channel = dgi.GetUint64();
+    if (ChannelSubscriber::IsSharedChannel(channel) ||
+        (_mesh && _mesh->SumSharedPeers(channel) > 0)) {
+      shared.push_back(channel);
+    } else {
+      channels.push_back(channel);
+    }
+  }
+
+  // The sender channel sits after the channel list, picks key on it so
+  // every message from one client lands on the same member.
+  uint64_t sender = 0;
+  if (!shared.empty() &&
+      dg->Size() >= sizeof(uint8_t) + ((static_cast<size_t>(channelCount) + 1) *
+                                       sizeof(uint64_t))) {
+    sender = dgi.GetUint64();
   }
 
   if (_datagramsObservedCounter) {
@@ -202,6 +233,15 @@ void MessageDirector::Route(const std::shared_ptr<Datagram>& dg, bool toPeers) {
   std::unordered_set<MeshLink*> links;
   if (toPeers && _mesh) {
     _mesh->CollectLinks(channels, links);
+  }
+
+  // Shared picks join the union sets, so a winner also matched by a
+  // normal channel still gets exactly one delivery.
+  for (uint64_t channel : shared) {
+    PickSharedMember(channel, sender, toPeers, interested, links);
+  }
+
+  if (toPeers && _mesh) {
     // Send order across links carries no meaning, per link FIFO is the
     // only ordering the protocol promises.
     // NOLINTNEXTLINE(bugprone-nondeterministic-pointer-iteration-order)
@@ -240,6 +280,112 @@ void MessageDirector::Route(const std::shared_ptr<Datagram>& dg, bool toPeers) {
   }
 }
 
+// Splitmix64 finalizer, mixes a candidate key into a rendezvous weight.
+static uint64_t Mix64(uint64_t x) {
+  x += 0x9e3779b97f4a7c15ULL;
+  x = (x ^ (x >> 30U)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27U)) * 0x94d049bb133111ebULL;
+  return x ^ (x >> 31U);
+}
+
+static uint64_t RendezvousWeight(uint64_t sender, uint64_t channel,
+                                 uint32_t nodeId, uint16_t slot) {
+  uint64_t candidate = (static_cast<uint64_t>(nodeId) << 16U) | slot;
+  return Mix64(sender ^ Mix64(channel) ^ Mix64(candidate));
+}
+
+/**
+ * Picks the one shared group member a datagram goes to. Every candidate
+ * member, local and remote, hashes (sender, channel, slot) and the
+ * highest weight wins, so all instances agree on the winner. Slots are
+ * positional, a departure shifts later members down and remaps a share
+ * of senders with it. Stickiness is best effort, not a contract,
+ * handlers must not keep per client state in memory anyway.
+ */
+void MessageDirector::PickSharedMember(
+    uint64_t channel, uint64_t sender, bool toPeers,
+    std::unordered_set<std::shared_ptr<ChannelSubscriber>>& interested,
+    std::unordered_set<MeshLink*>& links) {
+  uint32_t nodeId = _mesh ? _mesh->GetNodeId() : 0;
+
+  bool found = false;
+  uint64_t bestWeight = 0;
+  std::shared_ptr<ChannelSubscriber> bestLocal;
+  MeshLink* bestLink = nullptr;
+  uint32_t bestNode = 0;
+  uint16_t bestSlot = 0;
+
+  if (auto it = ChannelSubscriber::_sharedLocal.find(channel);
+      it != ChannelSubscriber::_sharedLocal.end()) {
+    for (size_t slot = 0; slot < it->second.size(); ++slot) {
+      uint64_t weight = RendezvousWeight(sender, channel, nodeId,
+                                         static_cast<uint16_t>(slot));
+      if (!found || weight > bestWeight) {
+        found = true;
+        bestWeight = weight;
+        bestLocal = it->second[slot];
+        bestLink = nullptr;
+        bestNode = nodeId;
+        bestSlot = static_cast<uint16_t>(slot);
+      }
+    }
+  }
+
+  // A frame from a peer never hops again, so remote candidates only
+  // enter the pick on the publishing instance. Each member a peer holds
+  // is one candidate, an instance with more members draws more picks.
+  if (toPeers && _mesh) {
+    std::vector<MeshNode::SharedPeer> peers;
+    _mesh->CollectSharedPeers(channel, peers);
+    for (const auto& peer : peers) {
+      for (uint16_t slot = 0; slot < peer.count; ++slot) {
+        uint64_t weight = RendezvousWeight(sender, channel, peer.nodeId, slot);
+        if (!found || weight > bestWeight) {
+          found = true;
+          bestWeight = weight;
+          bestLocal = nullptr;
+          bestLink = peer.link;
+          bestNode = peer.nodeId;
+          bestSlot = slot;
+        }
+      }
+    }
+  }
+
+  if (!found) {
+    spdlog::get("md")->warn(
+        "Shared channel {} has no members, dropping datagram", channel);
+    if (_sharedNoMemberFamily) {
+      auto& counter = _sharedNoMemberCounters[channel];
+      if (!counter) {
+        counter =
+            &_sharedNoMemberFamily->Add({{"channel", std::to_string(channel)}});
+      }
+      counter->Increment();
+    }
+    return;
+  }
+
+  if (!bestLocal) {
+    links.insert(bestLink);
+    return;
+  }
+  interested.insert(bestLocal);
+
+  // Counted only where the datagram lands, a remote winner is counted
+  // by the instance that delivers it, once cluster wide per datagram.
+  if (_sharedPicksFamily) {
+    std::string member =
+        std::to_string(bestNode) + ":" + std::to_string(bestSlot);
+    auto& counter = _sharedPickCounters[{channel, member}];
+    if (!counter) {
+      counter = &_sharedPicksFamily->Add(
+          {{"channel", std::to_string(channel)}, {"member", member}});
+    }
+    counter->Increment();
+  }
+}
+
 void MessageDirector::BroadcastAddChannel(uint64_t channel) {
   if (_mesh) {
     _mesh->BroadcastAddChannel(channel);
@@ -262,6 +408,38 @@ void MessageDirector::BroadcastRemoveRange(uint64_t lo, uint64_t hi) {
   if (_mesh) {
     _mesh->BroadcastRemoveRange(lo, hi);
   }
+}
+
+void MessageDirector::BroadcastSharedChannel(uint64_t channel, uint16_t count) {
+  if (_mesh) {
+    _mesh->BroadcastSharedChannel(channel, count);
+  }
+  UpdateSharedMembers(channel);
+}
+
+/**
+ * Refreshes the member count gauge for a shared channel, local members
+ * plus every member advertised by peers.
+ */
+void MessageDirector::UpdateSharedMembers(uint64_t channel) {
+  if (!_sharedMembersFamily) {
+    return;
+  }
+
+  auto total = static_cast<uint32_t>(0);
+  if (auto it = ChannelSubscriber::_sharedLocal.find(channel);
+      it != ChannelSubscriber::_sharedLocal.end()) {
+    total += static_cast<uint32_t>(it->second.size());
+  }
+  if (_mesh) {
+    total += _mesh->SumSharedPeers(channel);
+  }
+
+  auto& gauge = _sharedMembersGauges[channel];
+  if (!gauge) {
+    gauge = &_sharedMembersFamily->Add({{"channel", std::to_string(channel)}});
+  }
+  gauge->Set(total);
 }
 
 void MessageDirector::AddPostRemove(uint32_t owner, uint64_t sender,
@@ -347,6 +525,23 @@ void MessageDirector::InitMetrics() {
                                   .Name("md_participants_size")
                                   .Help("Number of connected participants")
                                   .Register(*registry);
+
+  _sharedMembersFamily =
+      &prometheus::BuildGauge()
+           .Name("md_shared_members")
+           .Help("Members in a shared channel group, cluster wide")
+           .Register(*registry);
+
+  _sharedPicksFamily = &prometheus::BuildCounter()
+                            .Name("md_shared_picks_total")
+                            .Help("Rendezvous picks per shared group member")
+                            .Register(*registry);
+
+  _sharedNoMemberFamily =
+      &prometheus::BuildCounter()
+           .Name("md_shared_no_member_total")
+           .Help("Datagrams dropped on a shared channel with no members")
+           .Register(*registry);
 
   _datagramsObservedCounter = &packetsBuilder.Add({});
   _datagramsProcessedCounter = &datagramsBuilder.Add({});

@@ -52,6 +52,9 @@ class MeshNode {
   void BroadcastRemoveChannel(uint64_t channel);
   void BroadcastAddRange(uint64_t lo, uint64_t hi);
   void BroadcastRemoveRange(uint64_t lo, uint64_t hi);
+  // Shared group advertising, sent on every local member count change,
+  // a count of zero withdraws the channel.
+  void BroadcastSharedChannel(uint64_t channel, uint16_t count);
 
   // This instances cleanup bundle, replicated to every peer so a survivor
   // can fire it if we die uncleanly. Keyed by (owner, sender), the owner
@@ -65,6 +68,16 @@ class MeshNode {
   void CollectLinks(const std::vector<uint64_t>& channels,
                     std::unordered_set<MeshLink*>& links);
 
+  // Peers holding shared group members for a channel, with their counts,
+  // candidates for the routers rendezvous pick.
+  struct SharedPeer {
+    uint32_t nodeId;
+    uint16_t count;
+    MeshLink* link;
+  };
+  void CollectSharedPeers(uint64_t channel, std::vector<SharedPeer>& out);
+  [[nodiscard]] uint32_t SumSharedPeers(uint64_t channel) const;
+
   // Called by links as frames arrive.
   void OnLinkHello(MeshLink* link);
   void OnLinkDown(MeshLink* link);
@@ -72,6 +85,7 @@ class MeshNode {
   void PeerRemoveChannel(MeshLink* link, uint64_t channel);
   void PeerAddRange(MeshLink* link, uint64_t lo, uint64_t hi);
   void PeerRemoveRange(MeshLink* link, uint64_t lo, uint64_t hi);
+  void PeerSetSharedChannel(MeshLink* link, uint64_t channel, uint16_t count);
   void PeerSnapshot(MeshLink* link, bool reset,
                     const std::unordered_set<uint64_t>& channels,
                     const std::vector<ChannelRange>& ranges);
@@ -132,6 +146,9 @@ class MeshNode {
   };
   std::unordered_map<uint64_t, std::unordered_set<MeshLink*>> _peerChannels;
   std::vector<RangeEntry> _peerRanges;
+  // Shared group members per channel, per advertising peer.
+  std::unordered_map<uint64_t, std::unordered_map<MeshLink*, uint16_t>>
+      _peerShared;
 
   // Who each peer says it can see, piggybacked on heartbeats, this is the
   // corroboration table that gates post remove firing.

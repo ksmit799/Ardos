@@ -1,6 +1,7 @@
 #ifndef ARDOS_MESH_LINK_H
 #define ARDOS_MESH_LINK_H
 
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -87,6 +88,8 @@ class MeshLink final : public NetworkClient {
   // swept out of the routing tables by walking its own entries.
   std::unordered_set<uint64_t> _channels;
   std::vector<ChannelRange> _ranges;
+  // Shared group memberships this peer advertises, channel to count.
+  std::map<uint64_t, uint16_t> _shared;
 };
 
 }  // namespace Ardos

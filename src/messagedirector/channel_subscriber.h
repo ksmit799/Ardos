@@ -55,6 +55,15 @@ class ChannelSubscriber
   static const std::map<ChannelRange, unsigned int>& GetAdvertisedRanges() {
     return _globalRanges;
   }
+  static std::map<uint64_t, uint16_t> GetAdvertisedShared();
+
+  // Channels declared load balanced in the uberdogs config. Subscribers
+  // landing on one join a shared group instead of the broadcast set, the
+  // router delivers each datagram to exactly one member.
+  static void SetSharedChannels(std::unordered_set<uint64_t> channels);
+  static bool IsSharedChannel(uint64_t channel) {
+    return _sharedChannels.contains(channel);
+  }
 
  protected:
   virtual void HandleDatagram(const std::shared_ptr<Datagram>& dg) = 0;
@@ -64,6 +73,13 @@ class ChannelSubscriber
   // when it gains its first local subscriber and withdrawn on its last.
   static std::unordered_map<uint64_t, unsigned int> _globalChannels;
   static std::map<ChannelRange, unsigned int> _globalRanges;
+
+  // Load balanced channels from config, and the local shared group
+  // members per channel, in join order.
+  static std::unordered_set<uint64_t> _sharedChannels;
+  static std::unordered_map<uint64_t,
+                            std::vector<std::shared_ptr<ChannelSubscriber>>>
+      _sharedLocal;
 
   // Dispatch indexes, points in a hash map, ranges in a flat vector,
   // matching is exact.

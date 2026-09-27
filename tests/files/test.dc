@@ -2,6 +2,8 @@
 // Kept minimal but exercises every field kind/keyword pair we assert on
 // in tests.
 
+keyword mutex;
+
 // Root directory object. Tests instantiate one at a well-known DoId
 // (typically 1) so it can act as the parent of child objects and respond
 // to STATESERVER_OBJECT_GET_ZONES_OBJECTS queries on their behalf.
@@ -58,6 +60,9 @@ dclass DistributedPlayer {
 dclass AuthManager {
 	login(string token) clsend;
 	loginResp(uint32 avId) ownrecv;
+	lockedCall(string token) clsend mutex;
+	otherLockedCall(uint8 x) clsend mutex;
+	plainCall(uint8 x) clsend;
 };
 
 dclass ChatManager {

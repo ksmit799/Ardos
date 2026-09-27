@@ -67,7 +67,7 @@ void ClientParticipant::HandleAuthTimeout() {
   // Stop the auth timer.
   _authTimer->stop();
   _authTimer->close();
-  _authTimer.reset();
+  _authTimer = nullptr;
 
   if (_authState != AUTH_STATE_ESTABLISHED) {
     SendDisconnect(CLIENT_DISCONNECT_GENERIC,
@@ -318,6 +318,12 @@ void ClientParticipant::HandleClientObjectUpdateField(DatagramIterator& dgi) {
                    std::format("Client violated field constraints for "
                                "field: {} of class: {} (DoId: {})",
                                field->get_name(), dcc->get_name(), doId));
+    return;
+  }
+
+  // Mutex fields serialize per client, one call in flight until the
+  // uberdog releases the lock.
+  if (field->has_keyword("mutex") && !TakeMutex(doId, field, dcc)) {
     return;
   }
 

@@ -65,6 +65,15 @@ ClientAgent::ClientAgent() {
     _authTimeout = timeoutParam.as<long>();
   }
 
+  // Mutex timeout configuration.
+  // By default, mutex locks never expire. Production configs should set
+  // a timeout below the game clients own retry timeout, a lock orphaned
+  // by a lost call otherwise holds until the client is ejected retrying.
+  _mutexTimeout = 0;
+  if (auto mutexParam = config["mutex-timeout"]) {
+    _mutexTimeout = mutexParam.as<long>();
+  }
+
   // Historical object configration.
   // By default, historical objects persist.
   _historicalTTL = 0;
@@ -305,6 +314,12 @@ unsigned long ClientAgent::GetHeartbeatInterval() const {
 unsigned long ClientAgent::GetAuthTimeout() const { return _authTimeout; }
 
 /**
+ * Returns the number of MS before a held mutex lock expires, 0 disables.
+ * @return
+ */
+unsigned long ClientAgent::GetMutexTimeout() const { return _mutexTimeout; }
+
+/**
  * Returns the number of MS a previously visible object to a client can receive
  * updates before the client is ejected for a security violation.
  * @return
@@ -410,7 +425,7 @@ void ClientAgent::RecordDatagram(const uint16_t& size) {
   }
 
   if (_datagramsSizeHistogram) {
-    _datagramsSizeHistogram->Observe((double)size);
+    _datagramsSizeHistogram->Observe(static_cast<double>(size));
   }
 }
 
@@ -420,6 +435,61 @@ void ClientAgent::RecordDatagram(const uint16_t& size) {
 void ClientAgent::RecordInterestTimeout() {
   if (_interestsTimeoutCounter) {
     _interestsTimeoutCounter->Increment();
+  }
+}
+
+/**
+ * Records a client ejected for calling a mutex field while locked.
+ */
+void ClientAgent::RecordMutexEject() {
+  if (_mutexEjectsCounter) {
+    _mutexEjectsCounter->Increment();
+  }
+}
+
+/**
+ * Records a mutex lock that expired by timeout, a lost call somewhere.
+ */
+void ClientAgent::RecordMutexExpiry() {
+  if (_mutexExpiriesCounter) {
+    _mutexExpiriesCounter->Increment();
+  }
+}
+
+/**
+ * Records the lock to release time for a mutexed call.
+ * @param className
+ * @param ms
+ */
+void ClientAgent::RecordMutexHoldTime(const std::string& className,
+                                      const double& ms) {
+  if (!_mutexHoldTimeFamily) {
+    return;
+  }
+  auto it = _mutexHoldTimeHistograms.find(className);
+  if (it == _mutexHoldTimeHistograms.end()) {
+    it = _mutexHoldTimeHistograms
+             .emplace(className, &_mutexHoldTimeFamily->Add(
+                                     {{"class", className}},
+                                     prometheus::Histogram::BucketBoundaries{
+                                         1, 4, 16, 64, 256, 1024, 4096, 16384}))
+             .first;
+  }
+  it->second->Observe(ms);
+}
+
+/**
+ * Adjusts the held mutex locks gauge.
+ * @param delta
+ */
+void ClientAgent::AdjustMutexLocks(const double& delta) {
+  if (!_mutexLocksGauge) {
+    return;
+  }
+  if (delta >= 0) {
+    _mutexLocksGauge->Increment(delta);
+  } else {
+    _mutexLocksGauge->Decrement(-delta);
   }
 }
 
@@ -475,6 +545,28 @@ void ClientAgent::InitMetrics() {
           .Help("Time to complete an interest operation")
           .Register(*registry);
 
+  auto& mutexEjectsBuilder =
+      prometheus::BuildCounter()
+          .Name("ca_mutex_ejects_total")
+          .Help("Clients ejected for calling a mutex field while locked")
+          .Register(*registry);
+
+  auto& mutexExpiriesBuilder = prometheus::BuildCounter()
+                                   .Name("ca_mutex_expiries_total")
+                                   .Help("Mutex locks expired by timeout")
+                                   .Register(*registry);
+
+  auto& mutexLocksBuilder = prometheus::BuildGauge()
+                                .Name("ca_mutex_locks_held")
+                                .Help("Currently held mutex locks")
+                                .Register(*registry);
+
+  _mutexHoldTimeFamily =
+      &prometheus::BuildHistogram()
+           .Name("ca_mutex_hold_time_ms")
+           .Help("Lock to release time for mutexed calls per class")
+           .Register(*registry);
+
   _datagramsProcessedCounter = &datagramsBuilder.Add({});
   _datagramsSizeHistogram = &datagramsSizeBuilder.Add(
       {}, prometheus::Histogram::BucketBoundaries{1, 4, 16, 64, 256, 1024, 4096,
@@ -485,9 +577,12 @@ void ClientAgent::InitMetrics() {
   _interestsTimeHistogram = &interestsTimeBuilder.Add(
       {}, prometheus::Histogram::BucketBoundaries{0, 0.5, 1, 1.5, 2, 2.5, 3,
                                                   3.5, 4, 4.5, 5});
+  _mutexEjectsCounter = &mutexEjectsBuilder.Add({});
+  _mutexExpiriesCounter = &mutexExpiriesBuilder.Add({});
+  _mutexLocksGauge = &mutexLocksBuilder.Add({});
 
   // Initialize free channels to our range of allocated channels.
-  _freeChannelsGauge->Set((double)(_channelsMax - _nextChannel));
+  _freeChannelsGauge->Set(static_cast<double>(_channelsMax - _nextChannel));
 }
 
 void ClientAgent::HandleWeb(ws28::Client* client, nlohmann::json& data) {
