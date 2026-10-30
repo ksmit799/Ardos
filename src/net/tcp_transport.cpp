@@ -172,7 +172,11 @@ void TcpTransportConnection::HandleClose(int /*err*/) {
     return;
   }
   _closed = true;
-  _socketClosed = true;
+
+  if (!_socketClosed) {
+    _socket->close();
+    _socketClosed = true;
+  }
 
   if (auto handler = _handler.lock()) {
     handler->OnTransportDisconnect();

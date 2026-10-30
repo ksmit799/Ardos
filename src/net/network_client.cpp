@@ -135,7 +135,10 @@ void NetworkClient::HandleClose(uv_errno_t code) {
     return;
   }
 
-  _socketClosed = true;
+  if (!_socketClosed) {
+    _socket->close();
+    _socketClosed = true;
+  }
 
   HandleDisconnect(code);
 }
