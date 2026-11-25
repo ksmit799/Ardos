@@ -63,7 +63,7 @@ void InterestOperation::Finish(const bool& isTimeout) {
     _timeout.reset();
   }
 
-  for (const auto& dg : _pendingGenerates) {
+  for (const auto& [dcId, dg] : _pendingGenerates) {
     DatagramIterator dgi(dg);
     dgi.SeekPayload();
     dgi.Skip(sizeof(uint64_t));  // Skip sender.
@@ -114,8 +114,9 @@ void InterestOperation::SetExpected(const uint32_t& total) {
   }
 }
 
-void InterestOperation::QueueExpected(const std::shared_ptr<Datagram>& dg) {
-  _pendingGenerates.push_back(dg);
+void InterestOperation::QueueExpected(const uint16_t& dcId,
+                                      const std::shared_ptr<Datagram>& dg) {
+  _pendingGenerates.emplace(dcId, dg);
 }
 
 void InterestOperation::QueueDatagram(const std::shared_ptr<Datagram>& dg) {

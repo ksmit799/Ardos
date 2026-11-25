@@ -190,6 +190,54 @@ class TestOwnershipHandoff:
         assert entry.dc_id == class_id("test.dc", "DistributedPlayer")
 
 
+class TestInterestOrder:
+    def test_objects_arrive_in_dc_class_order(self, cluster, ai_conn, client_conn):
+        """A zone's objects reach the client in the order their classes appear
+        in the DC file, whatever order they were created in."""
+        client = client_conn()
+        _hello(client)
+        ai = ai_conn()
+        ai.set_client_state(CLIENT_CHANNEL, AUTH_STATE_ESTABLISHED)
+
+        local_parent = 9_001
+        ai.create_object(
+            do_id=local_parent,
+            parent=0,
+            zone=0,
+            dclass_id=class_id("test.dc", "DistributedPlayer"),
+            required=_required_setname("Room"),
+        )
+        ai.wait_object_alive(local_parent)
+
+        # Later classes are created first.
+        four = Datagram().add_uint32(1).add_uint32(2).add_uint32(3).add_uint32(4)
+        objects = [
+            (2_000_010, "DistributedPlayer", _required_setname("Bob")),
+            (2_000_011, "DistributedTestObject4", four.bytes()),
+            (2_000_012, "DistributedTestObject2", b""),
+            (2_000_013, "DistributedTestObject1", Datagram().add_uint32(78).bytes()),
+            (2_000_014, "DistributedTestObject2", b""),
+        ]
+        for do_id, name, required in objects:
+            ai.create_object(
+                do_id=do_id,
+                parent=local_parent,
+                zone=AVATAR_ZONE,
+                dclass_id=class_id("test.dc", name),
+                required=required,
+            )
+            ai.wait_object_alive(do_id)
+
+        ai.add_interest(
+            CLIENT_CHANNEL, interest_id=1, parent=local_parent, zone=AVATAR_ZONE
+        )
+
+        entries = [client.expect_object_entry(owner=False) for _ in objects]
+        assert {e.do_id for e in entries} == {do_id for do_id, _, _ in objects}
+        classes = [e.dc_id for e in entries]
+        assert classes == sorted(classes)
+
+
 class TestFieldRouting:
     def test_clsend_forwards_to_stateserver(self, cluster, ai_conn, client_conn):
         """sendChat() is clsend broadcast — client emits it, SS receives a

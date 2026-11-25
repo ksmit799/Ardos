@@ -664,7 +664,8 @@ void ClientParticipant::HandleDatagram(const std::shared_ptr<Datagram>& dg) {
 
       _pendingObjects[dgi.GetUint32()] = requestContext;
 
-      it->second->QueueExpected(dgi.GetUnderlyingDatagram());
+      dgi.Skip(sizeof(uint32_t) * 2);  // Skip parent and zone.
+      it->second->QueueExpected(dgi.GetUint16(), dgi.GetUnderlyingDatagram());
       if (it->second->IsReady()) {
         it->second->Finish();
       }

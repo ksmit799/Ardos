@@ -1,4 +1,4 @@
-pytest>=7.4
+pytest>=7.4,<9.2
 pytest-benchmark>=4.0
 pytest-codspeed>=3.0
 pytest-timeout>=2.2

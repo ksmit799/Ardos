@@ -2,6 +2,7 @@
 #define ARDOS_INTEREST_OPERATION_H
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <unordered_set>
 #include <uvw.hpp>
@@ -30,7 +31,7 @@ class InterestOperation {
 
   bool IsReady() const;
   void SetExpected(const uint32_t& total);
-  void QueueExpected(const std::shared_ptr<Datagram>& dg);
+  void QueueExpected(const uint16_t& dcId, const std::shared_ptr<Datagram>& dg);
   void QueueDatagram(const std::shared_ptr<Datagram>& dg);
 
   ClientParticipant* _client;
@@ -47,7 +48,10 @@ class InterestOperation {
 
   std::unordered_set<uint64_t> _callers;
 
-  std::vector<std::shared_ptr<Datagram>> _pendingGenerates;
+  // Keyed by class number. Clients expect a zone's objects in the order their
+  // classes appear in the DC file. Objects of the same class stay in the order
+  // they arrived.
+  std::multimap<uint16_t, std::shared_ptr<Datagram>> _pendingGenerates;
   std::vector<std::shared_ptr<Datagram>> _pendingDatagrams;
 
   // Liveness flag captured by the timeout lambda. Survives `delete this` in
